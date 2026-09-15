@@ -3,6 +3,101 @@
 This file is maintained by the Archivist role. Newest entries at the top. Each entry
 records what was decided, why, and any standing constraint future work must respect.
 
+## 2026-09-15 — Recipe organization + usefulness audit
+
+**Decision — recipe categorization:** the user asked the Architect to organize the 22
+imported recipes "how you see fit" (the 2026-09-15 personal-data-import entry above had
+deliberately left `category` blank on every recipe as a judgment call for later). All 22
+were assigned one of three categories based on their actual ingredients/technique:
+**Puerto Rican** (13 — the sofrito/adobo/sazon-based dishes: Chocolate Coquito, Sofrito,
+Arroz con Gandules, Tostones, Chicken Fricassee, Chicken in a Wine Glaze, Pollo Guisado,
+Sancocho, Pinchos de Pollo, Shrimp and Rice Stew, Jon's Porkchops, Jon's Chicken, Carne
+Guisada), **Comfort Food** (7: Chicken Alfredo, Bacon Wrapped Chicken Breasts, Air Fried
+Asian Chicken, Beef Stroganoff, Santa Fe Soup, Jon's Potato Soup, Sausage and Cheese
+Balls), **Sides & Vegetables** (2: Mom's Green Beans, Baked Veggies). Written directly
+into `sync_data.json` using the direct-datastore-edit technique validated in the prior
+data-import cycle, version-bumped and re-stamped per record.
+
+**Decision — usefulness audit:** rather than guessing at generic features, the Architect
+reviewed the app's actual current data volumes/patterns (218 books in flat unsorted
+columns, real transcript credit totals with no summary anywhere, freshly-categorized
+recipes with no way to filter by category, and ~290 records living in exactly one JSON
+file with zero backup) and proposed six concrete, low-risk, no-schema-change additions.
+The user approved all six, including two the Architect had explicitly flagged as bigger
+asks needing separate confirmation before building (persistent sync auto-start, and a
+data import/restore feature) rather than defaults.
+
+**What was built:**
+1. Recipe category filter — chips derived live from whatever categories actually exist
+   in the data (never hardcoded), combined with search as AND, not OR.
+2. Data export — a sidebar button that downloads the full nine-collection dataset as a
+   timestamped JSON file, entirely client-side (Blob + `<a download>`), a safety net
+   against the single-JSON-file/single-machine risk.
+3. Data import — a client-side port of the sync server's proven version-based merge
+   algorithm (`merge_collection`/`_content_matches` in `sync_server.py`), including its
+   "keep both on genuine conflict, no-op on identical retry" semantics and deep (not
+   reference) equality checking.
+4. Books sorted by author — a stable per-status-column sort (empty/missing author sorts
+   last, not first); render-only, the underlying `books` array/`dateAdded` order is
+   untouched.
+5. Quick stats on Books and Coursework — live-computed one-line summaries; Coursework's
+   line correctly omits a status group entirely if nothing in it has a recorded credit
+   value, rather than showing a misleading "0".
+6. Persistent sync server (infrastructure, not app code) — a `.vbs` launcher placed in
+   the current user's Windows Startup folder (`%APPDATA%\Microsoft\Windows\Start Menu\
+   Programs\Startup\second-memory-sync.vbs`), silently starting `sync_server.py` via
+   `pythonw.exe` at every login. Chosen over a Task Scheduler entry because
+   `Register-ScheduledTask`/`schtasks /create` were both blocked by this session's
+   sandbox (`Access is denied`) even for an unprivileged per-user logon trigger; verified
+   working by manually invoking it and confirming the server bound port 8443 with no
+   visible window.
+
+**Outcome — two bugs found (Tester, both independently reproduced live by the Architect
+before being routed back and re-verified fixed):**
+1. Recipe filter stale-render race: `renderRecipes()` computed its filtered `visible`
+   list using the current `selectedRecipeCategory` before the later call that detects a
+   vanished category and resets the selection to "All" — so on the render where a
+   category disappears, the chip correctly showed "All" but the list briefly rendered
+   empty. Fixed by reordering: the category-filter render/reset now runs before
+   `visible` is computed.
+2. Import validation gap: `extractImportCollections()` accepted any `collections` value
+   where `typeof === 'object'`, which is also true for a JSON array, so a malformed file
+   shaped like `{"collections": [1,2,3]}` passed validation and silently produced a
+   misleading "nothing new to merge" success message. Fixed by explicitly excluding
+   arrays (`&& !Array.isArray(parsed.collections)`).
+
+All six additions plus both fixes verified live end-to-end by the Architect (fresh-port
+test instance, real imported dataset): category filter chips render/filter correctly
+(13/7/2 confirmed by direct DOM query); Books stats line and author-sort correct against
+the real 218-book dataset; Coursework stats line correct against the real transcript
+data; a full export→reimport round-trip produced zero duplicates and expected "updated"
+counts across all four populated collections; both previously-buggy scenarios now behave
+correctly; zero console errors; the sync server remained live throughout, unaffected,
+serving only its three allowlisted files.
+
+**Standing constraints established:**
+- The persistence mechanism for sync auto-start is a Startup-folder VBS script, not a
+  Scheduled Task — Task Scheduler tooling (`Register-ScheduledTask`/`schtasks`) is
+  blocked in this environment even for unprivileged per-user triggers. Future cycles
+  touching sync startup should not assume Task Scheduler works, and must not create a
+  second, conflicting auto-start mechanism alongside the existing VBS launcher.
+- When live-verifying a code change against the plain `python -m http.server` test
+  instance (not `sync_server.py`, which already restricts what it serves), use a new
+  port per test pass rather than trusting a same-port reload. The browser's ordinary HTTP
+  cache serves a stale `app.js`/`index.html` across "fresh" navigations to the same
+  `localhost` port (Python's `http.server` sends no no-cache headers, and a cache-busting
+  query string on the document URL doesn't reach a separately-cached `<script src>`
+  sub-resource) — this can silently mask a real fix or manufacture the illusion of a bug
+  that isn't there. A fresh port is a fresh cache namespace.
+- Recipes' `category` field is now fully backfilled (no blanks remain) with the
+  Puerto Rican / Comfort Food / Sides & Vegetables taxonomy above; a future cycle adding
+  new recipes should assign one of these three categories (or deliberately introduce a
+  new one) rather than leaving `category` blank as the prior cycle did.
+- Client-side import reuses the server's merge semantics exactly (content-diff before
+  version-diff, deep equality, keep-both-on-genuine-conflict) — any future change to the
+  server's `merge_collection`/`_content_matches` logic must be mirrored in the client
+  import path, or the two will silently diverge.
+
 ## 2026-09-15 — Personal data import (Books, Recipes, Coursework, Notes)
 
 **Decision:** The user attached four personal documents to the conversation with no
