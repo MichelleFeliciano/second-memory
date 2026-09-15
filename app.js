@@ -1405,11 +1405,6 @@ const SYNC_COLLECTIONS = [
   { name: 'courses', label: 'Coursework', key: COURSES_KEY, get: () => courses, set: (v) => { courses = v; }, render: renderCourses },
 ];
 
-const ACTIVE_TAB_TO_COLLECTION = {
-  books: 'books', recipes: 'recipes', medications: 'medications', diagnoses: 'diagnoses',
-  todo: 'todos', shopping: 'shoppingList', notes: 'notes', resume: 'links', coursework: 'courses',
-};
-
 let syncInFlight = false;
 let lastSyncedAt = null;
 let lastSyncTone = null;
@@ -1421,12 +1416,6 @@ function setSyncStatus(text, tone) {
   el.textContent = text;
   el.classList.toggle('sync-ok', tone === 'ok');
   el.classList.toggle('sync-failed', tone === 'failed');
-}
-
-function renderActiveCollection() {
-  const activeTab = loadUiState().activeTab || 'books';
-  const entry = SYNC_COLLECTIONS.find((c) => c.name === ACTIVE_TAB_TO_COLLECTION[activeTab]);
-  if (entry) entry.render();
 }
 
 async function runSync() {
@@ -1459,6 +1448,7 @@ async function runSync() {
       const incoming = data.collections && Array.isArray(data.collections[c.name]) ? data.collections[c.name] : c.get();
       c.set(incoming);
       saveCollection(c.key, incoming);
+      c.render();
     });
 
     lastSyncedAt = new Date();
@@ -1474,7 +1464,6 @@ async function runSync() {
     } else {
       setSyncStatus('Synced just now', 'ok');
     }
-    renderActiveCollection();
   } catch {
     setSyncStatus('Sync failed — retrying', 'failed');
   } finally {
@@ -1667,6 +1656,7 @@ function importData(parsed) {
 
     anyChanged = true;
     saveCollection(c.key, localItems);
+    c.render();
     const parts = [];
     if (result.added) parts.push(`${result.added} new`);
     if (result.updated) parts.push(`${result.updated} updated`);
@@ -1680,7 +1670,6 @@ function importData(parsed) {
   }
 
   setDataIoStatus(`Import complete — ${summaries.join('; ')}.`, 'ok');
-  renderActiveCollection();
 }
 
 document.getElementById('export-data-btn').addEventListener('click', exportData);
