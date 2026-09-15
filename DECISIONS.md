@@ -3,6 +3,79 @@
 This file is maintained by the Archivist role. Newest entries at the top. Each entry
 records what was decided, why, and any standing constraint future work must respect.
 
+## 2026-09-14 — Personal-collections expansion: To-Do, Shopping List, Notes, Resume & Portfolio, Degree & Coursework + soft/calm leaf redesign
+
+**Decision:** Added five new collections — To-Do list, Shopping list, Notes, Resume &
+Portfolio, and Degree & Coursework — plus a softer, calmer visual redesign with a
+decorative leaf background. Researcher and Analyst ran in parallel again. Researcher
+(`docs/research/soft-calm-leaf-background.md`) worked out a zero-dependency inline-SVG
+leaf background technique and drew a precise WCAG line: SC 1.4.11 exempts purely
+decorative art, but SC 1.4.3/Failure F83 still requires real text over it to clear
+normal contrast minimums wherever the two overlap, plus concrete soft/calm parameters
+(radius, shadow, spacing, line-height ≥1.5 per SC 1.4.12). Analyst
+(`docs/specs/personal-collections-expansion.md`) produced the five schemas plus a
+sidebar regrouping into four labeled sections — Library, Personal, Health, Career &
+Academics — extending the existing Books/Recipes/Medications/Diagnoses grouping
+pattern, with twelve flagged default decisions the Architect confirmed before build.
+Builder implemented all five collections, the regrouped sidebar, and the redesign
+against that approved spec.
+
+**Standing constraints established (from the spec):**
+- New storage keys: `secondMemory.todos.v1`, `secondMemory.shoppingList.v1`,
+  `secondMemory.notes.v1`, `secondMemory.links.v1` (Resume & Portfolio — named for the
+  data shape, a generic link list, not the UI label), `secondMemory.courses.v1` (Degree
+  & Coursework — no separate "Degree" parent record; deliberately kept flat, matching
+  the app's no-relational-fields precedent).
+- To-Do/Shopping List: completed/checked items stay in place with a struck-through
+  visual state rather than moving to a separate section — consistent with the "flat
+  list, minimal reorganization" precedent from Recipes.
+- Notes is the only collection with a `dateModified` field (distinct from `dateAdded`)
+  and the only one with a stateful inline view/edit toggle holding unsaved input in
+  the DOM.
+- Coursework's `grade` field is status-conditional exactly like Books' `rating`: clears
+  to `null` on any transition away from `completed`, never auto-populated when moving
+  into it.
+- Resume & Portfolio accepts `url` exactly as entered with zero rewriting of stored
+  data; a `https://` prepend happens only in the rendered `href`, via scheme-detection
+  regex, never touching the stored value or displayed link text.
+
+**Outcome:** Tester's static review passed all 8 requested checks, plus found one real
+functional bug: Notes' `renderNotes()` unconditionally rebuilt the entire list from the
+`notes` array on every search keystroke, add, or delete, silently destroying any
+in-progress (unsaved) edit open in another note's inline edit form. Builder fixed it by
+having `renderNotes()` capture an open edit form's live (unsaved) DOM values before
+clearing the list, then restoring them to the matching note's rebuilt card afterward if
+it's still in the filtered/rendered set. The Architect's first live-browser check
+appeared to still show the bug, but that was a false alarm traced to stray leftover DOM
+nodes from the Architect's own manual debugging script, not a real regression; a clean
+reload plus a clean repro confirmed the fix works correctly.
+
+Separately, the Architect's live browser verification pass (outside the Tester's static
+scope) found and fixed three CSS bugs:
+1. **Grid blowout:** `.column` (a CSS grid item) had no `min-width: 0`, so it couldn't
+   shrink below its content's intrinsic width, causing horizontal overflow at viewport
+   widths roughly 700–920px. Fixed by adding `min-width: 0` to `.column`.
+2. **Flex stretch across mixed-height siblings:** the base `.add-form` rule never set
+   `align-items`, defaulting to `stretch`, so a plain single-line `<input>` next to a
+   taller `.date-field` (label-above-input) stretched to match its height. Fixed by
+   adding `align-items: flex-start` to the base `.add-form` rule (the existing
+   `.add-form-stacked` override already redeclares its own `align-items: stretch` and
+   was unaffected).
+3. **Descendant-selector overreach** (a new variant of the specificity-bug class logged
+   in the prior cycle): `.add-form input[type="date"]` also matched the date `<input>`
+   nested inside `.date-field`, so its row-context `flex: 1 1 160px` became a height
+   basis inside `.date-field`'s column-direction flex layout, stretching the input.
+   Fixed with a same-specificity override: `.date-field input[type="date"] { flex:
+   none; }`. This is the **third** distinct incident of a row-context flex rule leaking
+   into a column context via CSS selector scope — future cycles should specifically
+   test every new form layout at the actual DOM nesting depth the rule matches, not
+   just at the top level.
+
+All nine collections (four prior + five new) verified working end-to-end in-browser:
+add/edit/move/delete/search on every collection, status-conditional field clearing
+(Coursework grade), URL handling (Resume & Portfolio), sidebar regrouping and tab
+persistence, zero network requests confirmed via the browser's network log throughout.
+
 ## 2026-09-14 — Multi-tab expansion: Recipes, Medications, Diagnoses + earthy/leafy redesign
 
 **Decision:** Expanded the single-tab Books app into four tabs — Books (unchanged),

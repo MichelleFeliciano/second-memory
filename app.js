@@ -25,7 +25,7 @@ function saveCollection(key, items) {
 // ---- UI state (active tab) ----
 
 const UI_STORAGE_KEY = 'secondMemory.ui.v1';
-const TABS = ['books', 'recipes', 'medications', 'diagnoses'];
+const TABS = ['books', 'recipes', 'medications', 'diagnoses', 'todo', 'shopping', 'notes', 'resume', 'coursework'];
 
 function loadUiState() {
   try {
@@ -547,10 +547,605 @@ document.getElementById('diagnoses-add-form').addEventListener('submit', (e) => 
 
 document.getElementById('diagnoses-search-input').addEventListener('input', renderDiagnoses);
 
+// ---- To-Do ----
+
+const TODOS_KEY = 'secondMemory.todos.v1';
+
+let todos = loadCollection(TODOS_KEY);
+
+function addTodo(task, dueDate) {
+  const trimmedTask = task.trim();
+  if (!trimmedTask) return;
+  todos.push({
+    id: makeId(),
+    task: trimmedTask,
+    completed: false,
+    dueDate: dueDate || null,
+    dateAdded: new Date().toISOString(),
+  });
+  saveCollection(TODOS_KEY, todos);
+  renderTodos();
+}
+
+function toggleTodoCompleted(id, completed) {
+  const todo = todos.find((t) => t.id === id);
+  if (!todo) return;
+  todo.completed = completed;
+  saveCollection(TODOS_KEY, todos);
+  renderTodos();
+}
+
+function deleteTodo(id) {
+  todos = todos.filter((t) => t.id !== id);
+  saveCollection(TODOS_KEY, todos);
+  renderTodos();
+}
+
+function matchesTodoSearch(todo, term) {
+  if (!term) return true;
+  return todo.task.toLowerCase().includes(term.toLowerCase());
+}
+
+function isTodoOverdue(todo) {
+  if (todo.completed || !todo.dueDate) return false;
+  const today = new Date().toISOString().slice(0, 10);
+  return todo.dueDate < today;
+}
+
+function renderTodos() {
+  const searchTerm = document.getElementById('todo-search-input').value;
+  const visible = todos.filter((t) => matchesTodoSearch(t, searchTerm));
+  const list = document.getElementById('todo-list');
+  const template = document.getElementById('todo-card-template');
+  list.innerHTML = '';
+
+  visible.forEach((todo) => {
+    const node = template.content.cloneNode(true);
+    const li = node.querySelector('.todo-item');
+    li.classList.toggle('completed', todo.completed);
+
+    const checkbox = node.querySelector('.todo-completed-checkbox');
+    checkbox.checked = todo.completed;
+    checkbox.addEventListener('change', (e) => toggleTodoCompleted(todo.id, e.target.checked));
+
+    node.querySelector('.todo-task').textContent = todo.task;
+
+    const dueEl = node.querySelector('.todo-due');
+    if (todo.dueDate) {
+      dueEl.textContent = todo.dueDate;
+      dueEl.hidden = false;
+      dueEl.classList.toggle('overdue', isTodoOverdue(todo));
+    }
+
+    node.querySelector('.delete-btn').addEventListener('click', () => deleteTodo(todo.id));
+
+    list.appendChild(node);
+  });
+
+  document.getElementById('todo-empty-state').hidden = todos.length !== 0;
+}
+
+document.getElementById('todo-add-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const taskInput = document.getElementById('todo-task-input');
+  const dueInput = document.getElementById('todo-due-input');
+  addTodo(taskInput.value, dueInput.value);
+  taskInput.value = '';
+  dueInput.value = '';
+  taskInput.focus();
+});
+
+document.getElementById('todo-search-input').addEventListener('input', renderTodos);
+
+// ---- Shopping List ----
+
+const SHOPPING_KEY = 'secondMemory.shoppingList.v1';
+
+let shoppingItems = loadCollection(SHOPPING_KEY);
+
+function addShoppingItem(item, quantity, category) {
+  const trimmedItem = item.trim();
+  if (!trimmedItem) return;
+  shoppingItems.push({
+    id: makeId(),
+    item: trimmedItem,
+    quantity: quantity.trim(),
+    checked: false,
+    category: category.trim(),
+    dateAdded: new Date().toISOString(),
+  });
+  saveCollection(SHOPPING_KEY, shoppingItems);
+  renderShoppingList();
+}
+
+function toggleShoppingChecked(id, checked) {
+  const item = shoppingItems.find((i) => i.id === id);
+  if (!item) return;
+  item.checked = checked;
+  saveCollection(SHOPPING_KEY, shoppingItems);
+  renderShoppingList();
+}
+
+function deleteShoppingItem(id) {
+  shoppingItems = shoppingItems.filter((i) => i.id !== id);
+  saveCollection(SHOPPING_KEY, shoppingItems);
+  renderShoppingList();
+}
+
+function matchesShoppingSearch(item, term) {
+  if (!term) return true;
+  const haystack = `${item.item} ${item.category} ${item.quantity}`.toLowerCase();
+  return haystack.includes(term.toLowerCase());
+}
+
+function renderShoppingList() {
+  const searchTerm = document.getElementById('shopping-search-input').value;
+  const visible = shoppingItems.filter((i) => matchesShoppingSearch(i, searchTerm));
+  const list = document.getElementById('shopping-list');
+  const template = document.getElementById('shopping-card-template');
+  list.innerHTML = '';
+
+  visible.forEach((item) => {
+    const node = template.content.cloneNode(true);
+    const li = node.querySelector('.shopping-item');
+    li.classList.toggle('completed', item.checked);
+
+    const checkbox = node.querySelector('.shopping-checked-checkbox');
+    checkbox.checked = item.checked;
+    checkbox.addEventListener('change', (e) => toggleShoppingChecked(item.id, e.target.checked));
+
+    node.querySelector('.shopping-item-name').textContent = item.item;
+
+    const quantityEl = node.querySelector('.shopping-quantity');
+    if (item.quantity) {
+      quantityEl.textContent = item.quantity;
+      quantityEl.hidden = false;
+    }
+
+    const categoryEl = node.querySelector('.shopping-category');
+    if (item.category) {
+      categoryEl.textContent = item.category;
+      categoryEl.hidden = false;
+    }
+
+    node.querySelector('.delete-btn').addEventListener('click', () => deleteShoppingItem(item.id));
+
+    list.appendChild(node);
+  });
+
+  document.getElementById('shopping-empty-state').hidden = shoppingItems.length !== 0;
+}
+
+document.getElementById('shopping-add-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const itemInput = document.getElementById('shopping-item-input');
+  const quantityInput = document.getElementById('shopping-quantity-input');
+  const categoryInput = document.getElementById('shopping-category-input');
+  addShoppingItem(itemInput.value, quantityInput.value, categoryInput.value);
+  itemInput.value = '';
+  quantityInput.value = '';
+  categoryInput.value = '';
+  itemInput.focus();
+});
+
+document.getElementById('shopping-search-input').addEventListener('input', renderShoppingList);
+
+// ---- Notes ----
+
+const NOTES_KEY = 'secondMemory.notes.v1';
+
+let notes = loadCollection(NOTES_KEY);
+
+function addNote(title, body) {
+  const trimmedTitle = title.trim();
+  const trimmedBody = body.trim();
+  if (!trimmedTitle && !trimmedBody) return { ok: false, error: 'A note needs a title or some text.' };
+  const now = new Date().toISOString();
+  notes.push({
+    id: makeId(),
+    title: trimmedTitle,
+    body: trimmedBody,
+    dateAdded: now,
+    dateModified: now,
+  });
+  saveCollection(NOTES_KEY, notes);
+  renderNotes();
+  return { ok: true };
+}
+
+function updateNote(id, title, body) {
+  const trimmedTitle = title.trim();
+  const trimmedBody = body.trim();
+  if (!trimmedTitle && !trimmedBody) return { ok: false, error: 'A note needs a title or some text.' };
+  const note = notes.find((n) => n.id === id);
+  if (!note) return { ok: false, error: 'Note not found.' };
+  note.title = trimmedTitle;
+  note.body = trimmedBody;
+  note.dateModified = new Date().toISOString();
+  saveCollection(NOTES_KEY, notes);
+  renderNotes();
+  return { ok: true };
+}
+
+function deleteNote(id) {
+  notes = notes.filter((n) => n.id !== id);
+  saveCollection(NOTES_KEY, notes);
+  renderNotes();
+}
+
+function matchesNoteSearch(note, term) {
+  if (!term) return true;
+  const haystack = `${note.title} ${note.body}`.toLowerCase();
+  return haystack.includes(term.toLowerCase());
+}
+
+function noteBodySnippet(body, length = 150) {
+  const trimmed = body.trim();
+  return trimmed.length > length ? `${trimmed.slice(0, length)}…` : trimmed;
+}
+
+function renderNotes() {
+  const searchTerm = document.getElementById('notes-search-input').value;
+  const visible = notes.filter((n) => matchesNoteSearch(n, searchTerm));
+  const list = document.getElementById('notes-list');
+  const template = document.getElementById('notes-card-template');
+
+  // Read any in-progress (unsaved) edit straight from the live DOM before
+  // wiping it out below — the `notes` array only has the last saved values.
+  const openForm = list.querySelector('.note-edit-form:not([hidden])');
+  const openEdit = openForm
+    ? {
+        id: openForm.closest('.note-card').dataset.noteId,
+        title: openForm.querySelector('.note-edit-title').value,
+        body: openForm.querySelector('.note-edit-body').value,
+      }
+    : null;
+
+  list.innerHTML = '';
+
+  visible.forEach((note) => {
+    const node = template.content.cloneNode(true);
+    const card = node.querySelector('.note-card');
+    card.dataset.noteId = note.id;
+    const viewSection = node.querySelector('.note-view');
+    const editForm = node.querySelector('.note-edit-form');
+
+    const titleEl = node.querySelector('.note-title');
+    const previewEl = node.querySelector('.note-body-preview');
+    if (note.title) {
+      titleEl.textContent = note.title;
+      titleEl.hidden = false;
+    } else {
+      titleEl.hidden = true;
+    }
+    previewEl.textContent = noteBodySnippet(note.body);
+
+    node.querySelector('.note-modified').textContent = `Updated ${new Date(note.dateModified).toLocaleString()}`;
+
+    const editTitleInput = node.querySelector('.note-edit-title');
+    const editBodyInput = node.querySelector('.note-edit-body');
+    const editError = node.querySelector('.note-edit-error');
+
+    node.querySelector('.edit-btn').addEventListener('click', () => {
+      editTitleInput.value = note.title;
+      editBodyInput.value = note.body;
+      editError.hidden = true;
+      viewSection.hidden = true;
+      editForm.hidden = false;
+    });
+
+    node.querySelector('.cancel-btn').addEventListener('click', () => {
+      editForm.hidden = true;
+      viewSection.hidden = false;
+    });
+
+    editForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const result = updateNote(note.id, editTitleInput.value, editBodyInput.value);
+      if (!result.ok) {
+        editError.textContent = result.error;
+        editError.hidden = false;
+      }
+    });
+
+    node.querySelector('.delete-btn').addEventListener('click', () => deleteNote(note.id));
+
+    if (openEdit && openEdit.id === note.id) {
+      editTitleInput.value = openEdit.title;
+      editBodyInput.value = openEdit.body;
+      viewSection.hidden = true;
+      editForm.hidden = false;
+    }
+
+    list.appendChild(node);
+  });
+
+  document.getElementById('notes-empty-state').hidden = notes.length !== 0;
+}
+
+document.getElementById('notes-add-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const titleInput = document.getElementById('notes-title-input');
+  const bodyInput = document.getElementById('notes-body-input');
+  const errorEl = document.getElementById('notes-form-error');
+  const result = addNote(titleInput.value, bodyInput.value);
+  if (!result.ok) {
+    errorEl.textContent = result.error;
+    errorEl.hidden = false;
+    return;
+  }
+  errorEl.hidden = true;
+  titleInput.value = '';
+  bodyInput.value = '';
+  titleInput.focus();
+});
+
+document.getElementById('notes-search-input').addEventListener('input', renderNotes);
+
+// ---- Resume & Portfolio ----
+
+const LINKS_KEY = 'secondMemory.links.v1';
+const URL_SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
+
+let links = loadCollection(LINKS_KEY);
+
+function addLink(label, url, notes) {
+  const trimmedLabel = label.trim();
+  const trimmedUrl = url.trim();
+  if (!trimmedLabel) return { ok: false, error: 'Label is required.' };
+  if (!trimmedUrl) return { ok: false, error: 'URL is required.' };
+  links.push({
+    id: makeId(),
+    label: trimmedLabel,
+    url: trimmedUrl,
+    notes: notes.trim(),
+    dateAdded: new Date().toISOString(),
+  });
+  saveCollection(LINKS_KEY, links);
+  renderLinks();
+  return { ok: true };
+}
+
+function deleteLink(id) {
+  links = links.filter((l) => l.id !== id);
+  saveCollection(LINKS_KEY, links);
+  renderLinks();
+}
+
+function matchesLinkSearch(link, term) {
+  if (!term) return true;
+  const haystack = `${link.label} ${link.url} ${link.notes}`.toLowerCase();
+  return haystack.includes(term.toLowerCase());
+}
+
+function hrefFor(url) {
+  return URL_SCHEME_RE.test(url) ? url : `https://${url}`;
+}
+
+function renderLinks() {
+  const searchTerm = document.getElementById('resume-search-input').value;
+  const visible = links.filter((l) => matchesLinkSearch(l, searchTerm));
+  const list = document.getElementById('resume-list');
+  const template = document.getElementById('resume-card-template');
+  list.innerHTML = '';
+
+  visible.forEach((link) => {
+    const node = template.content.cloneNode(true);
+    node.querySelector('.link-label').textContent = link.label;
+
+    const anchor = node.querySelector('.link-url');
+    anchor.textContent = link.url;
+    anchor.href = hrefFor(link.url);
+
+    const notesEl = node.querySelector('.link-notes');
+    if (link.notes) {
+      notesEl.textContent = link.notes;
+      notesEl.hidden = false;
+    }
+
+    node.querySelector('.delete-btn').addEventListener('click', () => deleteLink(link.id));
+
+    list.appendChild(node);
+  });
+
+  document.getElementById('resume-empty-state').hidden = links.length !== 0;
+}
+
+document.getElementById('resume-add-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const labelInput = document.getElementById('resume-label-input');
+  const urlInput = document.getElementById('resume-url-input');
+  const notesInput = document.getElementById('resume-notes-input');
+  const errorEl = document.getElementById('resume-form-error');
+
+  const result = addLink(labelInput.value, urlInput.value, notesInput.value);
+  if (!result.ok) {
+    errorEl.textContent = result.error;
+    errorEl.hidden = false;
+    return;
+  }
+  errorEl.hidden = true;
+  labelInput.value = '';
+  urlInput.value = '';
+  notesInput.value = '';
+  labelInput.focus();
+});
+
+document.getElementById('resume-search-input').addEventListener('input', renderLinks);
+
+// ---- Degree & Coursework ----
+
+const COURSES_KEY = 'secondMemory.courses.v1';
+const COURSE_STATUSES = ['completed', 'in_progress', 'planned'];
+
+let courses = loadCollection(COURSES_KEY);
+
+function parseCredits(value) {
+  if (value === '' || value === null || value === undefined) return { ok: true, credits: null };
+  const num = Number(value);
+  if (Number.isNaN(num)) return { ok: false, error: 'Credits must be a number.' };
+  if (num < 0) return { ok: false, error: 'Credits cannot be negative.' };
+  return { ok: true, credits: num };
+}
+
+function addCourse(fields) {
+  const trimmedTitle = fields.title.trim();
+  if (!trimmedTitle) return { ok: false, error: 'Title is required.' };
+  const creditsResult = parseCredits(fields.credits);
+  if (!creditsResult.ok) return { ok: false, error: creditsResult.error };
+  const status = COURSE_STATUSES.includes(fields.status) ? fields.status : 'planned';
+  courses.push({
+    id: makeId(),
+    title: trimmedTitle,
+    code: fields.code.trim(),
+    credits: creditsResult.credits,
+    term: fields.term.trim(),
+    status,
+    grade: null,
+    notes: fields.notes.trim(),
+    dateAdded: new Date().toISOString(),
+  });
+  saveCollection(COURSES_KEY, courses);
+  renderCourses();
+  return { ok: true };
+}
+
+function updateCourseStatus(id, newStatus) {
+  const course = courses.find((c) => c.id === id);
+  if (!course || !COURSE_STATUSES.includes(newStatus)) return;
+  course.status = newStatus;
+  if (newStatus !== 'completed') course.grade = null;
+  saveCollection(COURSES_KEY, courses);
+  renderCourses();
+}
+
+function updateCourseGrade(id, grade) {
+  const course = courses.find((c) => c.id === id);
+  if (!course) return;
+  const trimmedGrade = grade.trim();
+  course.grade = trimmedGrade ? trimmedGrade : null;
+  saveCollection(COURSES_KEY, courses);
+}
+
+function deleteCourse(id) {
+  courses = courses.filter((c) => c.id !== id);
+  saveCollection(COURSES_KEY, courses);
+  renderCourses();
+}
+
+function matchesCourseSearch(course, term) {
+  if (!term) return true;
+  const haystack = [course.title, course.code, course.term, course.grade, course.notes]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return haystack.includes(term.toLowerCase());
+}
+
+function renderCourses() {
+  const searchTerm = document.getElementById('coursework-search-input').value;
+  const visible = courses.filter((c) => matchesCourseSearch(c, searchTerm));
+  const template = document.getElementById('coursework-card-template');
+
+  COURSE_STATUSES.forEach((status) => {
+    const list = document.querySelector(`[data-course-list="${status}"]`);
+    list.innerHTML = '';
+    const items = visible.filter((c) => c.status === status);
+    document.querySelector(`[data-course-count="${status}"]`).textContent = items.length;
+
+    items.forEach((course) => {
+      const node = template.content.cloneNode(true);
+      node.querySelector('.course-title').textContent = course.title;
+
+      const codeEl = node.querySelector('.course-code');
+      if (course.code) {
+        codeEl.textContent = course.code;
+        codeEl.hidden = false;
+      }
+
+      const setField = (fieldClass, wrapperClass, value) => {
+        const wrapper = node.querySelector(`.${wrapperClass}`);
+        if (value !== '' && value !== null && value !== undefined) {
+          node.querySelector(`.${fieldClass}`).textContent = value;
+          wrapper.hidden = false;
+        }
+      };
+      setField('course-term', 'course-term-field', course.term);
+      setField('course-credits', 'course-credits-field', course.credits === null ? '' : String(course.credits));
+
+      const gradeLabel = node.querySelector('.grade-label');
+      const gradeInput = node.querySelector('.grade-input');
+      if (status === 'completed') {
+        gradeLabel.hidden = false;
+        gradeInput.value = course.grade || '';
+        gradeInput.addEventListener('change', (e) => updateCourseGrade(course.id, e.target.value));
+      }
+
+      const notesEl = node.querySelector('.course-notes');
+      if (course.notes) {
+        notesEl.textContent = course.notes;
+        notesEl.hidden = false;
+      }
+
+      const moveSelect = node.querySelector('.move-select');
+      moveSelect.value = course.status;
+      moveSelect.addEventListener('change', (e) => updateCourseStatus(course.id, e.target.value));
+
+      node.querySelector('.delete-btn').addEventListener('click', () => deleteCourse(course.id));
+
+      list.appendChild(node);
+    });
+  });
+
+  document.getElementById('coursework-empty-state').hidden = courses.length !== 0;
+}
+
+document.getElementById('coursework-add-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const titleInput = document.getElementById('coursework-title-input');
+  const codeInput = document.getElementById('coursework-code-input');
+  const creditsInput = document.getElementById('coursework-credits-input');
+  const termInput = document.getElementById('coursework-term-input');
+  const statusInput = document.getElementById('coursework-status-input');
+  const notesInput = document.getElementById('coursework-notes-input');
+  const errorEl = document.getElementById('coursework-form-error');
+
+  const result = addCourse({
+    title: titleInput.value,
+    code: codeInput.value,
+    credits: creditsInput.value,
+    term: termInput.value,
+    status: statusInput.value,
+    notes: notesInput.value,
+  });
+
+  if (!result.ok) {
+    errorEl.textContent = result.error;
+    errorEl.hidden = false;
+    return;
+  }
+
+  errorEl.hidden = true;
+  titleInput.value = '';
+  codeInput.value = '';
+  creditsInput.value = '';
+  termInput.value = '';
+  statusInput.value = 'planned';
+  notesInput.value = '';
+  titleInput.focus();
+});
+
+document.getElementById('coursework-search-input').addEventListener('input', renderCourses);
+
 // ---- Init ----
 
 renderBooks();
 renderRecipes();
 renderMedications();
 renderDiagnoses();
+renderTodos();
+renderShoppingList();
+renderNotes();
+renderLinks();
+renderCourses();
 setActiveTab(loadUiState().activeTab || 'books');

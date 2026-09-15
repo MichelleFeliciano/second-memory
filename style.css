@@ -31,6 +31,30 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.6;
+}
+
+/* Decorative leaf watermark, purely aesthetic (aria-hidden by construction —
+   a pseudo-element is never exposed to assistive tech). Fixed + negative
+   z-index + pointer-events:none keeps it behind all real content and fully
+   inert; low fill-alpha (baked into the SVG itself, not a CSS opacity) keeps
+   it from ever meaningfully affecting text contrast where it peeks through
+   the app's transparent `.content` background. See
+   docs/research/soft-calm-leaf-background.md for the verified numbers. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-repeat: repeat;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cdefs%3E%3Cpattern id='leaf' width='140' height='140' patternUnits='userSpaceOnUse'%3E%3Cpath d='M20 90 C20 60 40 30 70 20 C65 50 55 75 30 95 Z' fill='rgba(75,96,67,0.06)'/%3E%3Cpath d='M20 90 C35 85 55 70 65 45' stroke='rgba(75,96,67,0.07)' stroke-width='2' fill='none'/%3E%3Cpath d='M100 120 C100 95 115 70 135 60 C130 85 122 105 105 122 Z' fill='rgba(75,96,67,0.05)'/%3E%3C/pattern%3E%3C/defs%3E%3Crect width='140' height='140' fill='url(%23leaf)'/%3E%3C/svg%3E");
+}
+
+@media (prefers-color-scheme: dark) {
+  body::before {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cdefs%3E%3Cpattern id='leaf' width='140' height='140' patternUnits='userSpaceOnUse'%3E%3Cpath d='M20 90 C20 60 40 30 70 20 C65 50 55 75 30 95 Z' fill='rgba(156,187,140,0.045)'/%3E%3Cpath d='M20 90 C35 85 55 70 65 45' stroke='rgba(156,187,140,0.05)' stroke-width='2' fill='none'/%3E%3Cpath d='M100 120 C100 95 115 70 135 60 C130 85 122 105 105 122 Z' fill='rgba(156,187,140,0.04)'/%3E%3C/pattern%3E%3C/defs%3E%3Crect width='140' height='140' fill='url(%23leaf)'/%3E%3C/svg%3E");
+  }
 }
 
 .app-shell {
@@ -66,6 +90,31 @@ body {
   padding: 0;
   display: flex;
   flex-direction: column;
+  gap: 20px;
+}
+
+.nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.nav-group-label {
+  margin: 0;
+  padding: 0 12px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.nav-group-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
   gap: 4px;
 }
 
@@ -76,7 +125,7 @@ body {
   width: 100%;
   padding: 10px 12px;
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
   background: transparent;
   color: var(--text);
   font-size: 0.95rem;
@@ -118,9 +167,9 @@ body {
 .collection-toolbar input[type="search"] {
   flex: 1 1 220px;
   max-width: 320px;
-  padding: 8px 12px;
+  padding: 9px 14px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--surface);
   color: var(--text);
 }
@@ -134,23 +183,29 @@ body {
 .add-form {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 12px;
   margin-bottom: 24px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 16px;
+  border-radius: 14px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  /* Without this, flex's default `align-items: stretch` makes a plain
+     single-line input match the height of a taller sibling (e.g. `.date-field`,
+     which stacks a label above its input) instead of keeping its own height. */
+  align-items: flex-start;
 }
 
 .add-form input[type="text"],
 .add-form input[type="date"],
+.add-form input[type="number"],
 .add-form input[type="search"],
 .add-form select,
 .add-form textarea {
   flex: 1 1 160px;
-  padding: 8px 10px;
+  padding: 9px 12px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 9px;
   background: var(--bg);
   color: var(--text);
   font-family: inherit;
@@ -168,6 +223,7 @@ body {
 
 .add-form-stacked input[type="text"],
 .add-form-stacked input[type="date"],
+.add-form-stacked input[type="number"],
 .add-form-stacked input[type="search"],
 .add-form-stacked textarea,
 .add-form-stacked select,
@@ -175,14 +231,17 @@ body {
   width: 100%;
   /* Column layout turns the row-based `flex: 1 1 160px` above into "grow to
      fill vertical space." Selector specificity must match-or-beat that rule
-     (it includes an attribute selector) or this override silently loses. */
+     (it includes an attribute selector) or this override silently loses.
+     Every input type present in the base rule above must also be listed
+     here — the Coursework `credits` field (input[type="number"]) is new
+     this cycle and was deliberately added to both lists together. */
   flex: none;
 }
 
 .add-form button {
-  padding: 10px 18px;
+  padding: 10px 20px;
   border: none;
-  border-radius: 6px;
+  border-radius: 9px;
   background: var(--accent);
   color: var(--accent-contrast);
   cursor: pointer;
@@ -201,13 +260,22 @@ body {
   flex: 1 1 160px;
 }
 
-.date-field input {
-  padding: 8px 10px;
+.date-field input[type="date"] {
+  padding: 9px 12px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 9px;
   background: var(--bg);
   color: var(--text);
   font-family: inherit;
+  width: 100%;
+  /* `.add-form input[type="date"]` (class+attribute+element) also matches
+     this input via descendant selection, applying its `flex: 1 1 160px`
+     (meant for a row-context sibling of `.add-form`) to this input's actual
+     flex parent, `.date-field` (column direction) — turning that 160px
+     basis into a height instead of a width. Selector specificity here must
+     match that rule's (hence `input[type="date"]`, not bare `input`) so this
+     override actually wins. */
+  flex: none;
 }
 
 .unknown-hint {
@@ -219,8 +287,8 @@ body {
   color: var(--accent-2);
   background: var(--bg);
   border: 1px solid var(--accent-2);
-  border-radius: 6px;
-  padding: 8px 10px;
+  border-radius: 9px;
+  padding: 9px 12px;
   margin: 0;
   font-size: 0.85rem;
 }
@@ -228,7 +296,7 @@ body {
 .columns {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
+  gap: 20px;
 }
 
 .med-columns {
@@ -244,9 +312,15 @@ body {
 .column {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 12px;
+  border-radius: 14px;
+  padding: 16px;
   min-height: 120px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  /* Grid items default to min-width:auto, which can't shrink below intrinsic
+     content width and causes the grid to overflow its container ("grid
+     blowout") at viewport widths where 3 columns are tight but not yet under
+     the mobile breakpoint. */
+  min-width: 0;
 }
 
 .column h3 {
@@ -272,21 +346,27 @@ body {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
 
 .flat-list {
-  gap: 12px;
+  gap: 16px;
 }
 
 .book-card,
 .recipe-card,
 .med-card,
-.diagnosis-card {
+.diagnosis-card,
+.todo-item,
+.shopping-item,
+.note-card,
+.link-card,
+.course-card {
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px;
+  border-radius: 12px;
+  padding: 16px;
   background: var(--bg);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
 .book-info {
@@ -307,10 +387,11 @@ body {
 }
 
 .book-actions select,
-.diagnosis-actions select {
-  padding: 4px 6px;
+.diagnosis-actions select,
+.course-actions select {
+  padding: 5px 8px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--surface);
   color: var(--text);
   font-size: 0.8rem;
@@ -330,9 +411,9 @@ body {
 
 .delete-btn {
   margin-left: auto;
-  padding: 4px 10px;
+  padding: 5px 12px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   background: transparent;
   color: var(--muted);
   cursor: pointer;
@@ -453,4 +534,206 @@ body {
 .diagnosis-provider {
   color: var(--muted);
   font-size: 0.85rem;
+}
+
+/* To-Do / Shopping List */
+
+.todo-item,
+.shopping-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.todo-check,
+.shopping-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  cursor: pointer;
+}
+
+.todo-item.completed .todo-task,
+.shopping-item.completed .shopping-item-name {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+.todo-due,
+.shopping-quantity {
+  font-size: 0.85rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.todo-due.overdue {
+  color: var(--accent-2);
+  font-weight: 600;
+}
+
+/* Notes */
+
+.note-view,
+.note-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Both toggled via [hidden] while also carrying an unconditional `display`
+   declaration above — the same landmine class noted in DECISIONS.md for
+   .rating-label, guarded against the same way. */
+.note-view[hidden],
+.note-edit-form[hidden] {
+  display: none;
+}
+
+.note-title {
+  font-size: 1rem;
+}
+
+.note-body-preview {
+  margin: 0;
+  color: var(--muted);
+  white-space: pre-wrap;
+}
+
+.note-modified {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.note-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.note-edit-form input,
+.note-edit-form textarea {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+}
+
+.note-edit-form textarea {
+  resize: vertical;
+}
+
+.edit-btn,
+.cancel-btn {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.edit-btn:hover,
+.cancel-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.note-edit-form button[type="submit"] {
+  padding: 5px 14px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.8rem;
+}
+
+.note-edit-form button[type="submit"]:hover { opacity: 0.9; }
+
+/* Resume & Portfolio */
+
+.link-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.link-label { font-size: 0.95rem; }
+
+.link-url {
+  color: var(--accent-2);
+  font-size: 0.85rem;
+  word-break: break-all;
+}
+
+.link-notes {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-style: italic;
+  margin: 0 0 8px;
+}
+
+.link-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* Degree & Coursework */
+
+.course-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+
+.course-title { font-size: 0.95rem; }
+
+.course-field {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.grade-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+/* Same [hidden]-vs-display landmine guard as .rating-label. */
+.grade-label[hidden] {
+  display: none;
+}
+
+.grade-input {
+  width: 70px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+}
+
+.course-notes {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-style: italic;
+  margin: 0 0 8px;
+}
+
+.course-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
 }
