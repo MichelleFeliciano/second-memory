@@ -8,6 +8,16 @@
   --accent-2: #A34A2A;
   --border: #8A7460;
   --accent-contrast: #ffffff;
+  --accent-rose: #A24B68;
+  --accent-lavender: #6B5B95;
+  --tint-blush: #F6E4E9;
+  /* Judgment call: docs/research/feminine-redesign.md only specifies a light-theme
+     hex (#C9B9A0). No dark-theme value is given, so this is a blend of --border
+     toward dark --bg at roughly the same ratio the light value sits between its
+     --border/--bg pair, kept intentionally low-contrast since it's decorative-only. */
+  --border-soft: #C9B9A0;
+  --font-heading: "Snell Roundhand", "Bradley Hand", "Segoe Script", "Segoe Print",
+    cursive, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -20,6 +30,10 @@
     --accent-2: #E08A5B;
     --border: #8A7460;
     --accent-contrast: #221913;
+    --accent-rose: #E8A9BE;
+    --accent-lavender: #C9B8E8;
+    --tint-blush: #3A2530;
+    --border-soft: #514236;
   }
 }
 
@@ -32,6 +46,15 @@ body {
   color: var(--text);
   font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
   line-height: 1.6;
+}
+
+h1, h2, h3 {
+  font-family: var(--font-heading);
+}
+
+:is(button, input, select, textarea, a):focus-visible {
+  outline: 2px solid var(--accent-lavender);
+  outline-offset: 2px;
 }
 
 /* Decorative leaf watermark, purely aesthetic (aria-hidden by construction —
@@ -48,12 +71,12 @@ body::before {
   z-index: -1;
   pointer-events: none;
   background-repeat: repeat;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cdefs%3E%3Cpattern id='leaf' width='140' height='140' patternUnits='userSpaceOnUse'%3E%3Cpath d='M20 90 C20 60 40 30 70 20 C65 50 55 75 30 95 Z' fill='rgba(75,96,67,0.06)'/%3E%3Cpath d='M20 90 C35 85 55 70 65 45' stroke='rgba(75,96,67,0.07)' stroke-width='2' fill='none'/%3E%3Cpath d='M100 120 C100 95 115 70 135 60 C130 85 122 105 105 122 Z' fill='rgba(75,96,67,0.05)'/%3E%3C/pattern%3E%3C/defs%3E%3Crect width='140' height='140' fill='url(%23leaf)'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cdefs%3E%3Cpattern id='leaf' width='140' height='140' patternUnits='userSpaceOnUse'%3E%3Cpath d='M20 90 C20 60 40 30 70 20 C65 50 55 75 30 95 Z' fill='rgba(75,96,67,0.06)'/%3E%3Cpath d='M20 90 C35 85 55 70 65 45' stroke='rgba(75,96,67,0.07)' stroke-width='2' fill='none'/%3E%3Cpath d='M100 120 C100 95 115 70 135 60 C130 85 122 105 105 122 Z' fill='rgba(75,96,67,0.05)'/%3E%3Cg%3E%3Cellipse cx='100' cy='22' rx='5' ry='9' fill='rgba(162,75,104,0.05)'/%3E%3Cellipse cx='100' cy='22' rx='5' ry='9' fill='rgba(162,75,104,0.05)' transform='rotate(72 100 30)'/%3E%3Cellipse cx='100' cy='22' rx='5' ry='9' fill='rgba(162,75,104,0.05)' transform='rotate(144 100 30)'/%3E%3Cellipse cx='100' cy='22' rx='5' ry='9' fill='rgba(162,75,104,0.05)' transform='rotate(216 100 30)'/%3E%3Cellipse cx='100' cy='22' rx='5' ry='9' fill='rgba(162,75,104,0.05)' transform='rotate(288 100 30)'/%3E%3Ccircle cx='100' cy='30' r='3' fill='rgba(162,75,104,0.06)'/%3E%3C/g%3E%3C/pattern%3E%3C/defs%3E%3Crect width='140' height='140' fill='url(%23leaf)'/%3E%3C/svg%3E");
 }
 
 @media (prefers-color-scheme: dark) {
   body::before {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cdefs%3E%3Cpattern id='leaf' width='140' height='140' patternUnits='userSpaceOnUse'%3E%3Cpath d='M20 90 C20 60 40 30 70 20 C65 50 55 75 30 95 Z' fill='rgba(156,187,140,0.045)'/%3E%3Cpath d='M20 90 C35 85 55 70 65 45' stroke='rgba(156,187,140,0.05)' stroke-width='2' fill='none'/%3E%3Cpath d='M100 120 C100 95 115 70 135 60 C130 85 122 105 105 122 Z' fill='rgba(156,187,140,0.04)'/%3E%3C/pattern%3E%3C/defs%3E%3Crect width='140' height='140' fill='url(%23leaf)'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cdefs%3E%3Cpattern id='leaf' width='140' height='140' patternUnits='userSpaceOnUse'%3E%3Cpath d='M20 90 C20 60 40 30 70 20 C65 50 55 75 30 95 Z' fill='rgba(156,187,140,0.045)'/%3E%3Cpath d='M20 90 C35 85 55 70 65 45' stroke='rgba(156,187,140,0.05)' stroke-width='2' fill='none'/%3E%3Cpath d='M100 120 C100 95 115 70 135 60 C130 85 122 105 105 122 Z' fill='rgba(156,187,140,0.04)'/%3E%3Cg%3E%3Cellipse cx='100' cy='22' rx='5' ry='9' fill='rgba(232,169,190,0.045)'/%3E%3Cellipse cx='100' cy='22' rx='5' ry='9' fill='rgba(232,169,190,0.045)' transform='rotate(72 100 30)'/%3E%3Cellipse cx='100' cy='22' rx='5' ry='9' fill='rgba(232,169,190,0.045)' transform='rotate(144 100 30)'/%3E%3Cellipse cx='100' cy='22' rx='5' ry='9' fill='rgba(232,169,190,0.045)' transform='rotate(216 100 30)'/%3E%3Cellipse cx='100' cy='22' rx='5' ry='9' fill='rgba(232,169,190,0.045)' transform='rotate(288 100 30)'/%3E%3Ccircle cx='100' cy='30' r='3' fill='rgba(232,169,190,0.05)'/%3E%3C/g%3E%3C/pattern%3E%3C/defs%3E%3Crect width='140' height='140' fill='url(%23leaf)'/%3E%3C/svg%3E");
   }
 }
 
@@ -125,7 +148,7 @@ body::before {
   width: 100%;
   padding: 10px 12px;
   border: none;
-  border-radius: 10px;
+  border-radius: 13px;
   background: transparent;
   color: var(--text);
   font-size: 0.95rem;
@@ -169,7 +192,7 @@ body::before {
   max-width: 320px;
   padding: 9px 14px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 13px;
   background: var(--surface);
   color: var(--text);
 }
@@ -186,10 +209,10 @@ body::before {
   gap: 12px;
   margin-bottom: 24px;
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 18px;
   padding: 20px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.035);
   /* Without this, flex's default `align-items: stretch` makes a plain
      single-line input match the height of a taller sibling (e.g. `.date-field`,
      which stacks a label above its input) instead of keeping its own height. */
@@ -205,7 +228,7 @@ body::before {
   flex: 1 1 160px;
   padding: 9px 12px;
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: 13px;
   background: var(--bg);
   color: var(--text);
   font-family: inherit;
@@ -241,7 +264,7 @@ body::before {
 .add-form button {
   padding: 10px 20px;
   border: none;
-  border-radius: 9px;
+  border-radius: 13px;
   background: var(--accent);
   color: var(--accent-contrast);
   cursor: pointer;
@@ -263,7 +286,7 @@ body::before {
 .date-field input[type="date"] {
   padding: 9px 12px;
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: 13px;
   background: var(--bg);
   color: var(--text);
   font-family: inherit;
@@ -287,7 +310,7 @@ body::before {
   color: var(--accent-2);
   background: var(--bg);
   border: 1px solid var(--accent-2);
-  border-radius: 9px;
+  border-radius: 13px;
   padding: 9px 12px;
   margin: 0;
   font-size: 0.85rem;
@@ -311,16 +334,21 @@ body::before {
 
 .column {
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 18px;
   padding: 16px;
   min-height: 120px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.035);
+  transition: box-shadow 0.2s ease;
   /* Grid items default to min-width:auto, which can't shrink below intrinsic
      content width and causes the grid to overflow its container ("grid
      blowout") at viewport widths where 3 columns are tight but not yet under
      the mobile breakpoint. */
   min-width: 0;
+}
+
+.column:hover {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.055);
 }
 
 .column h3 {
@@ -333,11 +361,14 @@ body::before {
 }
 
 .count {
-  background: var(--border);
-  color: var(--surface);
+  background: var(--tint-blush);
+  color: var(--text);
   border-radius: 999px;
   padding: 1px 8px;
   font-size: 0.8rem;
+  /* .count lives inside an h3; reset off the inherited --font-heading so the
+     small numeral stays on the plain, legible body stack. */
+  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 .card-list {
@@ -362,11 +393,24 @@ body::before {
 .note-card,
 .link-card,
 .course-card {
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 18px;
   padding: 16px;
   background: var(--bg);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.035);
+  transition: box-shadow 0.2s ease;
+}
+
+.book-card:hover,
+.recipe-card:hover,
+.med-card:hover,
+.diagnosis-card:hover,
+.todo-item:hover,
+.shopping-item:hover,
+.note-card:hover,
+.link-card:hover,
+.course-card:hover {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.055);
 }
 
 .book-info {
@@ -377,7 +421,7 @@ body::before {
 
 .book-title { font-size: 0.95rem; }
 .book-author { color: var(--muted); font-size: 0.85rem; }
-.book-rating { color: var(--accent-2); font-size: 0.85rem; }
+.book-rating { color: var(--accent-rose); font-size: 0.85rem; }
 
 .book-actions {
   display: flex;
@@ -391,7 +435,7 @@ body::before {
 .course-actions select {
   padding: 5px 8px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 13px;
   background: var(--surface);
   color: var(--text);
   font-size: 0.8rem;
@@ -413,7 +457,7 @@ body::before {
   margin-left: auto;
   padding: 5px 12px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 13px;
   background: transparent;
   color: var(--muted);
   cursor: pointer;
@@ -615,7 +659,7 @@ body::before {
   width: 100%;
   padding: 9px 12px;
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: 13px;
   background: var(--surface);
   color: var(--text);
   font-family: inherit;
@@ -629,7 +673,7 @@ body::before {
 .cancel-btn {
   padding: 5px 12px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 13px;
   background: transparent;
   color: var(--muted);
   cursor: pointer;
@@ -645,7 +689,7 @@ body::before {
 .note-edit-form button[type="submit"] {
   padding: 5px 14px;
   border: none;
-  border-radius: 8px;
+  border-radius: 13px;
   background: var(--accent);
   color: var(--accent-contrast);
   cursor: pointer;
@@ -719,7 +763,7 @@ body::before {
   width: 70px;
   padding: 5px 8px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 13px;
   background: var(--surface);
   color: var(--text);
   font-family: inherit;
