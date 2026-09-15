@@ -1,23 +1,25 @@
 :root {
   color-scheme: light dark;
-  --bg: #faf8f5;
-  --surface: #ffffff;
-  --text: #2a2622;
-  --muted: #7a7268;
-  --border: #e4ddd3;
-  --accent: #8a5a3f;
+  --bg: #F6F1E7;
+  --surface: #FBF8F2;
+  --text: #3B2A1E;
+  --muted: #5C4B3A;
+  --accent: #4B6043;
+  --accent-2: #A34A2A;
+  --border: #8A7460;
   --accent-contrast: #ffffff;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #1c1a17;
-    --surface: #262320;
-    --text: #f1ece4;
-    --muted: #a89e90;
-    --border: #3a352f;
-    --accent: #c48a5f;
-    --accent-contrast: #1c1a17;
+    --bg: #221913;
+    --surface: #2E241C;
+    --text: #EFE6D8;
+    --muted: #C9BBA5;
+    --accent: #9CBB8C;
+    --accent-2: #E08A5B;
+    --border: #8A7460;
+    --accent-contrast: #221913;
   }
 }
 
@@ -25,24 +27,81 @@
 
 body {
   margin: 0;
-  padding: 0 16px 48px;
+  padding: 0;
   background: var(--bg);
   color: var(--text);
   font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
-.app-header {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 32px 0 8px;
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+  align-items: stretch;
 }
 
-.app-header h1 { margin: 0; font-size: 1.8rem; }
-.tagline { color: var(--muted); margin: 4px 0 0; }
+.sidebar {
+  flex: 0 0 220px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  padding: 24px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
 
-main {
+.sidebar-header h1 {
+  margin: 0;
+  font-size: 1.3rem;
+}
+
+.sidebar-header .tagline {
+  color: var(--muted);
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+}
+
+.nav-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.95rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.nav-item:hover {
+  background: var(--bg);
+}
+
+.nav-item.active {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.nav-icon {
+  flex: 0 0 auto;
+}
+
+.content {
+  flex: 1;
+  min-width: 0;
+  padding: 32px 32px 48px;
   max-width: 960px;
-  margin: 0 auto;
 }
 
 .collection-toolbar {
@@ -56,7 +115,7 @@ main {
 
 .collection-toolbar h2 { margin: 0; }
 
-#search-input {
+.collection-toolbar input[type="search"] {
   flex: 1 1 220px;
   max-width: 320px;
   padding: 8px 12px;
@@ -66,7 +125,13 @@ main {
   color: var(--text);
 }
 
-.add-book-form {
+/* Known landmine: any `.collection { display: ... }` layout rule silently
+   overrides the `hidden` attribute unless this override is present. */
+.collection[hidden] {
+  display: none;
+}
+
+.add-form {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -74,37 +139,91 @@ main {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 12px;
+  padding: 16px;
 }
 
-.add-book-form input[type="text"] {
+.add-form input[type="text"],
+.add-form input[type="date"],
+.add-form input[type="search"],
+.add-form select,
+.add-form textarea {
   flex: 1 1 160px;
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg);
   color: var(--text);
+  font-family: inherit;
 }
 
-.add-book-form select {
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
-  color: var(--text);
+.add-form textarea {
+  flex: 1 1 100%;
+  resize: vertical;
 }
 
-.add-book-form button {
-  padding: 8px 16px;
+.add-form-stacked {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.add-form-stacked input[type="text"],
+.add-form-stacked input[type="date"],
+.add-form-stacked input[type="search"],
+.add-form-stacked textarea,
+.add-form-stacked select,
+.add-form-stacked .date-field {
+  width: 100%;
+  /* Column layout turns the row-based `flex: 1 1 160px` above into "grow to
+     fill vertical space." Selector specificity must match-or-beat that rule
+     (it includes an attribute selector) or this override silently loses. */
+  flex: none;
+}
+
+.add-form button {
+  padding: 10px 18px;
   border: none;
   border-radius: 6px;
   background: var(--accent);
   color: var(--accent-contrast);
   cursor: pointer;
   font-weight: 600;
+  align-self: flex-start;
 }
 
-.add-book-form button:hover { opacity: 0.9; }
+.add-form button:hover { opacity: 0.9; }
+
+.date-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  flex: 1 1 160px;
+}
+
+.date-field input {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+}
+
+.unknown-hint {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.form-error {
+  color: var(--accent-2);
+  background: var(--bg);
+  border: 1px solid var(--accent-2);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin: 0;
+  font-size: 0.85rem;
+}
 
 .columns {
   display: grid;
@@ -112,8 +231,14 @@ main {
   gap: 16px;
 }
 
+.med-columns {
+  grid-template-columns: repeat(2, 1fr);
+}
+
 @media (max-width: 700px) {
   .columns { grid-template-columns: 1fr; }
+  .app-shell { flex-direction: column; }
+  .sidebar { flex: 0 0 auto; }
 }
 
 .column {
@@ -135,13 +260,13 @@ main {
 
 .count {
   background: var(--border);
-  color: var(--text);
+  color: var(--surface);
   border-radius: 999px;
   padding: 1px 8px;
   font-size: 0.8rem;
 }
 
-.book-list {
+.card-list {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -150,10 +275,17 @@ main {
   gap: 8px;
 }
 
-.book-card {
+.flat-list {
+  gap: 12px;
+}
+
+.book-card,
+.recipe-card,
+.med-card,
+.diagnosis-card {
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 10px;
+  padding: 12px;
   background: var(--bg);
 }
 
@@ -165,7 +297,7 @@ main {
 
 .book-title { font-size: 0.95rem; }
 .book-author { color: var(--muted); font-size: 0.85rem; }
-.book-rating { color: var(--accent); font-size: 0.85rem; }
+.book-rating { color: var(--accent-2); font-size: 0.85rem; }
 
 .book-actions {
   display: flex;
@@ -174,7 +306,8 @@ main {
   align-items: center;
 }
 
-.book-actions select {
+.book-actions select,
+.diagnosis-actions select {
   padding: 4px 6px;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -207,12 +340,117 @@ main {
 }
 
 .delete-btn:hover {
-  color: #b3261e;
-  border-color: #b3261e;
+  color: var(--accent-2);
+  border-color: var(--accent-2);
 }
 
 .empty-state {
   text-align: center;
   color: var(--muted);
   margin-top: 24px;
+}
+
+/* Recipes */
+
+.recipe-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.recipe-title { font-size: 1rem; }
+
+.badge {
+  background: var(--accent-2);
+  color: #ffffff;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 0.75rem;
+}
+
+.recipe-section {
+  margin-bottom: 8px;
+}
+
+.recipe-section h4 {
+  margin: 0 0 4px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.scroll-block {
+  margin: 0;
+  padding-left: 20px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.scroll-block li {
+  font-size: 0.9rem;
+  margin-bottom: 2px;
+}
+
+.recipe-notes,
+.med-notes,
+.diagnosis-notes {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-style: italic;
+  margin: 0 0 8px;
+}
+
+.recipe-actions,
+.med-actions,
+.diagnosis-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* Medications */
+
+.med-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+
+.med-name { font-size: 0.95rem; }
+
+.med-field {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.field-label {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.med-dates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+/* Diagnoses */
+
+.diagnosis-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+
+.diagnosis-condition { font-size: 0.95rem; }
+.diagnosis-date,
+.diagnosis-provider {
+  color: var(--muted);
+  font-size: 0.85rem;
 }
