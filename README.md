@@ -18,15 +18,47 @@ All data is stored in your browser's `localStorage` — nothing leaves your mach
 nothing requires an internet connection. The same code works whether you open it
 offline or host it online.
 
+## Syncing between devices (phone + computer)
+
+The app works fully offline with no setup. If you also want your phone and computer to
+share the same data, run the included local sync server on one machine (typically your
+computer) and point each device's app at it:
+
+```
+python sync_server.py
+```
+
+This starts an HTTPS server on port `8443`, using only Python's standard library plus
+your machine's existing `openssl` binary (Git for Windows already includes one). On
+first run it will:
+
+- Generate a self-signed TLS certificate (`cert.pem`/`key.pem`) covering your machine's
+  current LAN IP.
+- Generate and print a random passphrase, and save it to `.sync_secret`.
+
+**Copy the printed passphrase** — you'll need it on every device you want to sync. In
+the app's sidebar, open the sync setup form and enter the server's URL (e.g.
+`https://192.168.1.42:8443`, shown in the server's startup output) and the passphrase.
+
+The first time each device's browser connects, it will show a "your connection isn't
+private" warning — this is expected, not an error, because the certificate is
+self-signed rather than issued by a public certificate authority. Click through to
+proceed (usually "Advanced" → "Proceed anyway"); you only need to do this once per
+device, and the app works normally afterward, including syncing over HTTPS.
+
+`cert.pem`, `key.pem`, `.sync_secret`, and `sync_data.json` are machine-specific
+generated files and are git-ignored — never commit them.
+
 ## Project structure
 
 ```
-index.html   — page structure
-style.css    — styling (light/dark aware)
-app.js       — all app logic (add/edit/move/delete books, search, persistence)
-CLAUDE.md    — operating rules for the multi-agent dev workflow (see below)
+index.html     — page structure
+style.css      — styling (light/dark aware)
+app.js         — all app logic (add/edit/move/delete, search, persistence, sync)
+sync_server.py — optional local HTTPS server for syncing data between devices
+CLAUDE.md      — operating rules for the multi-agent dev workflow (see below)
 .claude/agents/ — subagent definitions used to build and maintain this project
-DECISIONS.md — running log of decisions made across work cycles
+DECISIONS.md   — running log of decisions made across work cycles
 ```
 
 ## The multi-agent dev workflow

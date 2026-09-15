@@ -22,6 +22,60 @@ function saveCollection(key, items) {
   localStorage.setItem(key, JSON.stringify(items));
 }
 
+// ---- Device identity & sync metadata ----
+
+const DEVICE_KEY = 'secondMemory.device.v1';
+let cachedDeviceId = null;
+
+function getDeviceId() {
+  if (cachedDeviceId) return cachedDeviceId;
+  try {
+    const raw = localStorage.getItem(DEVICE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (parsed && typeof parsed.deviceId === 'string') {
+      cachedDeviceId = parsed.deviceId;
+      return cachedDeviceId;
+    }
+  } catch {
+    // fall through and generate a new one
+  }
+  cachedDeviceId = makeId();
+  localStorage.setItem(DEVICE_KEY, JSON.stringify({ deviceId: cachedDeviceId, createdAt: new Date().toISOString() }));
+  return cachedDeviceId;
+}
+
+function stampSync(record) {
+  record.updatedAt = new Date().toISOString();
+  record.deviceId = getDeviceId();
+}
+
+// Backfills sync metadata onto records written before sync existed. Presence
+// checks (not truthiness) so it's idempotent and never re-derives a value
+// that's already there. `version: 0` means "never confirmed by the server."
+function migrateSyncFields(items, key, deviceId) {
+  let changed = false;
+  items.forEach((item) => {
+    if (!('updatedAt' in item)) {
+      item.updatedAt = item.dateModified || item.dateAdded;
+      changed = true;
+    }
+    if (!('deviceId' in item)) {
+      item.deviceId = deviceId;
+      changed = true;
+    }
+    if (!('deleted' in item)) {
+      item.deleted = false;
+      changed = true;
+    }
+    if (!('version' in item)) {
+      item.version = 0;
+      changed = true;
+    }
+  });
+  if (changed) saveCollection(key, items);
+  return items;
+}
+
 // ---- UI state (active tab) ----
 
 const UI_STORAGE_KEY = 'secondMemory.ui.v1';
@@ -59,18 +113,23 @@ document.querySelectorAll('.nav-item').forEach((btn) => {
 const BOOKS_KEY = 'secondMemory.books.v1';
 const BOOK_STATUSES = ['want_to_buy', 'owned_unread', 'owned_read'];
 
-let books = loadCollection(BOOKS_KEY);
+let books = migrateSyncFields(loadCollection(BOOKS_KEY), BOOKS_KEY, getDeviceId());
 
 function addBook(title, author, status) {
   const trimmedTitle = title.trim();
   if (!trimmedTitle) return;
+  const now = new Date().toISOString();
   books.push({
     id: makeId(),
     title: trimmedTitle,
     author: author.trim(),
     status: BOOK_STATUSES.includes(status) ? status : 'want_to_buy',
     rating: null,
-    dateAdded: new Date().toISOString(),
+    dateAdded: now,
+    updatedAt: now,
+    deviceId: getDeviceId(),
+    deleted: false,
+    version: 0,
   });
   saveCollection(BOOKS_KEY, books);
   renderBooks();
@@ -81,6 +140,7 @@ function updateBookStatus(id, newStatus) {
   if (!book || !BOOK_STATUSES.includes(newStatus)) return;
   book.status = newStatus;
   if (newStatus !== 'owned_read') book.rating = null;
+  stampSync(book);
   saveCollection(BOOKS_KEY, books);
   renderBooks();
 }
@@ -89,11 +149,15 @@ function updateBookRating(id, rating) {
   const book = books.find((b) => b.id === id);
   if (!book) return;
   book.rating = rating ? Number(rating) : null;
+  stampSync(book);
   saveCollection(BOOKS_KEY, books);
 }
 
 function deleteBook(id) {
-  books = books.filter((b) => b.id !== id);
+  const book = books.find((b) => b.id === id);
+  if (!book) return;
+  book.deleted = true;
+  stampSync(book);
   saveCollection(BOOKS_KEY, books);
   renderBooks();
 }
@@ -106,7 +170,7 @@ function matchesBookSearch(book, term) {
 
 function renderBooks() {
   const searchTerm = document.getElementById('books-search-input').value;
-  const visible = books.filter((b) => matchesBookSearch(b, searchTerm));
+  const visible = books.filter((b) => !b.deleted).filter((b) => matchesBookSearch(b, searchTerm));
   const template = document.getElementById('books-card-template');
 
   BOOK_STATUSES.forEach((status) => {
@@ -144,7 +208,7 @@ function renderBooks() {
     });
   });
 
-  document.getElementById('books-empty-state').hidden = books.length !== 0;
+  document.getElementById('books-empty-state').hidden = books.filter((b) => !b.deleted).length !== 0;
 }
 
 document.getElementById('books-add-form').addEventListener('submit', (e) => {
@@ -164,7 +228,7 @@ document.getElementById('books-search-input').addEventListener('input', renderBo
 
 const RECIPES_KEY = 'secondMemory.recipes.v1';
 
-let recipes = loadCollection(RECIPES_KEY);
+let recipes = migrateSyncFields(loadCollection(RECIPES_KEY), RECIPES_KEY, getDeviceId());
 
 function splitLines(text) {
   return text.split('\n').map((s) => s.trim()).filter(Boolean);
@@ -173,6 +237,7 @@ function splitLines(text) {
 function addRecipe(title, category, ingredientsText, stepsText, notes) {
   const trimmedTitle = title.trim();
   if (!trimmedTitle) return;
+  const now = new Date().toISOString();
   recipes.push({
     id: makeId(),
     title: trimmedTitle,
@@ -180,14 +245,21 @@ function addRecipe(title, category, ingredientsText, stepsText, notes) {
     ingredients: splitLines(ingredientsText),
     steps: splitLines(stepsText),
     notes: notes.trim(),
-    dateAdded: new Date().toISOString(),
+    dateAdded: now,
+    updatedAt: now,
+    deviceId: getDeviceId(),
+    deleted: false,
+    version: 0,
   });
   saveCollection(RECIPES_KEY, recipes);
   renderRecipes();
 }
 
 function deleteRecipe(id) {
-  recipes = recipes.filter((r) => r.id !== id);
+  const recipe = recipes.find((r) => r.id === id);
+  if (!recipe) return;
+  recipe.deleted = true;
+  stampSync(recipe);
   saveCollection(RECIPES_KEY, recipes);
   renderRecipes();
 }
@@ -202,7 +274,7 @@ function matchesRecipeSearch(recipe, term) {
 
 function renderRecipes() {
   const searchTerm = document.getElementById('recipes-search-input').value;
-  const visible = recipes.filter((r) => matchesRecipeSearch(r, searchTerm));
+  const visible = recipes.filter((r) => !r.deleted).filter((r) => matchesRecipeSearch(r, searchTerm));
   const list = document.getElementById('recipes-list');
   const template = document.getElementById('recipes-card-template');
   list.innerHTML = '';
@@ -250,7 +322,7 @@ function renderRecipes() {
     list.appendChild(node);
   });
 
-  document.getElementById('recipes-empty-state').hidden = recipes.length !== 0;
+  document.getElementById('recipes-empty-state').hidden = recipes.filter((r) => !r.deleted).length !== 0;
 }
 
 document.getElementById('recipes-add-form').addEventListener('submit', (e) => {
@@ -275,7 +347,7 @@ document.getElementById('recipes-search-input').addEventListener('input', render
 
 const MEDICATIONS_KEY = 'secondMemory.medications.v1';
 
-let medications = loadCollection(MEDICATIONS_KEY);
+let medications = migrateSyncFields(loadCollection(MEDICATIONS_KEY), MEDICATIONS_KEY, getDeviceId());
 
 function isValidDateRange(startDate, endDate) {
   if (!startDate || !endDate) return true;
@@ -290,6 +362,7 @@ function addMedication(fields) {
   if (!isValidDateRange(startDate, endDate)) {
     return { ok: false, error: 'End date cannot be before start date.' };
   }
+  const now = new Date().toISOString();
   medications.push({
     id: makeId(),
     name: trimmedName,
@@ -299,7 +372,11 @@ function addMedication(fields) {
     startDate,
     endDate,
     notes: fields.notes.trim(),
-    dateAdded: new Date().toISOString(),
+    dateAdded: now,
+    updatedAt: now,
+    deviceId: getDeviceId(),
+    deleted: false,
+    version: 0,
   });
   saveCollection(MEDICATIONS_KEY, medications);
   renderMedications();
@@ -316,13 +393,17 @@ function updateMedicationDate(id, field, value) {
   }
   med.startDate = newStart;
   med.endDate = newEnd;
+  stampSync(med);
   saveCollection(MEDICATIONS_KEY, medications);
   renderMedications();
   return { ok: true };
 }
 
 function deleteMedication(id) {
-  medications = medications.filter((m) => m.id !== id);
+  const med = medications.find((m) => m.id === id);
+  if (!med) return;
+  med.deleted = true;
+  stampSync(med);
   saveCollection(MEDICATIONS_KEY, medications);
   renderMedications();
 }
@@ -395,7 +476,7 @@ function renderMedicationGroup(groupKey, items, template) {
 
 function renderMedications() {
   const searchTerm = document.getElementById('medications-search-input').value;
-  const visible = medications.filter((m) => matchesMedicationSearch(m, searchTerm));
+  const visible = medications.filter((m) => !m.deleted).filter((m) => matchesMedicationSearch(m, searchTerm));
   const template = document.getElementById('medications-card-template');
 
   const current = visible.filter((m) => m.endDate === null);
@@ -404,7 +485,7 @@ function renderMedications() {
   renderMedicationGroup('current', current, template);
   renderMedicationGroup('former', former, template);
 
-  document.getElementById('medications-empty-state').hidden = medications.length !== 0;
+  document.getElementById('medications-empty-state').hidden = medications.filter((m) => !m.deleted).length !== 0;
 }
 
 document.getElementById('medications-add-form').addEventListener('submit', (e) => {
@@ -452,11 +533,12 @@ document.getElementById('medications-search-input').addEventListener('input', re
 const DIAGNOSES_KEY = 'secondMemory.diagnoses.v1';
 const DIAGNOSIS_STATUSES = ['active', 'monitoring', 'resolved'];
 
-let diagnoses = loadCollection(DIAGNOSES_KEY);
+let diagnoses = migrateSyncFields(loadCollection(DIAGNOSES_KEY), DIAGNOSES_KEY, getDeviceId());
 
 function addDiagnosis(condition, dateDiagnosed, provider, notes) {
   const trimmedCondition = condition.trim();
   if (!trimmedCondition) return;
+  const now = new Date().toISOString();
   diagnoses.push({
     id: makeId(),
     condition: trimmedCondition,
@@ -464,7 +546,11 @@ function addDiagnosis(condition, dateDiagnosed, provider, notes) {
     provider: provider.trim(),
     status: 'active',
     notes: notes.trim(),
-    dateAdded: new Date().toISOString(),
+    dateAdded: now,
+    updatedAt: now,
+    deviceId: getDeviceId(),
+    deleted: false,
+    version: 0,
   });
   saveCollection(DIAGNOSES_KEY, diagnoses);
   renderDiagnoses();
@@ -474,12 +560,16 @@ function updateDiagnosisStatus(id, newStatus) {
   const diagnosis = diagnoses.find((d) => d.id === id);
   if (!diagnosis || !DIAGNOSIS_STATUSES.includes(newStatus)) return;
   diagnosis.status = newStatus;
+  stampSync(diagnosis);
   saveCollection(DIAGNOSES_KEY, diagnoses);
   renderDiagnoses();
 }
 
 function deleteDiagnosis(id) {
-  diagnoses = diagnoses.filter((d) => d.id !== id);
+  const diagnosis = diagnoses.find((d) => d.id === id);
+  if (!diagnosis) return;
+  diagnosis.deleted = true;
+  stampSync(diagnosis);
   saveCollection(DIAGNOSES_KEY, diagnoses);
   renderDiagnoses();
 }
@@ -492,7 +582,7 @@ function matchesDiagnosisSearch(diagnosis, term) {
 
 function renderDiagnoses() {
   const searchTerm = document.getElementById('diagnoses-search-input').value;
-  const visible = diagnoses.filter((d) => matchesDiagnosisSearch(d, searchTerm));
+  const visible = diagnoses.filter((d) => !d.deleted).filter((d) => matchesDiagnosisSearch(d, searchTerm));
   const template = document.getElementById('diagnoses-card-template');
 
   DIAGNOSIS_STATUSES.forEach((status) => {
@@ -528,7 +618,7 @@ function renderDiagnoses() {
     });
   });
 
-  document.getElementById('diagnoses-empty-state').hidden = diagnoses.length !== 0;
+  document.getElementById('diagnoses-empty-state').hidden = diagnoses.filter((d) => !d.deleted).length !== 0;
 }
 
 document.getElementById('diagnoses-add-form').addEventListener('submit', (e) => {
@@ -551,17 +641,22 @@ document.getElementById('diagnoses-search-input').addEventListener('input', rend
 
 const TODOS_KEY = 'secondMemory.todos.v1';
 
-let todos = loadCollection(TODOS_KEY);
+let todos = migrateSyncFields(loadCollection(TODOS_KEY), TODOS_KEY, getDeviceId());
 
 function addTodo(task, dueDate) {
   const trimmedTask = task.trim();
   if (!trimmedTask) return;
+  const now = new Date().toISOString();
   todos.push({
     id: makeId(),
     task: trimmedTask,
     completed: false,
     dueDate: dueDate || null,
-    dateAdded: new Date().toISOString(),
+    dateAdded: now,
+    updatedAt: now,
+    deviceId: getDeviceId(),
+    deleted: false,
+    version: 0,
   });
   saveCollection(TODOS_KEY, todos);
   renderTodos();
@@ -571,12 +666,16 @@ function toggleTodoCompleted(id, completed) {
   const todo = todos.find((t) => t.id === id);
   if (!todo) return;
   todo.completed = completed;
+  stampSync(todo);
   saveCollection(TODOS_KEY, todos);
   renderTodos();
 }
 
 function deleteTodo(id) {
-  todos = todos.filter((t) => t.id !== id);
+  const todo = todos.find((t) => t.id === id);
+  if (!todo) return;
+  todo.deleted = true;
+  stampSync(todo);
   saveCollection(TODOS_KEY, todos);
   renderTodos();
 }
@@ -594,7 +693,7 @@ function isTodoOverdue(todo) {
 
 function renderTodos() {
   const searchTerm = document.getElementById('todo-search-input').value;
-  const visible = todos.filter((t) => matchesTodoSearch(t, searchTerm));
+  const visible = todos.filter((t) => !t.deleted).filter((t) => matchesTodoSearch(t, searchTerm));
   const list = document.getElementById('todo-list');
   const template = document.getElementById('todo-card-template');
   list.innerHTML = '';
@@ -622,7 +721,7 @@ function renderTodos() {
     list.appendChild(node);
   });
 
-  document.getElementById('todo-empty-state').hidden = todos.length !== 0;
+  document.getElementById('todo-empty-state').hidden = todos.filter((t) => !t.deleted).length !== 0;
 }
 
 document.getElementById('todo-add-form').addEventListener('submit', (e) => {
@@ -641,18 +740,23 @@ document.getElementById('todo-search-input').addEventListener('input', renderTod
 
 const SHOPPING_KEY = 'secondMemory.shoppingList.v1';
 
-let shoppingItems = loadCollection(SHOPPING_KEY);
+let shoppingItems = migrateSyncFields(loadCollection(SHOPPING_KEY), SHOPPING_KEY, getDeviceId());
 
 function addShoppingItem(item, quantity, category) {
   const trimmedItem = item.trim();
   if (!trimmedItem) return;
+  const now = new Date().toISOString();
   shoppingItems.push({
     id: makeId(),
     item: trimmedItem,
     quantity: quantity.trim(),
     checked: false,
     category: category.trim(),
-    dateAdded: new Date().toISOString(),
+    dateAdded: now,
+    updatedAt: now,
+    deviceId: getDeviceId(),
+    deleted: false,
+    version: 0,
   });
   saveCollection(SHOPPING_KEY, shoppingItems);
   renderShoppingList();
@@ -662,12 +766,16 @@ function toggleShoppingChecked(id, checked) {
   const item = shoppingItems.find((i) => i.id === id);
   if (!item) return;
   item.checked = checked;
+  stampSync(item);
   saveCollection(SHOPPING_KEY, shoppingItems);
   renderShoppingList();
 }
 
 function deleteShoppingItem(id) {
-  shoppingItems = shoppingItems.filter((i) => i.id !== id);
+  const item = shoppingItems.find((i) => i.id === id);
+  if (!item) return;
+  item.deleted = true;
+  stampSync(item);
   saveCollection(SHOPPING_KEY, shoppingItems);
   renderShoppingList();
 }
@@ -680,7 +788,7 @@ function matchesShoppingSearch(item, term) {
 
 function renderShoppingList() {
   const searchTerm = document.getElementById('shopping-search-input').value;
-  const visible = shoppingItems.filter((i) => matchesShoppingSearch(i, searchTerm));
+  const visible = shoppingItems.filter((i) => !i.deleted).filter((i) => matchesShoppingSearch(i, searchTerm));
   const list = document.getElementById('shopping-list');
   const template = document.getElementById('shopping-card-template');
   list.innerHTML = '';
@@ -713,7 +821,7 @@ function renderShoppingList() {
     list.appendChild(node);
   });
 
-  document.getElementById('shopping-empty-state').hidden = shoppingItems.length !== 0;
+  document.getElementById('shopping-empty-state').hidden = shoppingItems.filter((i) => !i.deleted).length !== 0;
 }
 
 document.getElementById('shopping-add-form').addEventListener('submit', (e) => {
@@ -734,7 +842,7 @@ document.getElementById('shopping-search-input').addEventListener('input', rende
 
 const NOTES_KEY = 'secondMemory.notes.v1';
 
-let notes = loadCollection(NOTES_KEY);
+let notes = migrateSyncFields(loadCollection(NOTES_KEY), NOTES_KEY, getDeviceId());
 
 function addNote(title, body) {
   const trimmedTitle = title.trim();
@@ -747,6 +855,10 @@ function addNote(title, body) {
     body: trimmedBody,
     dateAdded: now,
     dateModified: now,
+    updatedAt: now,
+    deviceId: getDeviceId(),
+    deleted: false,
+    version: 0,
   });
   saveCollection(NOTES_KEY, notes);
   renderNotes();
@@ -759,16 +871,22 @@ function updateNote(id, title, body) {
   if (!trimmedTitle && !trimmedBody) return { ok: false, error: 'A note needs a title or some text.' };
   const note = notes.find((n) => n.id === id);
   if (!note) return { ok: false, error: 'Note not found.' };
+  const now = new Date().toISOString();
   note.title = trimmedTitle;
   note.body = trimmedBody;
-  note.dateModified = new Date().toISOString();
+  note.dateModified = now;
+  note.updatedAt = now;
+  note.deviceId = getDeviceId();
   saveCollection(NOTES_KEY, notes);
   renderNotes();
   return { ok: true };
 }
 
 function deleteNote(id) {
-  notes = notes.filter((n) => n.id !== id);
+  const note = notes.find((n) => n.id === id);
+  if (!note) return;
+  note.deleted = true;
+  stampSync(note);
   saveCollection(NOTES_KEY, notes);
   renderNotes();
 }
@@ -786,7 +904,7 @@ function noteBodySnippet(body, length = 150) {
 
 function renderNotes() {
   const searchTerm = document.getElementById('notes-search-input').value;
-  const visible = notes.filter((n) => matchesNoteSearch(n, searchTerm));
+  const visible = notes.filter((n) => !n.deleted).filter((n) => matchesNoteSearch(n, searchTerm));
   const list = document.getElementById('notes-list');
   const template = document.getElementById('notes-card-template');
 
@@ -860,7 +978,7 @@ function renderNotes() {
     list.appendChild(node);
   });
 
-  document.getElementById('notes-empty-state').hidden = notes.length !== 0;
+  document.getElementById('notes-empty-state').hidden = notes.filter((n) => !n.deleted).length !== 0;
 }
 
 document.getElementById('notes-add-form').addEventListener('submit', (e) => {
@@ -887,19 +1005,24 @@ document.getElementById('notes-search-input').addEventListener('input', renderNo
 const LINKS_KEY = 'secondMemory.links.v1';
 const URL_SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
 
-let links = loadCollection(LINKS_KEY);
+let links = migrateSyncFields(loadCollection(LINKS_KEY), LINKS_KEY, getDeviceId());
 
 function addLink(label, url, notes) {
   const trimmedLabel = label.trim();
   const trimmedUrl = url.trim();
   if (!trimmedLabel) return { ok: false, error: 'Label is required.' };
   if (!trimmedUrl) return { ok: false, error: 'URL is required.' };
+  const now = new Date().toISOString();
   links.push({
     id: makeId(),
     label: trimmedLabel,
     url: trimmedUrl,
     notes: notes.trim(),
-    dateAdded: new Date().toISOString(),
+    dateAdded: now,
+    updatedAt: now,
+    deviceId: getDeviceId(),
+    deleted: false,
+    version: 0,
   });
   saveCollection(LINKS_KEY, links);
   renderLinks();
@@ -907,7 +1030,10 @@ function addLink(label, url, notes) {
 }
 
 function deleteLink(id) {
-  links = links.filter((l) => l.id !== id);
+  const link = links.find((l) => l.id === id);
+  if (!link) return;
+  link.deleted = true;
+  stampSync(link);
   saveCollection(LINKS_KEY, links);
   renderLinks();
 }
@@ -924,7 +1050,7 @@ function hrefFor(url) {
 
 function renderLinks() {
   const searchTerm = document.getElementById('resume-search-input').value;
-  const visible = links.filter((l) => matchesLinkSearch(l, searchTerm));
+  const visible = links.filter((l) => !l.deleted).filter((l) => matchesLinkSearch(l, searchTerm));
   const list = document.getElementById('resume-list');
   const template = document.getElementById('resume-card-template');
   list.innerHTML = '';
@@ -948,7 +1074,7 @@ function renderLinks() {
     list.appendChild(node);
   });
 
-  document.getElementById('resume-empty-state').hidden = links.length !== 0;
+  document.getElementById('resume-empty-state').hidden = links.filter((l) => !l.deleted).length !== 0;
 }
 
 document.getElementById('resume-add-form').addEventListener('submit', (e) => {
@@ -978,7 +1104,7 @@ document.getElementById('resume-search-input').addEventListener('input', renderL
 const COURSES_KEY = 'secondMemory.courses.v1';
 const COURSE_STATUSES = ['completed', 'in_progress', 'planned'];
 
-let courses = loadCollection(COURSES_KEY);
+let courses = migrateSyncFields(loadCollection(COURSES_KEY), COURSES_KEY, getDeviceId());
 
 function parseCredits(value) {
   if (value === '' || value === null || value === undefined) return { ok: true, credits: null };
@@ -994,6 +1120,7 @@ function addCourse(fields) {
   const creditsResult = parseCredits(fields.credits);
   if (!creditsResult.ok) return { ok: false, error: creditsResult.error };
   const status = COURSE_STATUSES.includes(fields.status) ? fields.status : 'planned';
+  const now = new Date().toISOString();
   courses.push({
     id: makeId(),
     title: trimmedTitle,
@@ -1003,7 +1130,11 @@ function addCourse(fields) {
     status,
     grade: null,
     notes: fields.notes.trim(),
-    dateAdded: new Date().toISOString(),
+    dateAdded: now,
+    updatedAt: now,
+    deviceId: getDeviceId(),
+    deleted: false,
+    version: 0,
   });
   saveCollection(COURSES_KEY, courses);
   renderCourses();
@@ -1015,6 +1146,7 @@ function updateCourseStatus(id, newStatus) {
   if (!course || !COURSE_STATUSES.includes(newStatus)) return;
   course.status = newStatus;
   if (newStatus !== 'completed') course.grade = null;
+  stampSync(course);
   saveCollection(COURSES_KEY, courses);
   renderCourses();
 }
@@ -1024,11 +1156,15 @@ function updateCourseGrade(id, grade) {
   if (!course) return;
   const trimmedGrade = grade.trim();
   course.grade = trimmedGrade ? trimmedGrade : null;
+  stampSync(course);
   saveCollection(COURSES_KEY, courses);
 }
 
 function deleteCourse(id) {
-  courses = courses.filter((c) => c.id !== id);
+  const course = courses.find((c) => c.id === id);
+  if (!course) return;
+  course.deleted = true;
+  stampSync(course);
   saveCollection(COURSES_KEY, courses);
   renderCourses();
 }
@@ -1044,7 +1180,7 @@ function matchesCourseSearch(course, term) {
 
 function renderCourses() {
   const searchTerm = document.getElementById('coursework-search-input').value;
-  const visible = courses.filter((c) => matchesCourseSearch(c, searchTerm));
+  const visible = courses.filter((c) => !c.deleted).filter((c) => matchesCourseSearch(c, searchTerm));
   const template = document.getElementById('coursework-card-template');
 
   COURSE_STATUSES.forEach((status) => {
@@ -1097,7 +1233,7 @@ function renderCourses() {
     });
   });
 
-  document.getElementById('coursework-empty-state').hidden = courses.length !== 0;
+  document.getElementById('coursework-empty-state').hidden = courses.filter((c) => !c.deleted).length !== 0;
 }
 
 document.getElementById('coursework-add-form').addEventListener('submit', (e) => {
@@ -1137,6 +1273,165 @@ document.getElementById('coursework-add-form').addEventListener('submit', (e) =>
 
 document.getElementById('coursework-search-input').addEventListener('input', renderCourses);
 
+// ---- Device Sync ----
+// Optional: the app is fully functional offline with no sync configured, and
+// keeps working from local data if the server is ever unreachable — sync is
+// a best-effort background layer, never a requirement for any UI action.
+
+const SYNC_CONFIG_KEY = 'secondMemory.syncConfig.v1';
+
+function loadSyncConfig() {
+  try {
+    const raw = localStorage.getItem(SYNC_CONFIG_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (parsed && parsed.serverUrl && parsed.token) return parsed;
+  } catch {
+    // fall through
+  }
+  return null;
+}
+
+function saveSyncConfig(config) {
+  localStorage.setItem(SYNC_CONFIG_KEY, JSON.stringify(config));
+}
+
+// Maps each collection to the wire-protocol name the server expects, its
+// localStorage key, and how to read/replace/render it — lets the sync
+// function stay generic instead of nine hand-written copies.
+const SYNC_COLLECTIONS = [
+  { name: 'books', label: 'Books', key: BOOKS_KEY, get: () => books, set: (v) => { books = v; }, render: renderBooks },
+  { name: 'recipes', label: 'Recipes', key: RECIPES_KEY, get: () => recipes, set: (v) => { recipes = v; }, render: renderRecipes },
+  { name: 'medications', label: 'Medications', key: MEDICATIONS_KEY, get: () => medications, set: (v) => { medications = v; }, render: renderMedications },
+  { name: 'diagnoses', label: 'Diagnoses', key: DIAGNOSES_KEY, get: () => diagnoses, set: (v) => { diagnoses = v; }, render: renderDiagnoses },
+  { name: 'todos', label: 'To-Do', key: TODOS_KEY, get: () => todos, set: (v) => { todos = v; }, render: renderTodos },
+  { name: 'shoppingList', label: 'Shopping List', key: SHOPPING_KEY, get: () => shoppingItems, set: (v) => { shoppingItems = v; }, render: renderShoppingList },
+  { name: 'notes', label: 'Notes', key: NOTES_KEY, get: () => notes, set: (v) => { notes = v; }, render: renderNotes },
+  { name: 'links', label: 'Resume', key: LINKS_KEY, get: () => links, set: (v) => { links = v; }, render: renderLinks },
+  { name: 'courses', label: 'Coursework', key: COURSES_KEY, get: () => courses, set: (v) => { courses = v; }, render: renderCourses },
+];
+
+const ACTIVE_TAB_TO_COLLECTION = {
+  books: 'books', recipes: 'recipes', medications: 'medications', diagnoses: 'diagnoses',
+  todo: 'todos', shopping: 'shoppingList', notes: 'notes', resume: 'links', coursework: 'courses',
+};
+
+let syncInFlight = false;
+let lastSyncedAt = null;
+let lastSyncTone = null;
+
+function setSyncStatus(text, tone) {
+  lastSyncTone = tone;
+  const el = document.getElementById('sync-status-text');
+  if (!el) return;
+  el.textContent = text;
+  el.classList.toggle('sync-ok', tone === 'ok');
+  el.classList.toggle('sync-failed', tone === 'failed');
+}
+
+function renderActiveCollection() {
+  const activeTab = loadUiState().activeTab || 'books';
+  const entry = SYNC_COLLECTIONS.find((c) => c.name === ACTIVE_TAB_TO_COLLECTION[activeTab]);
+  if (entry) entry.render();
+}
+
+async function runSync() {
+  const config = loadSyncConfig();
+  if (!config || syncInFlight) return;
+  syncInFlight = true;
+  setSyncStatus('Syncing…', null);
+
+  const payload = { deviceId: getDeviceId(), collections: {} };
+  SYNC_COLLECTIONS.forEach((c) => { payload.collections[c.name] = c.get(); });
+
+  try {
+    const response = await fetch(`${config.serverUrl.replace(/\/+$/, '')}/api/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Sync-Token': config.token },
+      body: JSON.stringify(payload),
+    });
+
+    if (response.status === 401) {
+      setSyncStatus('Sync failed — check passphrase', 'failed');
+      return;
+    }
+    if (!response.ok) {
+      setSyncStatus('Sync failed — retrying', 'failed');
+      return;
+    }
+
+    const data = await response.json();
+    SYNC_COLLECTIONS.forEach((c) => {
+      const incoming = data.collections && Array.isArray(data.collections[c.name]) ? data.collections[c.name] : c.get();
+      c.set(incoming);
+      saveCollection(c.key, incoming);
+    });
+
+    lastSyncedAt = new Date();
+    const conflicts = Array.isArray(data.conflicts) ? data.conflicts : [];
+    if (conflicts.length > 0) {
+      const collectionNames = [...new Set(conflicts.map((c) => c.collection))]
+        .map((name) => SYNC_COLLECTIONS.find((c) => c.name === name)?.label || name);
+      const noun = conflicts.length === 1 ? 'conflict' : 'conflicts';
+      setSyncStatus(
+        `Synced — ${conflicts.length} ${noun} merged as duplicates in ${collectionNames.join(', ')}. Review and remove any you don't need.`,
+        'failed'
+      );
+    } else {
+      setSyncStatus('Synced just now', 'ok');
+    }
+    renderActiveCollection();
+  } catch {
+    setSyncStatus('Sync failed — retrying', 'failed');
+  } finally {
+    syncInFlight = false;
+  }
+}
+
+// Ticks the visible "Synced Xm ago" label between actual sync attempts,
+// without ever overwriting a currently-shown error/in-progress state.
+setInterval(() => {
+  if (lastSyncTone !== 'ok' || syncInFlight || !lastSyncedAt) return;
+  const minutes = Math.floor((Date.now() - lastSyncedAt.getTime()) / 60000);
+  setSyncStatus(minutes <= 0 ? 'Synced just now' : `Synced ${minutes}m ago`, 'ok');
+}, 30000);
+
+function initSyncUI() {
+  const setupSection = document.getElementById('sync-setup');
+  const statusSection = document.getElementById('sync-status');
+  const form = document.getElementById('sync-setup-form');
+  const changeBtn = document.getElementById('sync-change-btn');
+  const config = loadSyncConfig();
+
+  setupSection.hidden = !!config;
+  statusSection.hidden = !config;
+  if (!config) setSyncStatus('Sync not set up', null);
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const urlInput = document.getElementById('sync-url-input');
+    const tokenInput = document.getElementById('sync-token-input');
+    const url = urlInput.value.trim();
+    const token = tokenInput.value.trim();
+    if (!url || !token) return;
+    saveSyncConfig({ serverUrl: url, token });
+    setupSection.hidden = true;
+    statusSection.hidden = false;
+    runSync();
+  });
+
+  changeBtn.addEventListener('click', () => {
+    setupSection.hidden = false;
+    statusSection.hidden = true;
+  });
+
+  runSync();
+  setInterval(runSync, 60000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') runSync();
+  });
+  window.addEventListener('online', runSync);
+}
+
 // ---- Init ----
 
 renderBooks();
@@ -1149,3 +1444,4 @@ renderNotes();
 renderLinks();
 renderCourses();
 setActiveTab(loadUiState().activeTab || 'books');
+initSyncUI();

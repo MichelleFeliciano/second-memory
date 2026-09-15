@@ -169,6 +169,81 @@ body::before {
   flex: 0 0 auto;
 }
 
+.sync-panel {
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sync-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* Same [hidden]-vs-unconditional-display landmine guarded elsewhere in this
+   file (see .rating-label, .grade-label, .note-view). */
+.sync-status[hidden] {
+  display: none;
+}
+
+.sync-status-text {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.sync-status-text.sync-ok { color: var(--accent); }
+.sync-status-text.sync-failed { color: var(--accent-2); }
+
+.sync-change-btn {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.72rem;
+}
+
+.sync-change-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.sync-setup-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sync-setup-form input {
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.82rem;
+  width: 100%;
+}
+
+.sync-setup-form button {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 13px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.82rem;
+}
+
+.sync-setup-form button:hover { opacity: 0.9; }
+
 .content {
   flex: 1;
   min-width: 0;

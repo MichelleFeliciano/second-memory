@@ -1,2 +1,8 @@
 .DS_Store
 Thumbs.db
+
+# Device sync server — machine-specific secrets/state, never commit these.
+.sync_secret
+cert.pem
+key.pem
+sync_data.json
