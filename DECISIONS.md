@@ -3,6 +3,42 @@
 This file is maintained by the Archivist role. Newest entries at the top. Each entry
 records what was decided, why, and any standing constraint future work must respect.
 
+## 2026-09-15 — Sync/import all-tabs re-render fix
+
+**Decision:** The user reported "have the sync work for all tabs at once, not one tab at
+a time." Investigation found this wasn't actually a sync-logic bug: `runSync()` (device
+sync) and `importData()` (data import) both correctly updated every collection's
+in-memory array and `localStorage` on every call. The gap was purely on the render side —
+both functions re-rendered the DOM for only the currently-active tab, via a helper called
+`renderActiveCollection()` that looked up the active tab and called `.render()` on just
+that one entry in `SYNC_COLLECTIONS`. So after a sync or import touching multiple
+collections, only the tab the user happened to be looking at updated immediately; the
+other eight tabs kept showing stale DOM until something else (like adding/editing an item
+in that tab) triggered its own render, or until a full page reload — which looked
+indistinguishable from "sync only works one tab at a time."
+
+**Fix (in `app.js`, commit `f0e5b1b`):** both `runSync()` and `importData()` now call
+`c.render()` directly inside their per-collection `SYNC_COLLECTIONS.forEach(...)` loops,
+immediately after `c.set(incoming)` / `saveCollection(...)`, so every collection's DOM
+updates as soon as its data changes, regardless of which tab is active. The
+`renderActiveCollection()` helper and the `ACTIVE_TAB_TO_COLLECTION` lookup table it
+depended on were dead code afterward and were deleted. This was a small, contained fix (2
+insertions, 13 deletions) made directly by the Architect without a separate
+Builder/Tester dispatch, since it was trivially verifiable in one step.
+
+**Outcome:** Verified live in-browser (fresh port, per the standing browser-cache
+testing constraint below) by keeping the Books tab active/visible and then (1) calling
+`importData()` directly with a payload adding a new Notes record, and (2) calling
+`runSync()` with a mocked `fetch` returning a payload with a new Notes record — in both
+cases the hidden Notes tab's DOM updated immediately (new note appeared in `#notes-list`)
+without switching tabs, confirming the fix. No new bugs found.
+
+**Standing constraints established:**
+- Any future collection added to `SYNC_COLLECTIONS` automatically gets correct
+  all-tabs re-rendering for free from this fix — sync/import re-render every collection
+  in the loop directly; no per-collection special-casing or an active-tab lookup should
+  be reintroduced.
+
 ## 2026-09-15 — Recipe organization + usefulness audit
 
 **Decision — recipe categorization:** the user asked the Architect to organize the 22
