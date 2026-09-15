@@ -3,6 +3,84 @@
 This file is maintained by the Archivist role. Newest entries at the top. Each entry
 records what was decided, why, and any standing constraint future work must respect.
 
+## 2026-09-15 — Personal data import (Books, Recipes, Coursework, Notes)
+
+**Decision:** The user attached four personal documents to the conversation with no
+accompanying message — an implicit "put this in the app" request, since each document's
+content mapped exactly onto an existing collection. Because no schema or feature change
+was needed (every document fit a collection already built), the Architect populated the
+canonical dataset directly rather than running the full Researcher/Analyst/Builder/Tester
+pipeline: this was a data-entry cycle, not a build cycle.
+
+**What was imported:**
+- **Books** (218 records, from `My_Book_Collection.docx`): organized by series, the
+  source explicitly distinguished owned vs. wanted books. Books explicitly marked owned
+  (including entire series marked "Complete") → `owned_unread`; books explicitly named as
+  missing/not-owned/forthcoming → `want_to_buy` (174 / 44 split). No book was imported as
+  `owned_read` since the source tracks ownership, not reading progress.
+- **Recipes** (22 records, from `Family_Recipe_Collection.docx`): title/ingredients/steps
+  parsed directly. `category` deliberately left blank on every record rather than
+  inferring cuisine labels (many are Puerto Rican sofrito/adobo/sazon dishes) — flagged as
+  a judgment call for the user to fill in themselves, since it wasn't requested and the
+  field is optional.
+- **Degree & Coursework** (48 records: 45 completed / 3 in_progress / 0 planned, from
+  `NT_SSR_TSRPT.pdf`, a UNT undergrad + grad transcript): deduplicated courses that
+  appeared twice in the source (a failed/withdrawn attempt followed by a successful
+  repeat — BCIS 3630, FINA 3770, BCIS 4740, MATH 1181, PSCI 2306, YSPC 99991A21) by
+  importing only the successful, credit-earning attempt for each, to avoid inflating the
+  list with attempts that didn't count. Tarrant County College transfer credit is tagged
+  in each affected record's `notes` field. The three Fall 2026 graduate courses (CSCE
+  5200/5300/5310, Data Engineering M.S. + AI Graduate Certificate) were imported as
+  `in_progress` since the transcript shows no posted grade for the current term.
+- **Notes**: one record holding the full `Diabetes_Nutrition_Reference_Guide.docx` text
+  verbatim (carb-counting charts, heart-healthy fat/sodium guidance, sample meal plans) as
+  a single cohesive reference note rather than split into smaller notes. A second note,
+  "Degree Summary — UNT," was authored (not a direct file import) to capture the degree
+  conferral itself (B.S. Business Computer Information Systems, conferred 05/10/2025, GPA
+  2.792) plus the current graduate program — added because Coursework has no field for
+  degree-level information, and the 2026-09-14 personal-collections-expansion cycle
+  already explicitly decided against adding a parent "Degree" record. This note is a
+  bridge for that gap, not a reopening of that schema decision.
+
+**Method (recorded for future bulk-population cycles):** the Architect wrote the new
+records directly into `sync_data.json` (the sync server's canonical datastore) via a
+Python script, matching the exact shape the app's own `addX()` functions produce (`id`,
+`dateAdded`, `updatedAt`, `deviceId`, `deleted: false`, `version: 1`), instead of using the
+UI ~290 times by hand. This works only because of how sync already behaves: any device's
+next successful sync fully replaces its local collections with the server's current
+state, so server-only records the client never sent still flow down correctly.
+
+**Outcome:** No code changed; no bugs found. Verified via three independent checks: (1)
+a real authenticated `/api/sync` POST returned all four collections with the expected
+counts; (2) the data was loaded into a real browser instance and every affected tab
+(Books, Recipes, Coursework, Notes) was visually confirmed rendering correctly — correct
+status columns, correct Completed/In Progress/Planned counts (45/3/0), ingredients/steps
+displaying properly, note content intact; (3) counts cross-checked against the source
+documents by hand. All four original source files were left untouched on the user's
+Desktop (read-only access). The temporary test-injection file used for the browser
+verification pass was removed after use.
+
+**Standing constraints established:**
+- Direct-to-`sync_data.json` bulk import (bypassing the UI) is a validated technique for
+  future large personal-data-import cycles, provided records are written in the exact
+  `addX()` output shape (`id`/`dateAdded`/`updatedAt`/`deviceId`/`deleted: false`/
+  `version: 1`) — this relies on sync's existing full-state-replace-on-pull behavior and
+  should not be treated as a precedent for skipping the normal pipeline on cycles that
+  *do* involve schema or code changes.
+- Books imported from an ownership-tracking source (rather than a reading-progress
+  source) must never be defaulted to `owned_read` — only `owned_unread`/`want_to_buy` can
+  be inferred from ownership language; `owned_read` requires actual reading-progress
+  confirmation.
+- When deduplicating a transcript or similar append-only source with repeated/corrected
+  entries, only the successful/credit-earning attempt is imported — failed, withdrawn, or
+  superseded attempts are excluded rather than kept as separate records.
+- Recipes' `category` field remains blank wherever cuisine wasn't explicitly stated in the
+  source — inferring it is left as a standing open task for the user, not something a
+  future cycle should silently backfill via guesswork.
+- The "no parent Degree record" schema decision from 2026-09-14 still stands; the "Degree
+  Summary — UNT" note is a manually-authored workaround for degree-level information, not
+  a schema change, and should not be read as reopening that decision.
+
 ## 2026-09-15 — Device sync architecture
 
 **Decision:** Built the app's first real network functionality — cross-device sync

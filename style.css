@@ -244,6 +244,35 @@ body::before {
 
 .sync-setup-form button:hover { opacity: 0.9; }
 
+.data-io {
+  padding-top: 16px;
+  border-top: 1px solid var(--border-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.data-io-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.data-io-btn {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.78rem;
+}
+
+.data-io-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 .content {
   flex: 1;
   min-width: 0;
@@ -261,6 +290,12 @@ body::before {
 }
 
 .collection-toolbar h2 { margin: 0; }
+
+.stats-line {
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
 
 .collection-toolbar input[type="search"] {
   flex: 1 1 220px;
@@ -568,6 +603,35 @@ body::before {
   border-radius: 999px;
   padding: 2px 10px;
   font-size: 0.75rem;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.chip {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 0.75rem;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.chip-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
 }
 
 .recipe-section {

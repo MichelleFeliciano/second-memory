@@ -168,15 +168,42 @@ function matchesBookSearch(book, term) {
   return haystack.includes(term.toLowerCase());
 }
 
+// Empty/missing author sorts after every book that has one, rather than
+// alphabetically first (as an empty string would with a plain localeCompare).
+function compareByAuthor(a, b) {
+  const authorA = (a.author || '').trim();
+  const authorB = (b.author || '').trim();
+  if (!authorA && !authorB) return 0;
+  if (!authorA) return 1;
+  if (!authorB) return -1;
+  return authorA.localeCompare(authorB, undefined, { sensitivity: 'base' });
+}
+
+function renderBooksStats(nonDeletedBooks) {
+  const el = document.getElementById('books-stats');
+  if (!el) return;
+  const total = nonDeletedBooks.length;
+  const countFor = (status) => nonDeletedBooks.filter((b) => b.status === status).length;
+  el.textContent = `${total} book${total === 1 ? '' : 's'} · ${countFor('want_to_buy')} want to buy · ` +
+    `${countFor('owned_unread')} unread · ${countFor('owned_read')} read`;
+}
+
 function renderBooks() {
   const searchTerm = document.getElementById('books-search-input').value;
-  const visible = books.filter((b) => !b.deleted).filter((b) => matchesBookSearch(b, searchTerm));
+  const nonDeleted = books.filter((b) => !b.deleted);
+  const visible = nonDeleted.filter((b) => matchesBookSearch(b, searchTerm));
   const template = document.getElementById('books-card-template');
+
+  renderBooksStats(nonDeleted);
 
   BOOK_STATUSES.forEach((status) => {
     const list = document.querySelector(`[data-list="${status}"]`);
     list.innerHTML = '';
-    const itemsForStatus = visible.filter((b) => b.status === status);
+    // .sort() is a stable sort in all modern JS engines (ES2019+), so books by
+    // the same author entered in a deliberate order (e.g. a series) keep
+    // their relative order. `visible` is a fresh array from .filter(), so
+    // sorting it never touches the underlying `books` array or its order.
+    const itemsForStatus = visible.filter((b) => b.status === status).sort(compareByAuthor);
     document.querySelector(`[data-count="${status}"]`).textContent = itemsForStatus.length;
 
     itemsForStatus.forEach((book) => {
@@ -208,7 +235,7 @@ function renderBooks() {
     });
   });
 
-  document.getElementById('books-empty-state').hidden = books.filter((b) => !b.deleted).length !== 0;
+  document.getElementById('books-empty-state').hidden = nonDeleted.length !== 0;
 }
 
 document.getElementById('books-add-form').addEventListener('submit', (e) => {
@@ -272,11 +299,58 @@ function matchesRecipeSearch(recipe, term) {
   return haystack.includes(term.toLowerCase());
 }
 
+// 'all' is the default/initial state and always shows every recipe.
+let selectedRecipeCategory = 'all';
+
+function matchesRecipeCategory(recipe, category) {
+  return category === 'all' || recipe.category === category;
+}
+
+// Derived fresh from the live `recipes` array every render — never a
+// hardcoded category list — so new categories the user adds later show up
+// automatically.
+function renderRecipeCategoryFilters(nonDeletedRecipes) {
+  const container = document.getElementById('recipes-category-filters');
+  if (!container) return;
+
+  const categories = [...new Set(nonDeletedRecipes.map((r) => r.category).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+
+  if (selectedRecipeCategory !== 'all' && !categories.includes(selectedRecipeCategory)) {
+    selectedRecipeCategory = 'all';
+  }
+
+  container.innerHTML = '';
+
+  const makeChip = (label, value) => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'chip';
+    chip.textContent = label;
+    chip.classList.toggle('chip-active', selectedRecipeCategory === value);
+    chip.addEventListener('click', () => {
+      selectedRecipeCategory = value;
+      renderRecipes();
+    });
+    return chip;
+  };
+
+  container.appendChild(makeChip('All', 'all'));
+  categories.forEach((category) => container.appendChild(makeChip(category, category)));
+}
+
 function renderRecipes() {
   const searchTerm = document.getElementById('recipes-search-input').value;
-  const visible = recipes.filter((r) => !r.deleted).filter((r) => matchesRecipeSearch(r, searchTerm));
+  const nonDeleted = recipes.filter((r) => !r.deleted);
   const list = document.getElementById('recipes-list');
   const template = document.getElementById('recipes-card-template');
+
+  renderRecipeCategoryFilters(nonDeleted);
+
+  const visible = nonDeleted
+    .filter((r) => matchesRecipeSearch(r, searchTerm))
+    .filter((r) => matchesRecipeCategory(r, selectedRecipeCategory));
+
   list.innerHTML = '';
 
   visible.forEach((recipe) => {
@@ -1178,10 +1252,31 @@ function matchesCourseSearch(course, term) {
   return haystack.includes(term.toLowerCase());
 }
 
+const COURSE_STATUS_LABELS = { completed: 'completed', in_progress: 'in progress', planned: 'planned' };
+
+function renderCoursesStats(nonDeletedCourses) {
+  const el = document.getElementById('coursework-stats');
+  if (!el) return;
+
+  const parts = COURSE_STATUSES.map((status) => {
+    const withCredits = nonDeletedCourses
+      .filter((c) => c.status === status)
+      .filter((c) => c.credits !== null && c.credits !== undefined);
+    if (withCredits.length === 0) return null;
+    const sum = withCredits.reduce((total, c) => total + c.credits, 0);
+    return `${sum} credit${sum === 1 ? '' : 's'} ${COURSE_STATUS_LABELS[status]}`;
+  }).filter(Boolean);
+
+  el.textContent = parts.length ? parts.join(' · ') : 'No credits recorded yet.';
+}
+
 function renderCourses() {
   const searchTerm = document.getElementById('coursework-search-input').value;
-  const visible = courses.filter((c) => !c.deleted).filter((c) => matchesCourseSearch(c, searchTerm));
+  const nonDeleted = courses.filter((c) => !c.deleted);
+  const visible = nonDeleted.filter((c) => matchesCourseSearch(c, searchTerm));
   const template = document.getElementById('coursework-card-template');
+
+  renderCoursesStats(nonDeleted);
 
   COURSE_STATUSES.forEach((status) => {
     const list = document.querySelector(`[data-course-list="${status}"]`);
@@ -1233,7 +1328,7 @@ function renderCourses() {
     });
   });
 
-  document.getElementById('coursework-empty-state').hidden = courses.filter((c) => !c.deleted).length !== 0;
+  document.getElementById('coursework-empty-state').hidden = nonDeleted.length !== 0;
 }
 
 document.getElementById('coursework-add-form').addEventListener('submit', (e) => {
@@ -1431,6 +1526,190 @@ function initSyncUI() {
   });
   window.addEventListener('online', runSync);
 }
+
+// ---- Data export / import ----
+// Import's merge algorithm intentionally mirrors sync_server.py's
+// merge_collection()/_content_matches() (see DECISIONS.md) so a client-side
+// restore behaves the same way a genuine sync conflict does: never silently
+// discard a record, treat a byte-for-byte replay as a no-op, and keep both
+// sides on a genuine conflict rather than picking a winner.
+
+function buildExportPayload() {
+  const collections = {};
+  SYNC_COLLECTIONS.forEach((c) => { collections[c.name] = c.get(); });
+  return { collections };
+}
+
+function todayForFilename() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function exportData() {
+  const json = JSON.stringify(buildExportPayload(), null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `second-memory-export-${todayForFilename()}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+// Accepts the exact shape `buildExportPayload()` produces (`{ collections: {...} }`)
+// and, defensively, a bare collections object at the top level too. Returns
+// null for anything else so the caller can reject with a clear error instead
+// of crashing on malformed input.
+function extractImportCollections(parsed) {
+  if (!parsed || typeof parsed !== 'object') return null;
+  if (parsed.collections && typeof parsed.collections === 'object' && !Array.isArray(parsed.collections)) return parsed.collections;
+  const looksLikeCollections = SYNC_COLLECTIONS.some((c) => Array.isArray(parsed[c.name]));
+  return looksLikeCollections ? parsed : null;
+}
+
+function deepEqual(a, b) {
+  if (a === b) return true;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((v, i) => deepEqual(v, b[i]));
+  }
+  if (a && b && typeof a === 'object' && typeof b === 'object') {
+    const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+    return [...keys].every((k) => deepEqual(a[k], b[k]));
+  }
+  return false;
+}
+
+// Port of sync_server.py's _content_matches(): true if two records are
+// identical in every field except `version` — i.e. this import record is a
+// re-import of something already merged in, not a genuine conflicting edit.
+function contentMatchesIgnoringVersion(a, b) {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  keys.delete('version');
+  return [...keys].every((k) => deepEqual(a[k], b[k]));
+}
+
+// Port of sync_server.py's merge_collection(), adapted to merge an imported
+// file's records onto the in-memory client collection instead of the
+// server's onto a client's. Same three cases: (a) new id -> add as a new
+// record, (b) known id with an equal-or-newer incoming version -> replace
+// the local record with the imported one, (c) known id with an older
+// incoming version -> a no-op if the content is otherwise identical,
+// otherwise kept as a new record under a freshly generated id (the local
+// record is left untouched) so nothing is ever silently discarded. Mutates
+// `localItems` in place and returns counts for the summary message.
+function mergeCollectionFromImport(localItems, importedItems) {
+  const byId = new Map(localItems.map((item) => [item.id, item]));
+  let added = 0;
+  let updated = 0;
+  let duplicated = 0;
+
+  importedItems.forEach((incoming) => {
+    if (!incoming || typeof incoming !== 'object' || !incoming.id) return;
+    const existing = byId.get(incoming.id);
+
+    if (!existing) {
+      const record = { ...incoming };
+      localItems.push(record);
+      byId.set(record.id, record);
+      added += 1;
+      return;
+    }
+
+    const incomingVersion = incoming.version || 0;
+    const existingVersion = existing.version || 0;
+
+    if (incomingVersion >= existingVersion) {
+      const record = { ...incoming };
+      const index = localItems.findIndex((item) => item.id === incoming.id);
+      localItems[index] = record;
+      byId.set(record.id, record);
+      updated += 1;
+      return;
+    }
+
+    if (contentMatchesIgnoringVersion(existing, incoming)) return;
+
+    const record = { ...incoming, id: makeId() };
+    localItems.push(record);
+    byId.set(record.id, record);
+    duplicated += 1;
+  });
+
+  return { added, updated, duplicated };
+}
+
+function setDataIoStatus(text, tone) {
+  const el = document.getElementById('data-io-status');
+  if (!el) return;
+  el.textContent = text;
+  el.hidden = false;
+  el.classList.toggle('sync-ok', tone === 'ok');
+  el.classList.toggle('sync-failed', tone === 'failed');
+}
+
+function importData(parsed) {
+  const importedCollections = extractImportCollections(parsed);
+  if (!importedCollections) {
+    setDataIoStatus("Import failed — that file doesn't look like a Second Memory export.", 'failed');
+    return;
+  }
+
+  const summaries = [];
+  let anyChanged = false;
+
+  SYNC_COLLECTIONS.forEach((c) => {
+    const incoming = importedCollections[c.name];
+    if (!Array.isArray(incoming) || incoming.length === 0) return;
+    const localItems = c.get();
+    const result = mergeCollectionFromImport(localItems, incoming);
+    if (!result.added && !result.updated && !result.duplicated) return;
+
+    anyChanged = true;
+    saveCollection(c.key, localItems);
+    const parts = [];
+    if (result.added) parts.push(`${result.added} new`);
+    if (result.updated) parts.push(`${result.updated} updated`);
+    if (result.duplicated) parts.push(`${result.duplicated} merged as duplicates`);
+    summaries.push(`${parts.join(', ')} in ${c.label}`);
+  });
+
+  if (!anyChanged) {
+    setDataIoStatus('Import complete — nothing new to merge.', 'ok');
+    return;
+  }
+
+  setDataIoStatus(`Import complete — ${summaries.join('; ')}.`, 'ok');
+  renderActiveCollection();
+}
+
+document.getElementById('export-data-btn').addEventListener('click', exportData);
+
+document.getElementById('import-data-btn').addEventListener('click', () => {
+  document.getElementById('import-file-input').click();
+});
+
+document.getElementById('import-file-input').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    let parsed;
+    try {
+      parsed = JSON.parse(reader.result);
+    } catch {
+      setDataIoStatus('Import failed — that file is not valid JSON.', 'failed');
+      return;
+    }
+    importData(parsed);
+  };
+  reader.onerror = () => {
+    setDataIoStatus('Import failed — could not read that file.', 'failed');
+  };
+  reader.readAsText(file);
+});
 
 // ---- Init ----
 

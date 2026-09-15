@@ -130,6 +130,15 @@
         </form>
       </div>
     </div>
+
+    <div class="data-io">
+      <div class="data-io-buttons">
+        <button type="button" id="export-data-btn" class="data-io-btn">Export data</button>
+        <button type="button" id="import-data-btn" class="data-io-btn">Import data</button>
+      </div>
+      <input type="file" id="import-file-input" accept="application/json" hidden>
+      <p class="sync-status-text data-io-status" id="data-io-status" hidden></p>
+    </div>
   </nav>
 
   <main class="content">
@@ -138,6 +147,8 @@
         <h2>Books</h2>
         <input type="search" id="books-search-input" placeholder="Search title or author…" aria-label="Search books">
       </div>
+
+      <p class="stats-line" id="books-stats"></p>
 
       <form id="books-add-form" class="add-form">
         <input type="text" id="books-title-input" placeholder="Title" required aria-label="Book title">
@@ -182,6 +193,8 @@
         <textarea id="recipes-notes-input" placeholder="Notes (optional)" aria-label="Recipe notes" rows="2"></textarea>
         <button type="submit">Add recipe</button>
       </form>
+
+      <div class="chip-row" id="recipes-category-filters"></div>
 
       <ul class="card-list flat-list" id="recipes-list"></ul>
 
@@ -337,6 +350,8 @@
         <h2>Degree &amp; Coursework</h2>
         <input type="search" id="coursework-search-input" placeholder="Search courses…" aria-label="Search courses">
       </div>
+
+      <p class="stats-line" id="coursework-stats"></p>
 
       <form id="coursework-add-form" class="add-form add-form-stacked">
         <input type="text" id="coursework-title-input" placeholder="Course title" required aria-label="Course title">
