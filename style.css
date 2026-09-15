@@ -1,0 +1,218 @@
+:root {
+  color-scheme: light dark;
+  --bg: #faf8f5;
+  --surface: #ffffff;
+  --text: #2a2622;
+  --muted: #7a7268;
+  --border: #e4ddd3;
+  --accent: #8a5a3f;
+  --accent-contrast: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1a17;
+    --surface: #262320;
+    --text: #f1ece4;
+    --muted: #a89e90;
+    --border: #3a352f;
+    --accent: #c48a5f;
+    --accent-contrast: #1c1a17;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 0 16px 48px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.app-header {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 32px 0 8px;
+}
+
+.app-header h1 { margin: 0; font-size: 1.8rem; }
+.tagline { color: var(--muted); margin: 4px 0 0; }
+
+main {
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.collection-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.collection-toolbar h2 { margin: 0; }
+
+#search-input {
+  flex: 1 1 220px;
+  max-width: 320px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.add-book-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.add-book-form input[type="text"] {
+  flex: 1 1 160px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.add-book-form select {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.add-book-form button {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.add-book-form button:hover { opacity: 0.9; }
+
+.columns {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 700px) {
+  .columns { grid-template-columns: 1fr; }
+}
+
+.column {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  min-height: 120px;
+}
+
+.column h3 {
+  margin: 0 0 10px;
+  font-size: 0.95rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+
+.count {
+  background: var(--border);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 0.8rem;
+}
+
+.book-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.book-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--bg);
+}
+
+.book-info {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 8px;
+}
+
+.book-title { font-size: 0.95rem; }
+.book-author { color: var(--muted); font-size: 0.85rem; }
+.book-rating { color: var(--accent); font-size: 0.85rem; }
+
+.book-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.book-actions select {
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.8rem;
+}
+
+.rating-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.rating-label[hidden] {
+  display: none;
+}
+
+.delete-btn {
+  margin-left: auto;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.delete-btn:hover {
+  color: #b3261e;
+  border-color: #b3261e;
+}
+
+.empty-state {
+  text-align: center;
+  color: var(--muted);
+  margin-top: 24px;
+}

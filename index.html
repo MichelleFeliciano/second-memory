@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Second Memory</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="app-header">
+  <h1>Second Memory</h1>
+  <p class="tagline">Your offline second brain — books, and more to come.</p>
+</header>
+
+<main>
+  <section class="collection" id="books-collection">
+    <div class="collection-toolbar">
+      <h2>Books</h2>
+      <input type="search" id="search-input" placeholder="Search title or author…" aria-label="Search books">
+    </div>
+
+    <form id="add-book-form" class="add-book-form">
+      <input type="text" id="title-input" placeholder="Title" required aria-label="Book title">
+      <input type="text" id="author-input" placeholder="Author" aria-label="Book author">
+      <select id="status-input" aria-label="Status">
+        <option value="want_to_buy">Want to buy</option>
+        <option value="owned_unread">Owned — Unread</option>
+        <option value="owned_read">Owned — Read</option>
+      </select>
+      <button type="submit">Add book</button>
+    </form>
+
+    <div class="columns">
+      <div class="column" data-status="want_to_buy">
+        <h3>Want to Buy <span class="count" data-count="want_to_buy">0</span></h3>
+        <ul class="book-list" data-list="want_to_buy"></ul>
+      </div>
+      <div class="column" data-status="owned_unread">
+        <h3>Owned — Unread <span class="count" data-count="owned_unread">0</span></h3>
+        <ul class="book-list" data-list="owned_unread"></ul>
+      </div>
+      <div class="column" data-status="owned_read">
+        <h3>Owned — Read <span class="count" data-count="owned_read">0</span></h3>
+        <ul class="book-list" data-list="owned_read"></ul>
+      </div>
+    </div>
+
+    <p class="empty-state" id="empty-state" hidden>No books yet — add your first one above.</p>
+  </section>
+</main>
+
+<template id="book-card-template">
+  <li class="book-card">
+    <div class="book-info">
+      <strong class="book-title"></strong>
+      <span class="book-author"></span>
+      <span class="book-rating"></span>
+    </div>
+    <div class="book-actions">
+      <label class="rating-label" hidden>
+        Rating:
+        <select class="rating-select">
+          <option value="">—</option>
+          <option value="1">★</option>
+          <option value="2">★★</option>
+          <option value="3">★★★</option>
+          <option value="4">★★★★</option>
+          <option value="5">★★★★★</option>
+        </select>
+      </label>
+      <select class="move-select" aria-label="Move to status">
+        <option value="want_to_buy">Move: Want to buy</option>
+        <option value="owned_unread">Move: Owned — Unread</option>
+        <option value="owned_read">Move: Owned — Read</option>
+      </select>
+      <button type="button" class="delete-btn" aria-label="Delete book">Delete</button>
+    </div>
+  </li>
+</template>
+
+<script src="app.js"></script>
+</body>
+</html>
