@@ -33,12 +33,29 @@ your machine's existing `openssl` binary (Git for Windows already includes one).
 first run it will:
 
 - Generate a self-signed TLS certificate (`cert.pem`/`key.pem`) covering your machine's
-  current LAN IP.
+  current LAN IP (and, if [Tailscale](https://tailscale.com) is installed and signed
+  in, your Tailscale IP/hostname too — see below).
 - Generate and print a random passphrase, and save it to `.sync_secret`.
 
 **Copy the printed passphrase** — you'll need it on every device you want to sync. In
 the app's sidebar, open the sync setup form and enter the server's URL (e.g.
 `https://192.168.1.42:8443`, shown in the server's startup output) and the passphrase.
+
+### Syncing from a different network (school, a friend's house, etc.)
+
+Plain LAN sync only works when both devices are on the same Wi-Fi network as the
+computer running `sync_server.py`. To reach it from anywhere, install
+[Tailscale](https://tailscale.com) (a private mesh VPN — the server is never exposed to
+the public internet, only reachable through the encrypted connection between your own
+devices) on both the computer and your phone, and sign into the same account on both.
+
+Once Tailscale is running, restart `sync_server.py` — it automatically detects
+Tailscale (via `tailscale status --json`) and regenerates the certificate to also cover
+your Tailscale IP and MagicDNS hostname (e.g. `https://yourcomputer.tailXXXXXX.ts.net:8443`),
+printed in the server's startup output. Use that address in the app's sync setup form
+instead of the LAN IP when you're away from home — it stays the same regardless of
+which network either device is actually connected to. If Tailscale isn't installed, the
+server works exactly as before (LAN-only, no change in behavior).
 
 The first time each device's browser connects, it will show a "your connection isn't
 private" warning — this is expected, not an error, because the certificate is

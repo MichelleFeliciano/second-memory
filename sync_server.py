@@ -73,7 +73,43 @@ def find_openssl():
     return shutil.which("openssl")
 
 
-def cert_covers_ip(openssl, cert_path, ip):
+def find_tailscale():
+    candidates = [r"C:\Program Files\Tailscale\tailscale.exe"]
+    for candidate in candidates:
+        if Path(candidate).exists():
+            return candidate
+    return shutil.which("tailscale")
+
+
+def get_tailscale_info():
+    """Returns (tailscale_ip, magicdns_hostname), or (None, None) if
+    Tailscale isn't installed, isn't running, or isn't logged in yet — all
+    treated as "not available" rather than an error, since Tailscale is
+    optional (LAN-only sync still works without it)."""
+    tailscale = find_tailscale()
+    if not tailscale:
+        return None, None
+    try:
+        out = subprocess.run(
+            [tailscale, "status", "--json"],
+            capture_output=True, text=True, check=True, timeout=5,
+        ).stdout
+        status = json.loads(out)
+        self_node = status.get("Self", {})
+        ips = self_node.get("TailscaleIPs", [])
+        ip = next((a for a in ips if ":" not in a), None)  # first IPv4
+        hostname = (self_node.get("DNSName") or "").rstrip(".") or None
+        return ip, hostname
+    except (subprocess.CalledProcessError, OSError, subprocess.TimeoutExpired,
+            json.JSONDecodeError, ValueError):
+        return None, None
+
+
+def cert_covers(openssl, cert_path, entries):
+    """`entries` is a list of ("IP", value) / ("DNS", value) tuples. Returns
+    True only if every one of them already appears in the cert's SAN list —
+    a partial match (e.g. covers the LAN IP but not a newly-added Tailscale
+    IP) must still trigger regeneration, not be treated as "close enough"."""
     try:
         out = subprocess.run(
             [openssl, "x509", "-in", str(cert_path), "-noout", "-text"],
@@ -81,14 +117,23 @@ def cert_covers_ip(openssl, cert_path, ip):
         ).stdout
     except (subprocess.CalledProcessError, OSError):
         return False
-    return f"IP Address:{ip}" in out
+    for kind, value in entries:
+        needle = f"IP Address:{value}" if kind == "IP" else f"DNS:{value}"
+        if needle not in out:
+            return False
+    return True
 
 
-def ensure_cert(ip):
+def ensure_cert(entries):
+    """`entries` is a list of ("IP", value) / ("DNS", value) tuples this
+    cert's SAN must cover — the caller decides what's reachable (LAN IP,
+    loopback, and, when available, the Tailscale IP/MagicDNS hostname so the
+    same server is reachable from any network Tailscale connects, not just
+    the current LAN)."""
     openssl = find_openssl()
     have_existing = CERT_PATH.exists() and KEY_PATH.exists()
 
-    if have_existing and openssl and cert_covers_ip(openssl, CERT_PATH, ip):
+    if have_existing and openssl and cert_covers(openssl, CERT_PATH, entries):
         return
 
     if have_existing and not openssl:
@@ -109,8 +154,8 @@ def ensure_cert(ip):
         )
         sys.exit(1)
 
-    print(f"Generating a self-signed TLS certificate for {ip} ...")
-    san = f"IP:{ip},IP:127.0.0.1,DNS:localhost"
+    san = ",".join(f"{kind}:{value}" for kind, value in entries)
+    print(f"Generating a self-signed TLS certificate covering: {san} ...")
     subprocess.run(
         [
             openssl, "req", "-x509", "-newkey", "rsa:2048", "-nodes",
@@ -327,7 +372,21 @@ class SyncHandler(BaseHTTPRequestHandler):
 
 def main():
     ip = get_lan_ip()
-    ensure_cert(ip)
+    ts_ip, ts_hostname = get_tailscale_info()
+
+    # LAN IP + loopback are always required; the Tailscale IP/hostname are
+    # added only when Tailscale is actually installed and logged in, so this
+    # server works identically with or without it. Tailscale's IP is stable
+    # across whatever network this machine is physically on (home, school,
+    # a coffee shop) — that's what makes the app reachable away from the LAN
+    # without exposing anything to the public internet.
+    entries = [("IP", ip), ("IP", "127.0.0.1"), ("DNS", "localhost")]
+    if ts_ip:
+        entries.append(("IP", ts_ip))
+    if ts_hostname:
+        entries.append(("DNS", ts_hostname))
+
+    ensure_cert(entries)
     token = ensure_secret()
 
     if not DATA_PATH.exists():
@@ -342,6 +401,10 @@ def main():
 
     print(f"Second Memory sync server running at https://{ip}:{PORT}")
     print(f"(also reachable at https://127.0.0.1:{PORT} on this machine)")
+    if ts_hostname:
+        print(f"Reachable from any network via Tailscale at https://{ts_hostname}:{PORT}")
+    elif ts_ip:
+        print(f"Reachable from any network via Tailscale at https://{ts_ip}:{PORT}")
     print("Press Ctrl+C to stop.")
     try:
         server.serve_forever()
