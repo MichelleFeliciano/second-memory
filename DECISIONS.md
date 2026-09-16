@@ -3,6 +3,80 @@
 This file is maintained by the Archivist role. Newest entries at the top. Each entry
 records what was decided, why, and any standing constraint future work must respect.
 
+## 2026-09-16 — Edit buttons + global undo/redo across all nine collections
+
+**Decision:** The user asked to "create edit buttons and an undo/redo button for
+everything" — spanning all nine collections (only Notes had edit capability before this
+cycle; every other collection could only add/delete/move-status). The Researcher
+(`docs/research/edit-and-undo-redo.md`) established the technical approach and its "why":
+no free browser undo API applies to arbitrary app state (`document.execCommand('undo')`
+only affects `contenteditable` regions, per MDN); every existing update/delete function in
+this app mutates records in place, making live-reference aliasing a real risk for any undo
+stack — `structuredClone()` (Baseline since March 2022, no dependency) is the correct deep-
+copy mechanism; single-record-diff undo entries (not whole-array snapshots) keep storage to
+~15-35KB even at 50 actions vs. ~3MB for Books alone with whole-array snapshots; reusing the
+existing sync-stamping mutation functions for undo/redo (rather than bypassing them) means
+an undo/redo action is indistinguishable from a normal edit to the sync algorithm — worst
+case is the same "keep both" duplicate this app already produces for a genuine sync
+conflict, never silent data loss; and a global in-memory-only, single stack (not nine
+per-collection ones) is the right shape, matching standard Ctrl+Z UX and the existing
+non-persisted filter/sort precedent.
+
+**Spec (`docs/specs/edit-everywhere-and-undo-redo.md`):** the Analyst caught two real
+bugs during design, before any code was written: (1) an initial "construct a reversed
+entry" approach for undo/redo application was traced through a concrete cycle and found to
+produce the wrong redo target — replaced with the correct model where entries move
+unchanged between the undo/redo stacks (apply `.before` on undo, `.after` on redo, push the
+same entry to the opposite stack); (2) the generic snapshot-application step would have
+reintroduced the exact live-reference aliasing bug the feature was designed to avoid
+(assigning a stack entry's own nested array/object directly into the live record) if not
+re-cloned on every application — the spec requires `structuredClone()` on every apply, not
+just at capture time. The Architect settled the one open question (single-open-edit-form
+exclusivity is per-collection, not app-wide) and approved three flagged assumptions:
+Notes' pre-existing "Save doesn't auto-close the form" quirk is replicated across all nine
+collections for consistency rather than fixed; no keyboard shortcuts this cycle (buttons
+only); undo/redo never auto-switches the active tab.
+
+**What was built (Bob, commit `2d7be37`, ~2300 lines across `app.js`/`index.html`/
+`style.css`):** a global `undoStack`/`redoStack` (module-level, non-persisted, capped at 50
+entries each) with a `recordUndo()` helper wired into all 44 mutation call sites (27
+existing functions + 9 new per-collection `restoreX()` functions matching each
+`deleteX()`'s tombstone convention + 8 new edit-form `updateX()` functions); `undo()`/
+`redo()` implementing the corrected entries-move-unchanged model; an always-visible
+Undo/Redo button pair in the sidebar (disabled when empty, tooltip describing what would be
+undone/redone); new view/edit-form markup added to all 8 non-Notes card templates, each
+exposing only the fields without a dedicated control already (e.g. Books' edit form is
+title/author only; Coursework reuses the existing `parseCredits()` helper); per-collection
+edit-form exclusivity widened across every status-column/group a collection has (Books' 7,
+Diagnoses' 3, Coursework's 3, Medications' 2); `updateNote()` switched to the shared
+`stampSync()` helper instead of inlining the same logic.
+
+**Outcome:** the Tester found zero functional defects across 10 targeted checks (all 44
+`recordUndo()` sites present/cloned correctly; the `isApplyingHistory` re-entrancy guard
+correctly prevents undo/redo replays from re-recording themselves or wiping the redo stack;
+per-collection exclusivity correctly scoped to Books' actual 7 columns, not the spec's
+5-column example; edit-form field/error tables match exactly; no offline-guarantee
+regression) — the only note was a harmless redundant double-`structuredClone()` in
+`recordUndo()` (every call site already passes a cloned value, so the helper re-clones an
+already-cloned object; correctness unaffected, flagged as future cleanup, not fixed this
+cycle). The Architect then live-tested a full add→edit→undo→redo→delete→undo cycle through
+the real UI: values revert/reapply correctly and stay stable across repeated undo/redo;
+undoing an add correctly tombstones the record; per-collection exclusivity correctly closes
+another open form in a different column of the same collection (Books) while leaving an
+open form in a different collection (Notes) untouched; zero console errors.
+
+**Standing constraints established:**
+- Any new collection or mutation function added in the future must call `recordUndo()`
+  following the exact `{collection, id, before, after}` shape (both deep-cloned) to get
+  undo/redo coverage — it is not automatic.
+- Undo/redo is deliberately session-only (never persisted) — matches the existing
+  filter/sort precedent, not a gap to fix.
+- Per-collection (not app-wide) edit-form exclusivity is the settled UX model — don't
+  change this without a fresh Architect decision.
+- The minor redundant-double-clone in `recordUndo()` is a known, accepted, harmless
+  inefficiency — worth a cheap cleanup in a future cycle that's already touching that
+  function, but not worth a dedicated cycle on its own.
+
 ## 2026-09-16 — Textbooks + Jon's Bookshelf — Read columns
 
 **Decision:** The user asked for two more Books columns: "a Textbooks column and a Jon's
