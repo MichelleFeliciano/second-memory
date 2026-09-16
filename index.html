@@ -146,6 +146,12 @@
       <div class="collection-toolbar">
         <h2>Books</h2>
         <input type="search" id="books-search-input" placeholder="Search title or author…" aria-label="Search books">
+        <select id="books-sort-input" aria-label="Sort books">
+          <option value="author_asc">Sort: Author (A–Z)</option>
+          <option value="title_asc">Sort: Title (A–Z)</option>
+          <option value="date_added_desc">Sort: Date Added (Newest first)</option>
+          <option value="date_added_asc">Sort: Date Added (Oldest first)</option>
+        </select>
       </div>
 
       <p class="stats-line" id="books-stats"></p>
@@ -183,6 +189,11 @@
       <div class="collection-toolbar">
         <h2>Recipes</h2>
         <input type="search" id="recipes-search-input" placeholder="Search recipes…" aria-label="Search recipes">
+        <select id="recipes-sort-input" aria-label="Sort recipes">
+          <option value="date_added_asc">Sort: Date Added (Oldest first)</option>
+          <option value="date_added_desc">Sort: Date Added (Newest first)</option>
+          <option value="title_asc">Sort: Title (A–Z)</option>
+        </select>
       </div>
 
       <form id="recipes-add-form" class="add-form add-form-stacked">
@@ -205,6 +216,11 @@
       <div class="collection-toolbar">
         <h2>Medications</h2>
         <input type="search" id="medications-search-input" placeholder="Search medications…" aria-label="Search medications">
+        <select id="medications-sort-input" aria-label="Sort medications">
+          <option value="name_asc">Sort: Name (A–Z)</option>
+          <option value="start_date_desc">Sort: Start Date (Newest first)</option>
+          <option value="start_date_asc">Sort: Start Date (Oldest first)</option>
+        </select>
       </div>
 
       <form id="medications-add-form" class="add-form add-form-stacked">
@@ -241,6 +257,11 @@
       <div class="collection-toolbar">
         <h2>Diagnoses</h2>
         <input type="search" id="diagnoses-search-input" placeholder="Search diagnoses…" aria-label="Search diagnoses">
+        <select id="diagnoses-sort-input" aria-label="Sort diagnoses">
+          <option value="condition_asc">Sort: Condition (A–Z)</option>
+          <option value="date_diagnosed_desc">Sort: Date Diagnosed (Newest first)</option>
+          <option value="date_diagnosed_asc">Sort: Date Diagnosed (Oldest first)</option>
+        </select>
       </div>
 
       <form id="diagnoses-add-form" class="add-form add-form-stacked">
@@ -275,6 +296,12 @@
       <div class="collection-toolbar">
         <h2>To-Do</h2>
         <input type="search" id="todo-search-input" placeholder="Search tasks…" aria-label="Search to-dos">
+        <select id="todo-sort-input" aria-label="Sort to-dos">
+          <option value="due_date_asc">Sort: Due Date (Soonest first)</option>
+          <option value="due_date_desc">Sort: Due Date (Latest first)</option>
+          <option value="date_added_desc">Sort: Date Added (Newest first)</option>
+          <option value="date_added_asc">Sort: Date Added (Oldest first)</option>
+        </select>
       </div>
 
       <form id="todo-add-form" class="add-form">
@@ -285,6 +312,8 @@
         <button type="submit">Add to-do</button>
       </form>
 
+      <div class="chip-row" id="todo-completed-filters"></div>
+
       <ul class="card-list flat-list" id="todo-list"></ul>
 
       <p class="empty-state" id="todo-empty-state" hidden>No to-dos yet — add your first one above.</p>
@@ -294,6 +323,11 @@
       <div class="collection-toolbar">
         <h2>Shopping List</h2>
         <input type="search" id="shopping-search-input" placeholder="Search items…" aria-label="Search shopping list">
+        <select id="shopping-sort-input" aria-label="Sort shopping list">
+          <option value="date_added_asc">Sort: Date Added (Oldest first)</option>
+          <option value="date_added_desc">Sort: Date Added (Newest first)</option>
+          <option value="item_asc">Sort: Item (A–Z)</option>
+        </select>
       </div>
 
       <form id="shopping-add-form" class="add-form">
@@ -302,6 +336,9 @@
         <input type="text" id="shopping-category-input" placeholder="Category (optional)" aria-label="Category">
         <button type="submit">Add item</button>
       </form>
+
+      <div class="chip-row" id="shopping-category-filters"></div>
+      <div class="chip-row" id="shopping-checked-filters"></div>
 
       <ul class="card-list flat-list" id="shopping-list"></ul>
 
@@ -312,6 +349,13 @@
       <div class="collection-toolbar">
         <h2>Notes</h2>
         <input type="search" id="notes-search-input" placeholder="Search notes…" aria-label="Search notes">
+        <select id="notes-sort-input" aria-label="Sort notes">
+          <option value="date_modified_desc">Sort: Last Updated (Newest first)</option>
+          <option value="date_modified_asc">Sort: Last Updated (Oldest first)</option>
+          <option value="date_added_desc">Sort: Date Added (Newest first)</option>
+          <option value="date_added_asc">Sort: Date Added (Oldest first)</option>
+          <option value="title_asc">Sort: Title (A–Z)</option>
+        </select>
       </div>
 
       <form id="notes-add-form" class="add-form add-form-stacked">
@@ -330,6 +374,11 @@
       <div class="collection-toolbar">
         <h2>Resume &amp; Portfolio</h2>
         <input type="search" id="resume-search-input" placeholder="Search links…" aria-label="Search links">
+        <select id="resume-sort-input" aria-label="Sort links">
+          <option value="date_added_asc">Sort: Date Added (Oldest first)</option>
+          <option value="date_added_desc">Sort: Date Added (Newest first)</option>
+          <option value="label_asc">Sort: Label (A–Z)</option>
+        </select>
       </div>
 
       <form id="resume-add-form" class="add-form add-form-stacked">
@@ -349,6 +398,14 @@
       <div class="collection-toolbar">
         <h2>Degree &amp; Coursework</h2>
         <input type="search" id="coursework-search-input" placeholder="Search courses…" aria-label="Search courses">
+        <select id="coursework-sort-input" aria-label="Sort courses">
+          <option value="title_asc">Sort: Title (A–Z)</option>
+          <option value="code_asc">Sort: Course Code (A–Z)</option>
+          <option value="credits_desc">Sort: Credits (High to Low)</option>
+          <option value="credits_asc">Sort: Credits (Low to High)</option>
+          <option value="date_added_desc">Sort: Date Added (Newest first)</option>
+          <option value="date_added_asc">Sort: Date Added (Oldest first)</option>
+        </select>
       </div>
 
       <p class="stats-line" id="coursework-stats"></p>
@@ -367,6 +424,8 @@
         <p class="form-error" id="coursework-form-error" hidden></p>
         <button type="submit">Add course</button>
       </form>
+
+      <div class="chip-row" id="coursework-term-filters"></div>
 
       <div class="columns">
         <div class="column" data-status="completed">

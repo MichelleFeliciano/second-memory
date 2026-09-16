@@ -22,6 +22,90 @@ function saveCollection(key, items) {
   localStorage.setItem(key, JSON.stringify(items));
 }
 
+// ---- Shared filter/sort helpers ----
+// Reused by every collection's sort <select> and chip filter so the
+// null-last convention and chip-grouping logic are implemented once instead
+// of per comparator/filter.
+
+// Builds a comparator for Array.prototype.sort() from a value-extractor.
+// Missing values (null/undefined/empty string — never a falsy-but-real value
+// like 0) always sort last, regardless of `direction`. `direction` is 1 for
+// ascending, -1 for descending. By default, string values compare
+// case-insensitively via localeCompare (for genuine text fields like title/
+// author/name). Pass `{ text: false }` for ISO date/timestamp strings (and
+// numbers) so they compare directly with `<`/`>` instead — locale collation
+// is unnecessary for fixed-format dates and safer to avoid entirely. Sorts a
+// fresh, already-filtered array — never mutates it in a way that touches the
+// underlying collection's insertion order.
+function compareByField(getValue, direction = 1, { text = true } = {}) {
+  return (a, b) => {
+    const valueA = getValue(a);
+    const valueB = getValue(b);
+    const missingA = valueA === null || valueA === undefined || valueA === '';
+    const missingB = valueB === null || valueB === undefined || valueB === '';
+    if (missingA && missingB) return 0;
+    if (missingA) return 1;
+    if (missingB) return -1;
+    if (text && typeof valueA === 'string' && typeof valueB === 'string') {
+      return direction * valueA.localeCompare(valueB, undefined, { sensitivity: 'base' });
+    }
+    if (valueA < valueB) return -direction;
+    if (valueA > valueB) return direction;
+    return 0;
+  };
+}
+
+// Trims and case-folds a free-text chip value so near-duplicates ("Fall
+// 2026" vs. "fall 2026 ") group into one chip instead of two.
+function normalizeChipKey(value) {
+  return (value || '').trim().toLowerCase();
+}
+
+// Derives the distinct chip groups from a live, non-deleted array: one entry
+// per normalized key, displayed using the first-seen original casing/spacing
+// for that group, sorted alphabetically. Blank/missing values are excluded —
+// the caller adds the "All" option on top of this.
+function deriveChipOptions(items, getValue) {
+  const byKey = new Map();
+  items.forEach((item) => {
+    const raw = (getValue(item) || '').trim();
+    if (!raw) return;
+    const key = normalizeChipKey(raw);
+    if (!byKey.has(key)) byKey.set(key, raw);
+  });
+  return [...byKey.entries()]
+    .map(([key, label]) => ({ key, label }))
+    .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+}
+
+// Shared chip-filter renderer (dynamic category-like chips and fixed
+// boolean-toggle chips alike): renders one chip per option, auto-resets the
+// current selection to 'all' if it disappeared from `options` (e.g. the last
+// item with that value was deleted), and wires click handlers via the
+// caller's own get/set for its module-level selection variable. `options`
+// must include the `{ key: 'all', label: 'All' }` entry itself.
+function renderChipFilter(container, options, getSelected, setSelected, onSelect) {
+  if (!container) return;
+  const keys = options.map((o) => o.key);
+  if (getSelected() !== 'all' && !keys.includes(getSelected())) {
+    setSelected('all');
+  }
+
+  container.innerHTML = '';
+  options.forEach(({ key, label }) => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'chip';
+    chip.textContent = label;
+    chip.classList.toggle('chip-active', getSelected() === key);
+    chip.addEventListener('click', () => {
+      setSelected(key);
+      onSelect();
+    });
+    container.appendChild(chip);
+  });
+}
+
 // ---- Device identity & sync metadata ----
 
 const DEVICE_KEY = 'secondMemory.device.v1';
@@ -168,16 +252,16 @@ function matchesBookSearch(book, term) {
   return haystack.includes(term.toLowerCase());
 }
 
-// Empty/missing author sorts after every book that has one, rather than
-// alphabetically first (as an empty string would with a plain localeCompare).
-function compareByAuthor(a, b) {
-  const authorA = (a.author || '').trim();
-  const authorB = (b.author || '').trim();
-  if (!authorA && !authorB) return 0;
-  if (!authorA) return 1;
-  if (!authorB) return -1;
-  return authorA.localeCompare(authorB, undefined, { sensitivity: 'base' });
-}
+// 'author_asc' is the default/initial state, matching the previously
+// hardcoded (and now user-facing) sort behavior exactly.
+let selectedBooksSort = 'author_asc';
+
+const BOOK_SORTS = {
+  author_asc: compareByField((b) => (b.author || '').trim(), 1),
+  title_asc: compareByField((b) => b.title, 1),
+  date_added_desc: compareByField((b) => b.dateAdded, -1, { text: false }),
+  date_added_asc: compareByField((b) => b.dateAdded, 1, { text: false }),
+};
 
 function renderBooksStats(nonDeletedBooks) {
   const el = document.getElementById('books-stats');
@@ -192,6 +276,7 @@ function renderBooks() {
   const searchTerm = document.getElementById('books-search-input').value;
   const nonDeleted = books.filter((b) => !b.deleted);
   const visible = nonDeleted.filter((b) => matchesBookSearch(b, searchTerm));
+  const comparator = BOOK_SORTS[selectedBooksSort] || BOOK_SORTS.author_asc;
   const template = document.getElementById('books-card-template');
 
   renderBooksStats(nonDeleted);
@@ -199,11 +284,12 @@ function renderBooks() {
   BOOK_STATUSES.forEach((status) => {
     const list = document.querySelector(`[data-list="${status}"]`);
     list.innerHTML = '';
-    // .sort() is a stable sort in all modern JS engines (ES2019+), so books by
-    // the same author entered in a deliberate order (e.g. a series) keep
-    // their relative order. `visible` is a fresh array from .filter(), so
-    // sorting it never touches the underlying `books` array or its order.
-    const itemsForStatus = visible.filter((b) => b.status === status).sort(compareByAuthor);
+    // .sort() is a stable sort in all modern JS engines (ES2019+), so books
+    // with equal sort keys (e.g. same author, entered in a deliberate order
+    // like a series) keep their relative order. `visible` is a fresh array
+    // from .filter(), so sorting it never touches the underlying `books`
+    // array or its order.
+    const itemsForStatus = visible.filter((b) => b.status === status).sort(comparator);
     document.querySelector(`[data-count="${status}"]`).textContent = itemsForStatus.length;
 
     itemsForStatus.forEach((book) => {
@@ -250,6 +336,11 @@ document.getElementById('books-add-form').addEventListener('submit', (e) => {
 });
 
 document.getElementById('books-search-input').addEventListener('input', renderBooks);
+
+document.getElementById('books-sort-input').addEventListener('change', (e) => {
+  selectedBooksSort = e.target.value;
+  renderBooks();
+});
 
 // ---- Recipes ----
 
@@ -299,11 +390,13 @@ function matchesRecipeSearch(recipe, term) {
   return haystack.includes(term.toLowerCase());
 }
 
-// 'all' is the default/initial state and always shows every recipe.
+// 'all' is the default/initial state and always shows every recipe. Stores
+// the *normalized* key (see normalizeChipKey), not the raw display string,
+// so "Sides" and "sides" are treated as the same selected chip.
 let selectedRecipeCategory = 'all';
 
-function matchesRecipeCategory(recipe, category) {
-  return category === 'all' || recipe.category === category;
+function matchesRecipeCategory(recipe, categoryKey) {
+  return categoryKey === 'all' || normalizeChipKey(recipe.category) === categoryKey;
 }
 
 // Derived fresh from the live `recipes` array every render — never a
@@ -311,33 +404,25 @@ function matchesRecipeCategory(recipe, category) {
 // automatically.
 function renderRecipeCategoryFilters(nonDeletedRecipes) {
   const container = document.getElementById('recipes-category-filters');
-  if (!container) return;
-
-  const categories = [...new Set(nonDeletedRecipes.map((r) => r.category).filter(Boolean))]
-    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-
-  if (selectedRecipeCategory !== 'all' && !categories.includes(selectedRecipeCategory)) {
-    selectedRecipeCategory = 'all';
-  }
-
-  container.innerHTML = '';
-
-  const makeChip = (label, value) => {
-    const chip = document.createElement('button');
-    chip.type = 'button';
-    chip.className = 'chip';
-    chip.textContent = label;
-    chip.classList.toggle('chip-active', selectedRecipeCategory === value);
-    chip.addEventListener('click', () => {
-      selectedRecipeCategory = value;
-      renderRecipes();
-    });
-    return chip;
-  };
-
-  container.appendChild(makeChip('All', 'all'));
-  categories.forEach((category) => container.appendChild(makeChip(category, category)));
+  const options = [{ key: 'all', label: 'All' }, ...deriveChipOptions(nonDeletedRecipes, (r) => r.category)];
+  renderChipFilter(
+    container,
+    options,
+    () => selectedRecipeCategory,
+    (key) => { selectedRecipeCategory = key; },
+    renderRecipes
+  );
 }
+
+// 'date_added_asc' is the default — a no-op relative to the previously
+// unsorted (≈ insertion-order) rendering, so existing users see zero change.
+let selectedRecipesSort = 'date_added_asc';
+
+const RECIPE_SORTS = {
+  date_added_asc: compareByField((r) => r.dateAdded, 1, { text: false }),
+  date_added_desc: compareByField((r) => r.dateAdded, -1, { text: false }),
+  title_asc: compareByField((r) => r.title, 1),
+};
 
 function renderRecipes() {
   const searchTerm = document.getElementById('recipes-search-input').value;
@@ -347,9 +432,11 @@ function renderRecipes() {
 
   renderRecipeCategoryFilters(nonDeleted);
 
+  const comparator = RECIPE_SORTS[selectedRecipesSort] || RECIPE_SORTS.date_added_asc;
   const visible = nonDeleted
     .filter((r) => matchesRecipeSearch(r, searchTerm))
-    .filter((r) => matchesRecipeCategory(r, selectedRecipeCategory));
+    .filter((r) => matchesRecipeCategory(r, selectedRecipeCategory))
+    .sort(comparator);
 
   list.innerHTML = '';
 
@@ -416,6 +503,11 @@ document.getElementById('recipes-add-form').addEventListener('submit', (e) => {
 });
 
 document.getElementById('recipes-search-input').addEventListener('input', renderRecipes);
+
+document.getElementById('recipes-sort-input').addEventListener('change', (e) => {
+  selectedRecipesSort = e.target.value;
+  renderRecipes();
+});
 
 // ---- Medications ----
 
@@ -490,6 +582,16 @@ function matchesMedicationSearch(med, term) {
   return haystack.includes(term.toLowerCase());
 }
 
+// 'name_asc' is the proposed default — medications have no natural
+// chronological default the way Recipes' insertion order does.
+let selectedMedicationsSort = 'name_asc';
+
+const MEDICATION_SORTS = {
+  name_asc: compareByField((m) => m.name, 1),
+  start_date_desc: compareByField((m) => m.startDate, -1, { text: false }),
+  start_date_asc: compareByField((m) => m.startDate, 1, { text: false }),
+};
+
 function renderMedicationGroup(groupKey, items, template) {
   const list = document.querySelector(`[data-med-list="${groupKey}"]`);
   list.innerHTML = '';
@@ -552,9 +654,10 @@ function renderMedications() {
   const searchTerm = document.getElementById('medications-search-input').value;
   const visible = medications.filter((m) => !m.deleted).filter((m) => matchesMedicationSearch(m, searchTerm));
   const template = document.getElementById('medications-card-template');
+  const comparator = MEDICATION_SORTS[selectedMedicationsSort] || MEDICATION_SORTS.name_asc;
 
-  const current = visible.filter((m) => m.endDate === null);
-  const former = visible.filter((m) => m.endDate !== null);
+  const current = visible.filter((m) => m.endDate === null).sort(comparator);
+  const former = visible.filter((m) => m.endDate !== null).sort(comparator);
 
   renderMedicationGroup('current', current, template);
   renderMedicationGroup('former', former, template);
@@ -601,6 +704,11 @@ document.getElementById('medications-add-form').addEventListener('submit', (e) =
 });
 
 document.getElementById('medications-search-input').addEventListener('input', renderMedications);
+
+document.getElementById('medications-sort-input').addEventListener('change', (e) => {
+  selectedMedicationsSort = e.target.value;
+  renderMedications();
+});
 
 // ---- Diagnoses ----
 
@@ -654,15 +762,25 @@ function matchesDiagnosisSearch(diagnosis, term) {
   return haystack.includes(term.toLowerCase());
 }
 
+// 'condition_asc' is the proposed default.
+let selectedDiagnosesSort = 'condition_asc';
+
+const DIAGNOSIS_SORTS = {
+  condition_asc: compareByField((d) => d.condition, 1),
+  date_diagnosed_desc: compareByField((d) => d.dateDiagnosed, -1, { text: false }),
+  date_diagnosed_asc: compareByField((d) => d.dateDiagnosed, 1, { text: false }),
+};
+
 function renderDiagnoses() {
   const searchTerm = document.getElementById('diagnoses-search-input').value;
   const visible = diagnoses.filter((d) => !d.deleted).filter((d) => matchesDiagnosisSearch(d, searchTerm));
   const template = document.getElementById('diagnoses-card-template');
+  const comparator = DIAGNOSIS_SORTS[selectedDiagnosesSort] || DIAGNOSIS_SORTS.condition_asc;
 
   DIAGNOSIS_STATUSES.forEach((status) => {
     const list = document.querySelector(`[data-diagnosis-list="${status}"]`);
     list.innerHTML = '';
-    const items = visible.filter((d) => d.status === status);
+    const items = visible.filter((d) => d.status === status).sort(comparator);
     document.querySelector(`[data-diagnosis-count="${status}"]`).textContent = items.length;
 
     items.forEach((diagnosis) => {
@@ -710,6 +828,11 @@ document.getElementById('diagnoses-add-form').addEventListener('submit', (e) => 
 });
 
 document.getElementById('diagnoses-search-input').addEventListener('input', renderDiagnoses);
+
+document.getElementById('diagnoses-sort-input').addEventListener('change', (e) => {
+  selectedDiagnosesSort = e.target.value;
+  renderDiagnoses();
+});
 
 // ---- To-Do ----
 
@@ -765,9 +888,52 @@ function isTodoOverdue(todo) {
   return todo.dueDate < today;
 }
 
+// 'all' is the default/initial state. Fixed 3-option set (not derived from
+// data, unlike the category-style chip filters) since `completed` is boolean.
+let selectedTodoFilter = 'all';
+
+function matchesTodoFilter(todo, filterKey) {
+  if (filterKey === 'active') return !todo.completed;
+  if (filterKey === 'completed') return todo.completed;
+  return true;
+}
+
+function renderTodoCompletedFilters() {
+  const container = document.getElementById('todo-completed-filters');
+  const options = [
+    { key: 'all', label: 'All' },
+    { key: 'active', label: 'Active' },
+    { key: 'completed', label: 'Completed' },
+  ];
+  renderChipFilter(
+    container,
+    options,
+    () => selectedTodoFilter,
+    (key) => { selectedTodoFilter = key; },
+    renderTodos
+  );
+}
+
+// 'due_date_asc' is the proposed default — it has the side effect of
+// surfacing overdue to-dos (dueDate < today) at the top, for free.
+let selectedTodoSort = 'due_date_asc';
+
+const TODO_SORTS = {
+  due_date_asc: compareByField((t) => t.dueDate, 1, { text: false }),
+  due_date_desc: compareByField((t) => t.dueDate, -1, { text: false }),
+  date_added_desc: compareByField((t) => t.dateAdded, -1, { text: false }),
+  date_added_asc: compareByField((t) => t.dateAdded, 1, { text: false }),
+};
+
 function renderTodos() {
   const searchTerm = document.getElementById('todo-search-input').value;
-  const visible = todos.filter((t) => !t.deleted).filter((t) => matchesTodoSearch(t, searchTerm));
+  renderTodoCompletedFilters();
+  const comparator = TODO_SORTS[selectedTodoSort] || TODO_SORTS.due_date_asc;
+  const visible = todos
+    .filter((t) => !t.deleted)
+    .filter((t) => matchesTodoSearch(t, searchTerm))
+    .filter((t) => matchesTodoFilter(t, selectedTodoFilter))
+    .sort(comparator);
   const list = document.getElementById('todo-list');
   const template = document.getElementById('todo-card-template');
   list.innerHTML = '';
@@ -809,6 +975,11 @@ document.getElementById('todo-add-form').addEventListener('submit', (e) => {
 });
 
 document.getElementById('todo-search-input').addEventListener('input', renderTodos);
+
+document.getElementById('todo-sort-input').addEventListener('change', (e) => {
+  selectedTodoSort = e.target.value;
+  renderTodos();
+});
 
 // ---- Shopping List ----
 
@@ -860,9 +1031,69 @@ function matchesShoppingSearch(item, term) {
   return haystack.includes(term.toLowerCase());
 }
 
+// 'all' is the default/initial state for both new filters below.
+let selectedShoppingCategory = 'all';
+let selectedShoppingChecked = 'all';
+
+function matchesShoppingCategory(item, categoryKey) {
+  return categoryKey === 'all' || normalizeChipKey(item.category) === categoryKey;
+}
+
+function matchesShoppingChecked(item, checkedKey) {
+  if (checkedKey === 'active') return !item.checked;
+  if (checkedKey === 'checked') return item.checked;
+  return true;
+}
+
+function renderShoppingCategoryFilters(nonDeletedItems) {
+  const container = document.getElementById('shopping-category-filters');
+  const options = [{ key: 'all', label: 'All' }, ...deriveChipOptions(nonDeletedItems, (i) => i.category)];
+  renderChipFilter(
+    container,
+    options,
+    () => selectedShoppingCategory,
+    (key) => { selectedShoppingCategory = key; },
+    renderShoppingList
+  );
+}
+
+function renderShoppingCheckedFilters() {
+  const container = document.getElementById('shopping-checked-filters');
+  const options = [
+    { key: 'all', label: 'All' },
+    { key: 'active', label: 'Active' },
+    { key: 'checked', label: 'Checked' },
+  ];
+  renderChipFilter(
+    container,
+    options,
+    () => selectedShoppingChecked,
+    (key) => { selectedShoppingChecked = key; },
+    renderShoppingList
+  );
+}
+
+// 'date_added_asc' is the default — a no-op relative to the previously
+// unsorted (≈ insertion-order) rendering, same reasoning as Recipes.
+let selectedShoppingSort = 'date_added_asc';
+
+const SHOPPING_SORTS = {
+  date_added_asc: compareByField((i) => i.dateAdded, 1, { text: false }),
+  date_added_desc: compareByField((i) => i.dateAdded, -1, { text: false }),
+  item_asc: compareByField((i) => i.item, 1),
+};
+
 function renderShoppingList() {
   const searchTerm = document.getElementById('shopping-search-input').value;
-  const visible = shoppingItems.filter((i) => !i.deleted).filter((i) => matchesShoppingSearch(i, searchTerm));
+  const nonDeleted = shoppingItems.filter((i) => !i.deleted);
+  renderShoppingCategoryFilters(nonDeleted);
+  renderShoppingCheckedFilters();
+  const comparator = SHOPPING_SORTS[selectedShoppingSort] || SHOPPING_SORTS.date_added_asc;
+  const visible = nonDeleted
+    .filter((i) => matchesShoppingSearch(i, searchTerm))
+    .filter((i) => matchesShoppingCategory(i, selectedShoppingCategory))
+    .filter((i) => matchesShoppingChecked(i, selectedShoppingChecked))
+    .sort(comparator);
   const list = document.getElementById('shopping-list');
   const template = document.getElementById('shopping-card-template');
   list.innerHTML = '';
@@ -911,6 +1142,11 @@ document.getElementById('shopping-add-form').addEventListener('submit', (e) => {
 });
 
 document.getElementById('shopping-search-input').addEventListener('input', renderShoppingList);
+
+document.getElementById('shopping-sort-input').addEventListener('change', (e) => {
+  selectedShoppingSort = e.target.value;
+  renderShoppingList();
+});
 
 // ---- Notes ----
 
@@ -976,9 +1212,30 @@ function noteBodySnippet(body, length = 150) {
   return trimmed.length > length ? `${trimmed.slice(0, length)}…` : trimmed;
 }
 
+// 'date_modified_desc' is the proposed default — Notes already surfaces
+// dateModified prominently in the UI ("Updated {date}"), so recency-of-edit
+// is the natural default.
+let selectedNotesSort = 'date_modified_desc';
+
+const NOTE_SORTS = {
+  date_modified_desc: compareByField((n) => n.dateModified, -1, { text: false }),
+  date_modified_asc: compareByField((n) => n.dateModified, 1, { text: false }),
+  date_added_desc: compareByField((n) => n.dateAdded, -1, { text: false }),
+  date_added_asc: compareByField((n) => n.dateAdded, 1, { text: false }),
+  title_asc: compareByField((n) => n.title, 1),
+};
+
 function renderNotes() {
   const searchTerm = document.getElementById('notes-search-input').value;
-  const visible = notes.filter((n) => !n.deleted).filter((n) => matchesNoteSearch(n, searchTerm));
+  const comparator = NOTE_SORTS[selectedNotesSort] || NOTE_SORTS.date_modified_desc;
+  // Sort is applied after search filtering, before render — same pipeline
+  // order as every other collection. The open-edit-form capture/restore
+  // below is keyed by note id, not by position, so re-ordering the visible
+  // array has no effect on which note (if any) has its edit form preserved.
+  const visible = notes
+    .filter((n) => !n.deleted)
+    .filter((n) => matchesNoteSearch(n, searchTerm))
+    .sort(comparator);
   const list = document.getElementById('notes-list');
   const template = document.getElementById('notes-card-template');
 
@@ -1019,6 +1276,14 @@ function renderNotes() {
     const editError = node.querySelector('.note-edit-error');
 
     node.querySelector('.edit-btn').addEventListener('click', () => {
+      // Only one note can be in edit mode at a time (keeps renderNotes'
+      // single-open-edit-form capture/restore correct by construction).
+      // Close any other note's open form the same way Cancel would.
+      const otherOpenForm = list.querySelector('.note-edit-form:not([hidden])');
+      if (otherOpenForm && otherOpenForm !== editForm) {
+        otherOpenForm.hidden = true;
+        otherOpenForm.closest('.note-card').querySelector('.note-view').hidden = false;
+      }
       editTitleInput.value = note.title;
       editBodyInput.value = note.body;
       editError.hidden = true;
@@ -1074,6 +1339,11 @@ document.getElementById('notes-add-form').addEventListener('submit', (e) => {
 
 document.getElementById('notes-search-input').addEventListener('input', renderNotes);
 
+document.getElementById('notes-sort-input').addEventListener('change', (e) => {
+  selectedNotesSort = e.target.value;
+  renderNotes();
+});
+
 // ---- Resume & Portfolio ----
 
 const LINKS_KEY = 'secondMemory.links.v1';
@@ -1122,9 +1392,22 @@ function hrefFor(url) {
   return URL_SCHEME_RE.test(url) ? url : `https://${url}`;
 }
 
+// 'date_added_asc' is the default, matching current unsorted behavior.
+let selectedLinksSort = 'date_added_asc';
+
+const LINK_SORTS = {
+  date_added_asc: compareByField((l) => l.dateAdded, 1, { text: false }),
+  date_added_desc: compareByField((l) => l.dateAdded, -1, { text: false }),
+  label_asc: compareByField((l) => l.label, 1),
+};
+
 function renderLinks() {
   const searchTerm = document.getElementById('resume-search-input').value;
-  const visible = links.filter((l) => !l.deleted).filter((l) => matchesLinkSearch(l, searchTerm));
+  const comparator = LINK_SORTS[selectedLinksSort] || LINK_SORTS.date_added_asc;
+  const visible = links
+    .filter((l) => !l.deleted)
+    .filter((l) => matchesLinkSearch(l, searchTerm))
+    .sort(comparator);
   const list = document.getElementById('resume-list');
   const template = document.getElementById('resume-card-template');
   list.innerHTML = '';
@@ -1172,6 +1455,11 @@ document.getElementById('resume-add-form').addEventListener('submit', (e) => {
 });
 
 document.getElementById('resume-search-input').addEventListener('input', renderLinks);
+
+document.getElementById('resume-sort-input').addEventListener('change', (e) => {
+  selectedLinksSort = e.target.value;
+  renderLinks();
+});
 
 // ---- Degree & Coursework ----
 
@@ -1254,6 +1542,41 @@ function matchesCourseSearch(course, term) {
 
 const COURSE_STATUS_LABELS = { completed: 'completed', in_progress: 'in progress', planned: 'planned' };
 
+// 'all' is the default/initial state.
+let selectedCourseTerm = 'all';
+
+function matchesCourseTerm(course, termKey) {
+  return termKey === 'all' || normalizeChipKey(course.term) === termKey;
+}
+
+function renderCourseTermFilters(nonDeletedCourses) {
+  const container = document.getElementById('coursework-term-filters');
+  const options = [{ key: 'all', label: 'All' }, ...deriveChipOptions(nonDeletedCourses, (c) => c.term)];
+  renderChipFilter(
+    container,
+    options,
+    () => selectedCourseTerm,
+    (key) => { selectedCourseTerm = key; },
+    renderCourses
+  );
+}
+
+// 'title_asc' is the proposed default. No Term sort option is offered —
+// `term` is free text (e.g. "Fall 2026") with no structured year/season
+// split, so a plain localeCompare sort would be alphabetical, not
+// chronological ("Fall 2025"/"Fall 2026" would both sort before every
+// "Spring" term). Deliberate omission, not an oversight.
+let selectedCoursesSort = 'title_asc';
+
+const COURSE_SORTS = {
+  title_asc: compareByField((c) => c.title, 1),
+  code_asc: compareByField((c) => c.code, 1),
+  credits_desc: compareByField((c) => c.credits, -1, { text: false }),
+  credits_asc: compareByField((c) => c.credits, 1, { text: false }),
+  date_added_desc: compareByField((c) => c.dateAdded, -1, { text: false }),
+  date_added_asc: compareByField((c) => c.dateAdded, 1, { text: false }),
+};
+
 function renderCoursesStats(nonDeletedCourses) {
   const el = document.getElementById('coursework-stats');
   if (!el) return;
@@ -1273,15 +1596,20 @@ function renderCoursesStats(nonDeletedCourses) {
 function renderCourses() {
   const searchTerm = document.getElementById('coursework-search-input').value;
   const nonDeleted = courses.filter((c) => !c.deleted);
-  const visible = nonDeleted.filter((c) => matchesCourseSearch(c, searchTerm));
   const template = document.getElementById('coursework-card-template');
 
   renderCoursesStats(nonDeleted);
+  renderCourseTermFilters(nonDeleted);
+
+  const comparator = COURSE_SORTS[selectedCoursesSort] || COURSE_SORTS.title_asc;
+  const visible = nonDeleted
+    .filter((c) => matchesCourseSearch(c, searchTerm))
+    .filter((c) => matchesCourseTerm(c, selectedCourseTerm));
 
   COURSE_STATUSES.forEach((status) => {
     const list = document.querySelector(`[data-course-list="${status}"]`);
     list.innerHTML = '';
-    const items = visible.filter((c) => c.status === status);
+    const items = visible.filter((c) => c.status === status).sort(comparator);
     document.querySelector(`[data-course-count="${status}"]`).textContent = items.length;
 
     items.forEach((course) => {
@@ -1367,6 +1695,11 @@ document.getElementById('coursework-add-form').addEventListener('submit', (e) =>
 });
 
 document.getElementById('coursework-search-input').addEventListener('input', renderCourses);
+
+document.getElementById('coursework-sort-input').addEventListener('change', (e) => {
+  selectedCoursesSort = e.target.value;
+  renderCourses();
+});
 
 // ---- Device Sync ----
 // Optional: the app is fully functional offline with no sync configured, and
