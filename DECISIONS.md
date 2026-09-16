@@ -3,6 +3,61 @@
 This file is maintained by the Archivist role. Newest entries at the top. Each entry
 records what was decided, why, and any standing constraint future work must respect.
 
+## 2026-09-16 — Textbooks + Jon's Bookshelf — Read columns
+
+**Decision:** The user asked for two more Books columns: "a Textbooks column and a Jon's
+Bookshelf-read column." This directly extended the immediately-prior cycle's settled
+precedent (a new "kind of book" = a new status value / new column in the same single-axis
+model, not a separate section or owner field) — the Analyst treated that precedent as
+settled, not reopened.
+
+**What was decided (`docs/specs/books-textbooks-jons-bookshelf-read.md`):**
+`BOOK_STATUSES` extended from 5 to 7 values: `['want_to_buy', 'owned_unread',
+'currently_reading', 'owned_read', 'textbook', 'jons_bookshelf', 'jons_bookshelf_read']`.
+`textbook` sits right after the reading pipeline (still "the user's own," just a
+different fact, same reasoning already used for `jons_bookshelf`). `jons_bookshelf_read`
+sits directly adjacent to `jons_bookshelf` (unlike `owned_unread`/`owned_read`, since no
+"Jon's — currently reading" status was requested). The existing `jons_bookshelf` column's
+display label was changed to "Jon's Bookshelf — Unread" for symmetry with the new "— Read"
+column — display label only, the underlying `status` string `jons_bookshelf` was
+deliberately left unchanged so no existing record (including any already moved there
+since the prior cycle) needs migrating. Same accepted single-axis limitation as before,
+now extended: a `textbook` can't simultaneously be `currently_reading`/`owned_read`, and
+`jons_bookshelf_read` can't simultaneously be `currently_reading` — not reopened, just
+extended to the new statuses.
+
+**What was built (commit `51b73eb`):** the two new columns added to the Books grid,
+matching statuses added consistently across the add-form select, the move-select
+template, and `renderBooksStats()`'s summary line. No other logic changes needed —
+confirmed the existing render/sort loop, rating-clear conditional, and search all already
+iterate `BOOK_STATUSES` generically.
+
+**Outcome:** the Architect live-tested (fresh port) after this cycle's Builder run was
+interrupted mid-way by a session-wide rate limit (noted below) — confirmed all 7 columns
+render with correct labels via the existing `repeat(auto-fit, minmax(200px, 1fr))` grid
+(wraps to 3 rows of ~2-3 columns cleanly, no visual breakage), a book added directly to
+Textbooks and one added directly to Jon's Bookshelf — Read both rendered in the correct
+column with correct move-dropdown option text, the stats line correctly reported all 7
+categories, and — given Books columns got even narrower at 7-wide — re-confirmed no
+horizontal overflow regression (the `.move-select` `max-width: 100%` fix from the
+immediately-prior "Books column scroll" cycle still holds at this column count). Zero
+console errors.
+
+Worth noting as an operational note, not a design decision: this cycle's Bob dispatch was
+cut short by an API rate limit (session hit a weekly usage cap) right at its final
+self-check step, but had already completed all the actual code changes correctly by that
+point — the Architect verified the completed work directly rather than needing to
+re-dispatch Bob. No code was left broken or half-done.
+
+**Standing constraints established:**
+- Books' `BOOK_STATUSES` is now 7 values across 3 "families" — the user's own reading
+  pipeline (want_to_buy/owned_unread/currently_reading/owned_read), a single-fact-only
+  column (textbook), and Jon's two-status pair (jons_bookshelf/jons_bookshelf_read). Any
+  future addition of a similar "whose/what kind of book" column should follow this same
+  pattern (a plain status value, correctly ordered relative to whichever family it belongs
+  to, added consistently to all 4 places: BOOK_STATUSES, add-form select, move-select
+  template, stats line) rather than inventing a new mechanism.
+
 ## 2026-09-15 — Four-corner branch frame (leaf background reshape)
 
 **Decision:** The user shared a reference photo — a watercolor-style stock image of leafy
@@ -856,4 +911,3 @@ network requests are made (confirmed via the browser's network log — only the 
 Tester subagent should be dispatched for verification from the next feature cycle
 onward.
 </content>
-</invoke>
