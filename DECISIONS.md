@@ -3,6 +3,72 @@
 This file is maintained by the Archivist role. Newest entries at the top. Each entry
 records what was decided, why, and any standing constraint future work must respect.
 
+## 2026-09-15 — Four-corner branch frame (leaf background reshape)
+
+**Decision:** The user shared a reference photo — a watercolor-style stock image of leafy
+branches framing all four edges of a picture, with a clear light-colored open space in the
+middle — and asked to "make the background more like this image." The Architect declined
+to reproduce the actual image: it's a copyrighted stock photo (visible watermark), and
+separately this project has a hard constraint of zero external-image dependencies
+regardless of copyright. Instead, only the reference's compositional idea (a corner-
+concentrated frame with a clear center) was carried forward into an original interpretation
+built from the app's already-established green/rose palette and inline-SVG technique.
+
+**What was built (Bob, commit `d050054`, in `style.css`):** replaced the old `body::before`
+uniform repeating leaf tile (which covered the entire page at a necessarily low 4-8% alpha,
+since it touched every piece of text on every page) with a non-repeating four-corner
+composition: four independent CSS background-image layers (top-left/top-right/bottom-left/
+bottom-right), each a scaled-up (~1.8-2.2x) version of the same leaf-blade/vein/blossom
+motifs from the prior redesign cycle, sized via `clamp(180px, 22vw, 300px)` so it shrinks
+gracefully on narrow viewports without disappearing. Bob authored one base motif for the
+top-left corner (dense growth anchored at the SVG's own corner, tapering toward the center)
+then mechanically derived the other three corners by mirroring path coordinates (horizontal
+mirror for top-right, vertical for bottom-left, both for bottom-right) — the same kind of
+mechanical coordinate-flip already used for this project's light/dark hex swaps, not
+hand-drawn separately. Opacity was raised to the ~16-20% range already verified safe for
+corner-anchored decor in the prior redesign cycle (higher than the old tile's 4-8%,
+justified because this composition only touches the outer edges/corners rather than the
+whole page). Same hardcoded-hex-per-theme pattern as every other decorative SVG in the file
+(light: `--accent` #2E5D34 / `--accent-rose` #A24B68; dark: #7BC174 / #E8A9BE). The smaller
+existing accents (`.sidebar-header::after`, `.column::before`/`.toolbar-leaf::before`,
+`.leaf-divider`) were deliberately left untouched — they operate at a different visual
+scale (per-element) than this new viewport-level corner frame and were judged to coexist
+fine rather than clash.
+
+**Outcome:** Bob had no browser tool available this session and explicitly flagged that the
+geometry was checked by math only, not visually rendered, recommending the Architect do a
+visual pass before considering the cycle done. The Architect did that live-browser
+verification (fresh port, both light and dark `prefers-color-scheme` emulation): confirmed
+the corner clusters render as intentional branch shapes (not misaligned/floating), the
+center of the viewport stays clearly open in both themes, text remains legible where any UI
+element overlaps a corner (e.g. the Books sort dropdown near the top-right cluster), the
+composition correctly reappears at the true top of the page after scrolling away and back
+(confirming `position: fixed` behaves correctly — the mid-scroll absence of visible leaf
+decor over a full-width opaque card list is expected/correct, not a bug, since opaque card
+backgrounds legitimately cover the fixed decorative layer wherever they're drawn), and zero
+console errors.
+
+**Standing constraints established:**
+- This is the second time this project has needed to author mirrored/rotated SVG corner
+  variants via mechanical coordinate transforms (light/dark hex swapping was the first
+  repeated pattern, established in the immediately-prior foresty-redesign cycle) — if a
+  third corner-oriented decorative element is ever added, reuse this same
+  mechanical-mirroring approach rather than re-deriving it.
+- The reference image that prompted this cycle was a copyrighted stock photo the Architect
+  declined to reproduce or embed (this project has zero external-image dependencies as a
+  hard constraint regardless of copyright) — only its compositional idea (corner-
+  concentrated frame, clear center) was used as direction for an original interpretation.
+  Worth remembering if the user references other external images for future visual
+  requests: the pattern is "match the composition/vibe with original assets," not "embed
+  the image."
+- Corner-anchored decor's safe opacity ceiling (~16-20%, established in the prior redesign
+  cycle's contrast math) was reused here directly rather than re-derived, since the same
+  "decoration that might sit near `--muted`-weight text" scenario applies — future corner/
+  edge decor additions can reuse this same ceiling without needing a fresh Researcher
+  contrast pass, as long as the decoration stays corner/edge-confined rather than covering
+  the full page (which is a different, much stricter 4-8% ceiling, also already
+  established).
+
 ## 2026-09-15 — Currently Reading column + Jon's Bookshelf
 
 **Decision:** The user asked to add a "Currently Reading" column and a "Jon's Bookshelf"
