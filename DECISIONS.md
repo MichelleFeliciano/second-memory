@@ -3,6 +3,90 @@
 This file is maintained by the Archivist role. Newest entries at the top. Each entry
 records what was decided, why, and any standing constraint future work must respect.
 
+## 2026-09-15 — Filter/sort across all nine collections
+
+**Decision:** The user asked for filter/sort "on anything that logically needs to be
+sorted or filtered, like all of the above but also books in each column and recipes,
+etc" — a full pass across all nine collections, not just one tab. The Analyst read every
+collection's actual data model (the `addX()` functions in `app.js`) and wrote
+`docs/specs/filter-sort-all-collections.md`, proposing sort/filter controls using ONLY
+fields that already exist — no schema changes. It explicitly flagged real gaps it
+declined to paper over: To-Do has no priority field; Notes and Resume & Portfolio have no
+bounded field to filter on at all; Medications' `prescribingDoctor` and Diagnoses'
+`provider` are free text with no curation (unlike Recipes' hand-curated `category`), so
+no chip filter was proposed for them; Coursework's `term` field ("Fall 2026") is free
+text with no structured year/season split, so a Term sort was deliberately omitted
+(alphabetical would be chronologically misleading — "Fall 2025"/"Fall 2026" both sort
+before any "Spring" term). The Architect approved the spec as scoped, adding one
+requirement: since the plan reused the chip-filter pattern two more times, a shared
+normalization helper (trim + case-fold for grouping) should be added so near-duplicate
+values ("Fall 2026" vs "fall 2026 ") don't produce duplicate chips — fixing a latent gap
+in the original Recipes implementation rather than tripling it.
+
+**What was built (Bob, commit `8c16b98`):** Books/Recipes/Medications/Diagnoses/
+Coursework each got a sort `<select>` applied uniformly across their status columns/
+groups. To-Do got a fixed 3-option chip filter on `completed` (All/Active/Completed) plus
+a Due Date/Date Added sort. Shopping List got a dynamic category chip filter AND a fixed
+checked/active toggle (both AND-combined with search) plus a sort. Coursework got a
+dynamic Term chip filter (no Term sort, per the spec's flagged reasoning). Notes and
+Resume & Portfolio got sort only, no filter (per the flagged gaps). Shared helpers added
+to `app.js`: `compareByField(getValue, direction, {text})` (null/undefined/''-last
+comparator — explicitly not falsy-checked, so a `0` value like Coursework credits sorts
+as a real value, not as missing), `normalizeChipKey()` (trim+lowercase),
+`deriveChipOptions()` (groups by normalized key, keeps first-seen casing as the display
+label), `renderChipFilter()` (one shared chip-row renderer with auto-reset-to-"All" reused
+by all five chip/toggle filters, including Recipes' pre-existing category filter, which
+was retrofitted onto this shared pattern). All new filter/sort selections are
+non-persisted module-level variables (reset to default on reload), matching the existing
+`selectedRecipeCategory` precedent — this was a deliberate, explicit requirement, not an
+oversight.
+
+**Bug found and fixed this cycle (Tester found it, Bob fixed it):** `renderNotes()`'s
+edit-form capture/restore logic (from the 2026-09-14 fix, which preserves an in-progress
+inline edit across a re-render) used a singular `querySelector` to find "the" open edit
+form, so it only ever preserved one note's edit state. Nothing previously stopped a user
+from opening two notes' edit forms simultaneously; before this cycle that was rare, but
+the new sort `<select>` makes re-renders far more frequent, making it much easier to hit
+in practice. Fixed by enforcing single-open-edit-form exclusivity: clicking Edit on a note
+now closes any other note's already-open form first (via the same clean revert-to-view
+path Cancel already uses), so there's never more than one open form for the
+capture/restore logic to have to worry about.
+
+**Outcome:** the Tester did a full static code trace (8 of 9 checks passed on first pass;
+the Notes bug above was the one failure, subsequently fixed). The Architect then did live
+browser verification on a fresh port (avoiding the known browser-cache gotcha already
+documented above) confirming: chip normalization collapses "Fall 2026"/"fall 2026 " into
+one chip and "Produce"/"produce " into one chip, with the collapsed chip correctly
+matching both underlying records; Coursework credits-ascending sort correctly orders a
+`0`-credit course ahead of a `3`-credit course, with a `null`-credit course sorting last
+(0 is not treated as missing); and the Notes fix works end-to-end — opening Edit on a
+second note now closes the first note's form, and changing the sort dropdown while a note
+is mid-edit preserves its unsaved text and correct open state.
+
+**Standing constraints established:**
+- To-Do has no priority field. Notes and Resume & Portfolio have no filterable field.
+  Medications' `prescribingDoctor` and Diagnoses' `provider` were deliberately not turned
+  into chip filters (uncurated free text, unbounded cardinality) — revisit only if real
+  data shows a small clean set. Coursework's `term` can't be sorted chronologically as
+  stored; a real fix needs a schema decision (e.g. a structured term/year
+  representation), not a UI change.
+- Any future chip-filter field should use the new `normalizeChipKey()`/
+  `deriveChipOptions()`/`renderChipFilter()` helpers rather than reinventing the pattern a
+  fourth time.
+- Any future sort field should use the new `compareByField()` helper (remember: check for
+  `null`/`undefined`/`''` explicitly, never a falsy check, so a real `0` value sorts
+  correctly).
+- Filter/sort UI state is intentionally non-persisted across reload — this is a
+  deliberate convention (matching `selectedRecipeCategory`), not a bug, and should stay
+  that way unless the Architect explicitly decides to persist UI state more broadly.
+- Notes' single-open-edit-form invariant is now enforced at the UI level (Edit closes any
+  other open form) — any future change to Notes' edit flow must preserve that invariant
+  or the capture/restore logic in `renderNotes()` breaks again.
+
+Also note: the Builder role was renamed to "Bob" this session (separate small commit,
+`98e9d14`) — `.claude/agents/builder.md` is now `.claude/agents/bob.md`, `subagent_type`
+`bob`.
+
 ## 2026-09-15 — Sync/import all-tabs re-render fix
 
 **Decision:** The user reported "have the sync work for all tabs at once, not one tab at
