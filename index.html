@@ -13,6 +13,11 @@
       <h1>Second Memory</h1>
       <p class="tagline">Your offline second brain.</p>
     </div>
+    <div class="undo-redo-panel" id="undo-redo-panel">
+      <button type="button" id="undo-btn" disabled>Undo</button>
+      <button type="button" id="redo-btn" disabled>Redo</button>
+    </div>
+
     <ul class="nav-list">
       <li class="nav-group">
         <p class="nav-group-label">Library</p>
@@ -472,122 +477,198 @@
 
 <template id="books-card-template">
   <li class="book-card">
-    <div class="book-info">
-      <strong class="book-title"></strong>
-      <span class="book-author"></span>
-      <span class="book-rating"></span>
-    </div>
-    <div class="book-actions">
-      <label class="rating-label" hidden>
-        Rating:
-        <select class="rating-select">
-          <option value="">—</option>
-          <option value="1">★</option>
-          <option value="2">★★</option>
-          <option value="3">★★★</option>
-          <option value="4">★★★★</option>
-          <option value="5">★★★★★</option>
+    <div class="book-view">
+      <div class="book-info">
+        <strong class="book-title"></strong>
+        <span class="book-author"></span>
+        <span class="book-rating"></span>
+      </div>
+      <div class="book-actions">
+        <label class="rating-label" hidden>
+          Rating:
+          <select class="rating-select">
+            <option value="">—</option>
+            <option value="1">★</option>
+            <option value="2">★★</option>
+            <option value="3">★★★</option>
+            <option value="4">★★★★</option>
+            <option value="5">★★★★★</option>
+          </select>
+        </label>
+        <select class="move-select" aria-label="Move to status">
+          <option value="want_to_buy">Move: Want to buy</option>
+          <option value="owned_unread">Move: Owned — Unread</option>
+          <option value="currently_reading">Move: Currently Reading</option>
+          <option value="owned_read">Move: Owned — Read</option>
+          <option value="textbook">Move: Textbooks</option>
+          <option value="jons_bookshelf">Move: Jon's Bookshelf — Unread</option>
+          <option value="jons_bookshelf_read">Move: Jon's Bookshelf — Read</option>
         </select>
-      </label>
-      <select class="move-select" aria-label="Move to status">
-        <option value="want_to_buy">Move: Want to buy</option>
-        <option value="owned_unread">Move: Owned — Unread</option>
-        <option value="currently_reading">Move: Currently Reading</option>
-        <option value="owned_read">Move: Owned — Read</option>
-        <option value="textbook">Move: Textbooks</option>
-        <option value="jons_bookshelf">Move: Jon's Bookshelf — Unread</option>
-        <option value="jons_bookshelf_read">Move: Jon's Bookshelf — Read</option>
-      </select>
-      <button type="button" class="delete-btn" aria-label="Delete book">Delete</button>
+        <button type="button" class="edit-btn">Edit</button>
+        <button type="button" class="delete-btn" aria-label="Delete book">Delete</button>
+      </div>
     </div>
+    <form class="book-edit-form" hidden>
+      <input type="text" class="book-edit-title" placeholder="Title" required aria-label="Edit book title">
+      <input type="text" class="book-edit-author" placeholder="Author" aria-label="Edit book author">
+      <div class="book-actions">
+        <button type="submit">Save</button>
+        <button type="button" class="cancel-btn">Cancel</button>
+      </div>
+    </form>
   </li>
 </template>
 
 <template id="recipes-card-template">
   <li class="recipe-card">
-    <div class="recipe-header">
-      <strong class="recipe-title"></strong>
-      <span class="recipe-category badge" hidden></span>
+    <div class="recipe-view">
+      <div class="recipe-header">
+        <strong class="recipe-title"></strong>
+        <span class="recipe-category badge" hidden></span>
+      </div>
+      <div class="recipe-section recipe-ingredients-section" hidden>
+        <h4>Ingredients</h4>
+        <ul class="recipe-ingredients scroll-block"></ul>
+      </div>
+      <div class="recipe-section recipe-steps-section" hidden>
+        <h4>Steps</h4>
+        <ol class="recipe-steps scroll-block"></ol>
+      </div>
+      <p class="recipe-notes" hidden></p>
+      <div class="recipe-actions">
+        <button type="button" class="edit-btn">Edit</button>
+        <button type="button" class="delete-btn" aria-label="Delete recipe">Delete</button>
+      </div>
     </div>
-    <div class="recipe-section recipe-ingredients-section" hidden>
-      <h4>Ingredients</h4>
-      <ul class="recipe-ingredients scroll-block"></ul>
-    </div>
-    <div class="recipe-section recipe-steps-section" hidden>
-      <h4>Steps</h4>
-      <ol class="recipe-steps scroll-block"></ol>
-    </div>
-    <p class="recipe-notes" hidden></p>
-    <div class="recipe-actions">
-      <button type="button" class="delete-btn" aria-label="Delete recipe">Delete</button>
-    </div>
+    <form class="recipe-edit-form" hidden>
+      <input type="text" class="recipe-edit-title" placeholder="Title" required aria-label="Edit recipe title">
+      <input type="text" class="recipe-edit-category" placeholder="Category (optional)" aria-label="Edit recipe category">
+      <textarea class="recipe-edit-ingredients" placeholder="Ingredients (one per line)" aria-label="Edit recipe ingredients" rows="4"></textarea>
+      <textarea class="recipe-edit-steps" placeholder="Steps (one per line)" aria-label="Edit recipe steps" rows="4"></textarea>
+      <textarea class="recipe-edit-notes" placeholder="Notes (optional)" aria-label="Edit recipe notes" rows="2"></textarea>
+      <div class="recipe-actions">
+        <button type="submit">Save</button>
+        <button type="button" class="cancel-btn">Cancel</button>
+      </div>
+    </form>
   </li>
 </template>
 
 <template id="medications-card-template">
   <li class="med-card">
-    <div class="med-info">
-      <strong class="med-name"></strong>
-      <span class="med-field med-dosage-field" hidden><span class="field-label">Dosage:</span> <span class="med-dosage"></span></span>
-      <span class="med-field med-frequency-field" hidden><span class="field-label">Frequency:</span> <span class="med-frequency"></span></span>
-      <span class="med-field med-doctor-field" hidden><span class="field-label">Prescriber:</span> <span class="med-doctor"></span></span>
+    <div class="med-view">
+      <div class="med-info">
+        <strong class="med-name"></strong>
+        <span class="med-field med-dosage-field" hidden><span class="field-label">Dosage:</span> <span class="med-dosage"></span></span>
+        <span class="med-field med-frequency-field" hidden><span class="field-label">Frequency:</span> <span class="med-frequency"></span></span>
+        <span class="med-field med-doctor-field" hidden><span class="field-label">Prescriber:</span> <span class="med-doctor"></span></span>
+      </div>
+      <div class="med-dates">
+        <label class="date-field">Start date
+          <input type="date" class="med-start-date" aria-label="Start date">
+          <small class="unknown-hint" hidden>unknown</small>
+        </label>
+        <label class="date-field">End date
+          <input type="date" class="med-end-date" aria-label="End date">
+        </label>
+        <p class="form-error med-date-error" hidden></p>
+      </div>
+      <p class="med-notes" hidden></p>
+      <div class="med-actions">
+        <button type="button" class="edit-btn">Edit</button>
+        <button type="button" class="delete-btn" aria-label="Delete medication">Delete</button>
+      </div>
     </div>
-    <div class="med-dates">
-      <label class="date-field">Start date
-        <input type="date" class="med-start-date" aria-label="Start date">
-        <small class="unknown-hint" hidden>unknown</small>
-      </label>
-      <label class="date-field">End date
-        <input type="date" class="med-end-date" aria-label="End date">
-      </label>
-      <p class="form-error med-date-error" hidden></p>
-    </div>
-    <p class="med-notes" hidden></p>
-    <div class="med-actions">
-      <button type="button" class="delete-btn" aria-label="Delete medication">Delete</button>
-    </div>
+    <form class="med-edit-form" hidden>
+      <input type="text" class="med-edit-name" placeholder="Name" required aria-label="Edit medication name">
+      <input type="text" class="med-edit-dosage" placeholder="Dosage (e.g. 10mg)" aria-label="Edit medication dosage">
+      <input type="text" class="med-edit-frequency" placeholder="Frequency (e.g. twice daily)" aria-label="Edit medication frequency">
+      <input type="text" class="med-edit-doctor" placeholder="Prescribing doctor" aria-label="Edit prescribing doctor">
+      <textarea class="med-edit-notes" placeholder="Notes (optional)" aria-label="Edit medication notes" rows="2"></textarea>
+      <p class="form-error med-edit-error" hidden></p>
+      <div class="med-actions">
+        <button type="submit">Save</button>
+        <button type="button" class="cancel-btn">Cancel</button>
+      </div>
+    </form>
   </li>
 </template>
 
 <template id="diagnoses-card-template">
   <li class="diagnosis-card">
-    <div class="diagnosis-info">
-      <strong class="diagnosis-condition"></strong>
-      <span class="diagnosis-date"></span>
-      <span class="diagnosis-provider" hidden></span>
+    <div class="diagnosis-view">
+      <div class="diagnosis-info">
+        <strong class="diagnosis-condition"></strong>
+        <span class="diagnosis-date"></span>
+        <span class="diagnosis-provider" hidden></span>
+      </div>
+      <p class="diagnosis-notes" hidden></p>
+      <div class="diagnosis-actions">
+        <select class="move-select" aria-label="Move to status">
+          <option value="active">Move: Active</option>
+          <option value="monitoring">Move: Monitoring</option>
+          <option value="resolved">Move: Resolved</option>
+        </select>
+        <button type="button" class="edit-btn">Edit</button>
+        <button type="button" class="delete-btn" aria-label="Delete diagnosis">Delete</button>
+      </div>
     </div>
-    <p class="diagnosis-notes" hidden></p>
-    <div class="diagnosis-actions">
-      <select class="move-select" aria-label="Move to status">
-        <option value="active">Move: Active</option>
-        <option value="monitoring">Move: Monitoring</option>
-        <option value="resolved">Move: Resolved</option>
-      </select>
-      <button type="button" class="delete-btn" aria-label="Delete diagnosis">Delete</button>
-    </div>
+    <form class="diagnosis-edit-form" hidden>
+      <input type="text" class="diagnosis-edit-condition" placeholder="Condition" required aria-label="Edit condition name">
+      <label class="date-field">Date diagnosed
+        <input type="date" class="diagnosis-edit-date" aria-label="Edit date diagnosed">
+      </label>
+      <input type="text" class="diagnosis-edit-provider" placeholder="Diagnosing provider" aria-label="Edit diagnosing provider">
+      <textarea class="diagnosis-edit-notes" placeholder="Notes (optional)" aria-label="Edit diagnosis notes" rows="2"></textarea>
+      <div class="diagnosis-actions">
+        <button type="submit">Save</button>
+        <button type="button" class="cancel-btn">Cancel</button>
+      </div>
+    </form>
   </li>
 </template>
 
 <template id="todo-card-template">
   <li class="todo-item">
-    <label class="todo-check">
-      <input type="checkbox" class="todo-completed-checkbox" aria-label="Mark complete">
-      <span class="todo-task"></span>
-    </label>
-    <span class="todo-due" hidden></span>
-    <button type="button" class="delete-btn" aria-label="Delete to-do">Delete</button>
+    <div class="todo-view">
+      <label class="todo-check">
+        <input type="checkbox" class="todo-completed-checkbox" aria-label="Mark complete">
+        <span class="todo-task"></span>
+      </label>
+      <span class="todo-due" hidden></span>
+      <button type="button" class="edit-btn">Edit</button>
+      <button type="button" class="delete-btn" aria-label="Delete to-do">Delete</button>
+    </div>
+    <form class="todo-edit-form" hidden>
+      <input type="text" class="todo-edit-task" placeholder="Task" required aria-label="Edit task">
+      <label class="date-field">Due date
+        <input type="date" class="todo-edit-due" aria-label="Edit due date">
+      </label>
+      <button type="submit">Save</button>
+      <button type="button" class="cancel-btn">Cancel</button>
+    </form>
   </li>
 </template>
 
 <template id="shopping-card-template">
   <li class="shopping-item">
-    <label class="shopping-check">
-      <input type="checkbox" class="shopping-checked-checkbox" aria-label="Mark checked">
-      <span class="shopping-item-name"></span>
-    </label>
-    <span class="shopping-quantity" hidden></span>
-    <span class="shopping-category badge" hidden></span>
-    <button type="button" class="delete-btn" aria-label="Delete item">Delete</button>
+    <div class="shopping-view">
+      <label class="shopping-check">
+        <input type="checkbox" class="shopping-checked-checkbox" aria-label="Mark checked">
+        <span class="shopping-item-name"></span>
+      </label>
+      <span class="shopping-quantity" hidden></span>
+      <span class="shopping-category badge" hidden></span>
+      <button type="button" class="edit-btn">Edit</button>
+      <button type="button" class="delete-btn" aria-label="Delete item">Delete</button>
+    </div>
+    <form class="shopping-edit-form" hidden>
+      <input type="text" class="shopping-edit-item" placeholder="Item" required aria-label="Edit item">
+      <input type="text" class="shopping-edit-quantity" placeholder="Quantity (optional)" aria-label="Edit quantity">
+      <input type="text" class="shopping-edit-category" placeholder="Category (optional)" aria-label="Edit category">
+      <button type="submit">Save</button>
+      <button type="button" class="cancel-btn">Cancel</button>
+    </form>
   </li>
 </template>
 
@@ -616,38 +697,66 @@
 
 <template id="resume-card-template">
   <li class="link-card">
-    <div class="link-info">
-      <strong class="link-label"></strong>
-      <a class="link-url" target="_blank" rel="noopener noreferrer"></a>
+    <div class="link-view">
+      <div class="link-info">
+        <strong class="link-label"></strong>
+        <a class="link-url" target="_blank" rel="noopener noreferrer"></a>
+      </div>
+      <p class="link-notes" hidden></p>
+      <div class="link-actions">
+        <button type="button" class="edit-btn">Edit</button>
+        <button type="button" class="delete-btn" aria-label="Delete link">Delete</button>
+      </div>
     </div>
-    <p class="link-notes" hidden></p>
-    <div class="link-actions">
-      <button type="button" class="delete-btn" aria-label="Delete link">Delete</button>
-    </div>
+    <form class="link-edit-form" hidden>
+      <input type="text" class="link-edit-label" placeholder="Label (e.g. Resume, Portfolio, GitHub)" required aria-label="Edit link label">
+      <input type="text" class="link-edit-url" placeholder="URL" required aria-label="Edit link URL">
+      <textarea class="link-edit-notes" placeholder="Notes (optional)" aria-label="Edit link notes" rows="2"></textarea>
+      <p class="form-error link-edit-error" hidden></p>
+      <div class="link-actions">
+        <button type="submit">Save</button>
+        <button type="button" class="cancel-btn">Cancel</button>
+      </div>
+    </form>
   </li>
 </template>
 
 <template id="coursework-card-template">
   <li class="course-card">
-    <div class="course-info">
-      <strong class="course-title"></strong>
-      <span class="course-code badge" hidden></span>
-      <span class="course-field course-term-field" hidden><span class="field-label">Term:</span> <span class="course-term"></span></span>
-      <span class="course-field course-credits-field" hidden><span class="field-label">Credits:</span> <span class="course-credits"></span></span>
-      <label class="grade-label" hidden>
-        Grade:
-        <input type="text" class="grade-input" placeholder="e.g. A-" aria-label="Grade">
-      </label>
+    <div class="course-view">
+      <div class="course-info">
+        <strong class="course-title"></strong>
+        <span class="course-code badge" hidden></span>
+        <span class="course-field course-term-field" hidden><span class="field-label">Term:</span> <span class="course-term"></span></span>
+        <span class="course-field course-credits-field" hidden><span class="field-label">Credits:</span> <span class="course-credits"></span></span>
+        <label class="grade-label" hidden>
+          Grade:
+          <input type="text" class="grade-input" placeholder="e.g. A-" aria-label="Grade">
+        </label>
+      </div>
+      <p class="course-notes" hidden></p>
+      <div class="course-actions">
+        <select class="move-select" aria-label="Move to status">
+          <option value="planned">Move: Planned</option>
+          <option value="in_progress">Move: In Progress</option>
+          <option value="completed">Move: Completed</option>
+        </select>
+        <button type="button" class="edit-btn">Edit</button>
+        <button type="button" class="delete-btn" aria-label="Delete course">Delete</button>
+      </div>
     </div>
-    <p class="course-notes" hidden></p>
-    <div class="course-actions">
-      <select class="move-select" aria-label="Move to status">
-        <option value="planned">Move: Planned</option>
-        <option value="in_progress">Move: In Progress</option>
-        <option value="completed">Move: Completed</option>
-      </select>
-      <button type="button" class="delete-btn" aria-label="Delete course">Delete</button>
-    </div>
+    <form class="course-edit-form" hidden>
+      <input type="text" class="course-edit-title" placeholder="Course title" required aria-label="Edit course title">
+      <input type="text" class="course-edit-code" placeholder="Course code (optional)" aria-label="Edit course code">
+      <input type="number" class="course-edit-credits" placeholder="Credits (optional)" min="0" step="any" aria-label="Edit credits">
+      <input type="text" class="course-edit-term" placeholder="Term (optional)" aria-label="Edit term">
+      <textarea class="course-edit-notes" placeholder="Notes (optional)" aria-label="Edit course notes" rows="2"></textarea>
+      <p class="form-error course-edit-error" hidden></p>
+      <div class="course-actions">
+        <button type="submit">Save</button>
+        <button type="button" class="cancel-btn">Cancel</button>
+      </div>
+    </form>
   </li>
 </template>
 

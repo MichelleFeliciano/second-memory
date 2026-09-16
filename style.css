@@ -218,6 +218,32 @@ body::before {
   flex: 0 0 auto;
 }
 
+.undo-redo-panel {
+  display: flex;
+  gap: 8px;
+}
+
+.undo-redo-panel button {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.78rem;
+}
+
+.undo-redo-panel button:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.undo-redo-panel button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .sync-panel {
   margin-top: auto;
   padding-top: 16px;
@@ -935,6 +961,120 @@ body::before {
 }
 
 .note-edit-form button[type="submit"]:hover { opacity: 0.9; }
+
+/* Edit-form pattern for the eight collections that gained an Edit button
+   this cycle (Books, Recipes, Medications, Diagnoses, Resume & Portfolio,
+   Coursework use the same vertical-card shape as .note-view/.note-edit-form
+   above; To-Do/Shopping List use their own horizontal-row variant below). */
+
+.book-view, .book-edit-form,
+.recipe-view, .recipe-edit-form,
+.med-view, .med-edit-form,
+.diagnosis-view, .diagnosis-edit-form,
+.link-view, .link-edit-form,
+.course-view, .course-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Same [hidden]-vs-unconditional-display landmine guarded elsewhere in this
+   file (see .rating-label, .grade-label, .note-view). */
+.book-view[hidden], .book-edit-form[hidden],
+.recipe-view[hidden], .recipe-edit-form[hidden],
+.med-view[hidden], .med-edit-form[hidden],
+.diagnosis-view[hidden], .diagnosis-edit-form[hidden],
+.link-view[hidden], .link-edit-form[hidden],
+.course-view[hidden], .course-edit-form[hidden] {
+  display: none;
+}
+
+.book-edit-form input, .book-edit-form textarea,
+.recipe-edit-form input, .recipe-edit-form textarea,
+.med-edit-form input, .med-edit-form textarea,
+.diagnosis-edit-form input, .diagnosis-edit-form textarea,
+.link-edit-form input, .link-edit-form textarea,
+.course-edit-form input, .course-edit-form textarea {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+}
+
+.book-edit-form textarea, .recipe-edit-form textarea, .med-edit-form textarea,
+.diagnosis-edit-form textarea, .link-edit-form textarea, .course-edit-form textarea {
+  resize: vertical;
+}
+
+.book-edit-form button[type="submit"], .recipe-edit-form button[type="submit"],
+.med-edit-form button[type="submit"], .diagnosis-edit-form button[type="submit"],
+.link-edit-form button[type="submit"], .course-edit-form button[type="submit"] {
+  padding: 5px 14px;
+  border: none;
+  border-radius: 13px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.8rem;
+}
+
+.book-edit-form button[type="submit"]:hover, .recipe-edit-form button[type="submit"]:hover,
+.med-edit-form button[type="submit"]:hover, .diagnosis-edit-form button[type="submit"]:hover,
+.link-edit-form button[type="submit"]:hover, .course-edit-form button[type="submit"]:hover {
+  opacity: 0.9;
+}
+
+/* To-Do / Shopping List keep their existing horizontal-row card shape — the
+   view/edit-form split just wraps that same row instead of switching to a
+   vertical stack. */
+.todo-view, .shopping-view {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.todo-edit-form, .shopping-edit-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.todo-view[hidden], .shopping-view[hidden],
+.todo-edit-form[hidden], .shopping-edit-form[hidden] {
+  display: none;
+}
+
+.todo-edit-form input, .shopping-edit-form input {
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.85rem;
+}
+
+.todo-edit-form button[type="submit"], .shopping-edit-form button[type="submit"] {
+  padding: 5px 14px;
+  border: none;
+  border-radius: 13px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.8rem;
+}
+
+.todo-edit-form button[type="submit"]:hover, .shopping-edit-form button[type="submit"]:hover {
+  opacity: 0.9;
+}
 
 /* Resume & Portfolio */
 

@@ -160,6 +160,29 @@ function migrateSyncFields(items, key, deviceId) {
   return items;
 }
 
+// ---- Undo/Redo ----
+// In-memory only, never persisted. One entry per changed record (never a
+// whole-array snapshot). See docs/specs/edit-everywhere-and-undo-redo.md.
+
+let undoStack = [];
+let redoStack = [];
+let isApplyingHistory = false; // guard: undo/redo replays never re-record themselves
+const MAX_UNDO_DEPTH = 50;
+
+function recordUndo(collectionName, id, before, after) {
+  if (isApplyingHistory) return;
+  undoStack.push({
+    collection: collectionName,
+    id,
+    before: before === null ? null : structuredClone(before),
+    after: structuredClone(after),
+    timestamp: new Date().toISOString(),
+  });
+  if (undoStack.length > MAX_UNDO_DEPTH) undoStack.shift();
+  redoStack = [];
+  updateUndoRedoButtons();
+}
+
 // ---- UI state (active tab) ----
 
 const UI_STORAGE_KEY = 'secondMemory.ui.v1';
@@ -203,7 +226,7 @@ function addBook(title, author, status) {
   const trimmedTitle = title.trim();
   if (!trimmedTitle) return;
   const now = new Date().toISOString();
-  books.push({
+  const book = {
     id: makeId(),
     title: trimmedTitle,
     author: author.trim(),
@@ -214,35 +237,68 @@ function addBook(title, author, status) {
     deviceId: getDeviceId(),
     deleted: false,
     version: 0,
-  });
+  };
+  books.push(book);
   saveCollection(BOOKS_KEY, books);
+  recordUndo('books', book.id, null, structuredClone(book));
   renderBooks();
 }
 
 function updateBookStatus(id, newStatus) {
   const book = books.find((b) => b.id === id);
   if (!book || !BOOK_STATUSES.includes(newStatus)) return;
+  const before = structuredClone(book);
   book.status = newStatus;
   if (newStatus !== 'owned_read') book.rating = null;
   stampSync(book);
   saveCollection(BOOKS_KEY, books);
+  recordUndo('books', id, before, structuredClone(book));
   renderBooks();
 }
 
 function updateBookRating(id, rating) {
   const book = books.find((b) => b.id === id);
   if (!book) return;
+  const before = structuredClone(book);
   book.rating = rating ? Number(rating) : null;
   stampSync(book);
   saveCollection(BOOKS_KEY, books);
+  recordUndo('books', id, before, structuredClone(book));
 }
 
 function deleteBook(id) {
   const book = books.find((b) => b.id === id);
   if (!book) return;
+  const before = structuredClone(book);
   book.deleted = true;
   stampSync(book);
   saveCollection(BOOKS_KEY, books);
+  recordUndo('books', id, before, structuredClone(book));
+  renderBooks();
+}
+
+function restoreBook(id) {
+  const book = books.find((b) => b.id === id);
+  if (!book || !book.deleted) return; // defensive no-op — nothing to restore
+  const before = structuredClone(book);
+  book.deleted = false;
+  stampSync(book);
+  saveCollection(BOOKS_KEY, books);
+  recordUndo('books', id, before, structuredClone(book));
+  renderBooks();
+}
+
+function updateBook(id, fields) {
+  const book = books.find((b) => b.id === id);
+  if (!book) return;
+  const trimmedTitle = fields.title.trim();
+  if (!trimmedTitle) return;
+  const before = structuredClone(book);
+  book.title = trimmedTitle;
+  book.author = fields.author.trim();
+  stampSync(book);
+  saveCollection(BOOKS_KEY, books);
+  recordUndo('books', id, before, structuredClone(book));
   renderBooks();
 }
 
@@ -283,8 +339,25 @@ function renderBooks() {
 
   renderBooksStats(nonDeleted);
 
-  BOOK_STATUSES.forEach((status) => {
-    const list = document.querySelector(`[data-list="${status}"]`);
+  const lists = BOOK_STATUSES.map((status) => document.querySelector(`[data-list="${status}"]`));
+
+  // Read any in-progress (unsaved) edit straight from the live DOM, across
+  // every status column, before wiping them out below.
+  let openEdit = null;
+  for (const list of lists) {
+    const openForm = list.querySelector('.book-edit-form:not([hidden])');
+    if (openForm) {
+      openEdit = {
+        id: openForm.closest('.book-card').dataset.bookId,
+        title: openForm.querySelector('.book-edit-title').value,
+        author: openForm.querySelector('.book-edit-author').value,
+      };
+      break;
+    }
+  }
+
+  BOOK_STATUSES.forEach((status, index) => {
+    const list = lists[index];
     list.innerHTML = '';
     // .sort() is a stable sort in all modern JS engines (ES2019+), so books
     // with equal sort keys (e.g. same author, entered in a deliberate order
@@ -296,6 +369,11 @@ function renderBooks() {
 
     itemsForStatus.forEach((book) => {
       const node = template.content.cloneNode(true);
+      const card = node.querySelector('.book-card');
+      card.dataset.bookId = book.id;
+      const viewSection = node.querySelector('.book-view');
+      const editForm = node.querySelector('.book-edit-form');
+
       node.querySelector('.book-title').textContent = book.title;
       node.querySelector('.book-author').textContent = book.author || '';
 
@@ -317,7 +395,43 @@ function renderBooks() {
       moveSelect.value = book.status;
       moveSelect.addEventListener('change', (e) => updateBookStatus(book.id, e.target.value));
 
+      const editTitleInput = node.querySelector('.book-edit-title');
+      const editAuthorInput = node.querySelector('.book-edit-author');
+
+      node.querySelector('.edit-btn').addEventListener('click', () => {
+        // Only one book (across every status column) can be in edit mode at
+        // a time — close any other open book edit form first.
+        lists.forEach((otherList) => {
+          const otherOpenForm = otherList.querySelector('.book-edit-form:not([hidden])');
+          if (otherOpenForm && otherOpenForm !== editForm) {
+            otherOpenForm.hidden = true;
+            otherOpenForm.closest('.book-card').querySelector('.book-view').hidden = false;
+          }
+        });
+        editTitleInput.value = book.title;
+        editAuthorInput.value = book.author;
+        viewSection.hidden = true;
+        editForm.hidden = false;
+      });
+
+      node.querySelector('.cancel-btn').addEventListener('click', () => {
+        editForm.hidden = true;
+        viewSection.hidden = false;
+      });
+
+      editForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        updateBook(book.id, { title: editTitleInput.value, author: editAuthorInput.value });
+      });
+
       node.querySelector('.delete-btn').addEventListener('click', () => deleteBook(book.id));
+
+      if (openEdit && openEdit.id === book.id) {
+        editTitleInput.value = openEdit.title;
+        editAuthorInput.value = openEdit.author;
+        viewSection.hidden = true;
+        editForm.hidden = false;
+      }
 
       list.appendChild(node);
     });
@@ -358,7 +472,7 @@ function addRecipe(title, category, ingredientsText, stepsText, notes) {
   const trimmedTitle = title.trim();
   if (!trimmedTitle) return;
   const now = new Date().toISOString();
-  recipes.push({
+  const recipe = {
     id: makeId(),
     title: trimmedTitle,
     category: category.trim(),
@@ -370,17 +484,49 @@ function addRecipe(title, category, ingredientsText, stepsText, notes) {
     deviceId: getDeviceId(),
     deleted: false,
     version: 0,
-  });
+  };
+  recipes.push(recipe);
   saveCollection(RECIPES_KEY, recipes);
+  recordUndo('recipes', recipe.id, null, structuredClone(recipe));
   renderRecipes();
 }
 
 function deleteRecipe(id) {
   const recipe = recipes.find((r) => r.id === id);
   if (!recipe) return;
+  const before = structuredClone(recipe);
   recipe.deleted = true;
   stampSync(recipe);
   saveCollection(RECIPES_KEY, recipes);
+  recordUndo('recipes', id, before, structuredClone(recipe));
+  renderRecipes();
+}
+
+function restoreRecipe(id) {
+  const recipe = recipes.find((r) => r.id === id);
+  if (!recipe || !recipe.deleted) return;
+  const before = structuredClone(recipe);
+  recipe.deleted = false;
+  stampSync(recipe);
+  saveCollection(RECIPES_KEY, recipes);
+  recordUndo('recipes', id, before, structuredClone(recipe));
+  renderRecipes();
+}
+
+function updateRecipe(id, fields) {
+  const recipe = recipes.find((r) => r.id === id);
+  if (!recipe) return;
+  const trimmedTitle = fields.title.trim();
+  if (!trimmedTitle) return;
+  const before = structuredClone(recipe);
+  recipe.title = trimmedTitle;
+  recipe.category = fields.category.trim();
+  recipe.ingredients = splitLines(fields.ingredientsText);
+  recipe.steps = splitLines(fields.stepsText);
+  recipe.notes = fields.notes.trim();
+  stampSync(recipe);
+  saveCollection(RECIPES_KEY, recipes);
+  recordUndo('recipes', id, before, structuredClone(recipe));
   renderRecipes();
 }
 
@@ -440,10 +586,27 @@ function renderRecipes() {
     .filter((r) => matchesRecipeCategory(r, selectedRecipeCategory))
     .sort(comparator);
 
+  const openForm = list.querySelector('.recipe-edit-form:not([hidden])');
+  const openEdit = openForm
+    ? {
+        id: openForm.closest('.recipe-card').dataset.recipeId,
+        title: openForm.querySelector('.recipe-edit-title').value,
+        category: openForm.querySelector('.recipe-edit-category').value,
+        ingredientsText: openForm.querySelector('.recipe-edit-ingredients').value,
+        stepsText: openForm.querySelector('.recipe-edit-steps').value,
+        notes: openForm.querySelector('.recipe-edit-notes').value,
+      }
+    : null;
+
   list.innerHTML = '';
 
   visible.forEach((recipe) => {
     const node = template.content.cloneNode(true);
+    const card = node.querySelector('.recipe-card');
+    card.dataset.recipeId = recipe.id;
+    const viewSection = node.querySelector('.recipe-view');
+    const editForm = node.querySelector('.recipe-edit-form');
+
     node.querySelector('.recipe-title').textContent = recipe.title;
 
     const categoryEl = node.querySelector('.recipe-category');
@@ -480,7 +643,54 @@ function renderRecipes() {
       notesEl.hidden = false;
     }
 
+    const editTitleInput = node.querySelector('.recipe-edit-title');
+    const editCategoryInput = node.querySelector('.recipe-edit-category');
+    const editIngredientsInput = node.querySelector('.recipe-edit-ingredients');
+    const editStepsInput = node.querySelector('.recipe-edit-steps');
+    const editNotesInput = node.querySelector('.recipe-edit-notes');
+
+    node.querySelector('.edit-btn').addEventListener('click', () => {
+      const otherOpenForm = list.querySelector('.recipe-edit-form:not([hidden])');
+      if (otherOpenForm && otherOpenForm !== editForm) {
+        otherOpenForm.hidden = true;
+        otherOpenForm.closest('.recipe-card').querySelector('.recipe-view').hidden = false;
+      }
+      editTitleInput.value = recipe.title;
+      editCategoryInput.value = recipe.category;
+      editIngredientsInput.value = recipe.ingredients.join('\n');
+      editStepsInput.value = recipe.steps.join('\n');
+      editNotesInput.value = recipe.notes;
+      viewSection.hidden = true;
+      editForm.hidden = false;
+    });
+
+    node.querySelector('.cancel-btn').addEventListener('click', () => {
+      editForm.hidden = true;
+      viewSection.hidden = false;
+    });
+
+    editForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      updateRecipe(recipe.id, {
+        title: editTitleInput.value,
+        category: editCategoryInput.value,
+        ingredientsText: editIngredientsInput.value,
+        stepsText: editStepsInput.value,
+        notes: editNotesInput.value,
+      });
+    });
+
     node.querySelector('.delete-btn').addEventListener('click', () => deleteRecipe(recipe.id));
+
+    if (openEdit && openEdit.id === recipe.id) {
+      editTitleInput.value = openEdit.title;
+      editCategoryInput.value = openEdit.category;
+      editIngredientsInput.value = openEdit.ingredientsText;
+      editStepsInput.value = openEdit.stepsText;
+      editNotesInput.value = openEdit.notes;
+      viewSection.hidden = true;
+      editForm.hidden = false;
+    }
 
     list.appendChild(node);
   });
@@ -531,7 +741,7 @@ function addMedication(fields) {
     return { ok: false, error: 'End date cannot be before start date.' };
   }
   const now = new Date().toISOString();
-  medications.push({
+  const med = {
     id: makeId(),
     name: trimmedName,
     dosage: fields.dosage.trim(),
@@ -545,8 +755,10 @@ function addMedication(fields) {
     deviceId: getDeviceId(),
     deleted: false,
     version: 0,
-  });
+  };
+  medications.push(med);
   saveCollection(MEDICATIONS_KEY, medications);
+  recordUndo('medications', med.id, null, structuredClone(med));
   renderMedications();
   return { ok: true };
 }
@@ -559,10 +771,12 @@ function updateMedicationDate(id, field, value) {
   if (!isValidDateRange(newStart, newEnd)) {
     return { ok: false, error: 'End date cannot be before start date.' };
   }
+  const before = structuredClone(med);
   med.startDate = newStart;
   med.endDate = newEnd;
   stampSync(med);
   saveCollection(MEDICATIONS_KEY, medications);
+  recordUndo('medications', id, before, structuredClone(med));
   renderMedications();
   return { ok: true };
 }
@@ -570,10 +784,41 @@ function updateMedicationDate(id, field, value) {
 function deleteMedication(id) {
   const med = medications.find((m) => m.id === id);
   if (!med) return;
+  const before = structuredClone(med);
   med.deleted = true;
   stampSync(med);
   saveCollection(MEDICATIONS_KEY, medications);
+  recordUndo('medications', id, before, structuredClone(med));
   renderMedications();
+}
+
+function restoreMedication(id) {
+  const med = medications.find((m) => m.id === id);
+  if (!med || !med.deleted) return;
+  const before = structuredClone(med);
+  med.deleted = false;
+  stampSync(med);
+  saveCollection(MEDICATIONS_KEY, medications);
+  recordUndo('medications', id, before, structuredClone(med));
+  renderMedications();
+}
+
+function updateMedication(id, fields) {
+  const med = medications.find((m) => m.id === id);
+  if (!med) return { ok: false, error: 'Medication not found.' };
+  const trimmedName = fields.name.trim();
+  if (!trimmedName) return { ok: false, error: 'Name is required.' };
+  const before = structuredClone(med);
+  med.name = trimmedName;
+  med.dosage = fields.dosage.trim();
+  med.frequency = fields.frequency.trim();
+  med.prescribingDoctor = fields.prescribingDoctor.trim();
+  med.notes = fields.notes.trim();
+  stampSync(med);
+  saveCollection(MEDICATIONS_KEY, medications);
+  recordUndo('medications', id, before, structuredClone(med));
+  renderMedications();
+  return { ok: true };
 }
 
 function matchesMedicationSearch(med, term) {
@@ -594,13 +839,18 @@ const MEDICATION_SORTS = {
   start_date_asc: compareByField((m) => m.startDate, 1, { text: false }),
 };
 
-function renderMedicationGroup(groupKey, items, template) {
+function renderMedicationGroup(groupKey, items, template, openEdit) {
   const list = document.querySelector(`[data-med-list="${groupKey}"]`);
   list.innerHTML = '';
   document.querySelector(`[data-med-count="${groupKey}"]`).textContent = items.length;
 
   items.forEach((med) => {
     const node = template.content.cloneNode(true);
+    const card = node.querySelector('.med-card');
+    card.dataset.medId = med.id;
+    const viewSection = node.querySelector('.med-view');
+    const editForm = node.querySelector('.med-edit-form');
+
     node.querySelector('.med-name').textContent = med.name;
 
     const setField = (fieldClass, wrapperClass, value) => {
@@ -646,7 +896,65 @@ function renderMedicationGroup(groupKey, items, template) {
       notesEl.hidden = false;
     }
 
+    const editNameInput = node.querySelector('.med-edit-name');
+    const editDosageInput = node.querySelector('.med-edit-dosage');
+    const editFrequencyInput = node.querySelector('.med-edit-frequency');
+    const editDoctorInput = node.querySelector('.med-edit-doctor');
+    const editNotesInput = node.querySelector('.med-edit-notes');
+    const editError = node.querySelector('.med-edit-error');
+
+    node.querySelector('.edit-btn').addEventListener('click', () => {
+      // Only one medication (across both the "current" and "former" groups)
+      // can be in edit mode at a time.
+      ['current', 'former'].forEach((otherGroupKey) => {
+        const otherList = document.querySelector(`[data-med-list="${otherGroupKey}"]`);
+        const otherOpenForm = otherList.querySelector('.med-edit-form:not([hidden])');
+        if (otherOpenForm && otherOpenForm !== editForm) {
+          otherOpenForm.hidden = true;
+          otherOpenForm.closest('.med-card').querySelector('.med-view').hidden = false;
+        }
+      });
+      editNameInput.value = med.name;
+      editDosageInput.value = med.dosage;
+      editFrequencyInput.value = med.frequency;
+      editDoctorInput.value = med.prescribingDoctor;
+      editNotesInput.value = med.notes;
+      editError.hidden = true;
+      viewSection.hidden = true;
+      editForm.hidden = false;
+    });
+
+    node.querySelector('.cancel-btn').addEventListener('click', () => {
+      editForm.hidden = true;
+      viewSection.hidden = false;
+    });
+
+    editForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const result = updateMedication(med.id, {
+        name: editNameInput.value,
+        dosage: editDosageInput.value,
+        frequency: editFrequencyInput.value,
+        prescribingDoctor: editDoctorInput.value,
+        notes: editNotesInput.value,
+      });
+      if (!result.ok) {
+        editError.textContent = result.error;
+        editError.hidden = false;
+      }
+    });
+
     node.querySelector('.delete-btn').addEventListener('click', () => deleteMedication(med.id));
+
+    if (openEdit && openEdit.id === med.id) {
+      editNameInput.value = openEdit.name;
+      editDosageInput.value = openEdit.dosage;
+      editFrequencyInput.value = openEdit.frequency;
+      editDoctorInput.value = openEdit.prescribingDoctor;
+      editNotesInput.value = openEdit.notes;
+      viewSection.hidden = true;
+      editForm.hidden = false;
+    }
 
     list.appendChild(node);
   });
@@ -661,8 +969,25 @@ function renderMedications() {
   const current = visible.filter((m) => m.endDate === null).sort(comparator);
   const former = visible.filter((m) => m.endDate !== null).sort(comparator);
 
-  renderMedicationGroup('current', current, template);
-  renderMedicationGroup('former', former, template);
+  const lists = ['current', 'former'].map((groupKey) => document.querySelector(`[data-med-list="${groupKey}"]`));
+  let openEdit = null;
+  for (const list of lists) {
+    const openForm = list.querySelector('.med-edit-form:not([hidden])');
+    if (openForm) {
+      openEdit = {
+        id: openForm.closest('.med-card').dataset.medId,
+        name: openForm.querySelector('.med-edit-name').value,
+        dosage: openForm.querySelector('.med-edit-dosage').value,
+        frequency: openForm.querySelector('.med-edit-frequency').value,
+        prescribingDoctor: openForm.querySelector('.med-edit-doctor').value,
+        notes: openForm.querySelector('.med-edit-notes').value,
+      };
+      break;
+    }
+  }
+
+  renderMedicationGroup('current', current, template, openEdit);
+  renderMedicationGroup('former', former, template, openEdit);
 
   document.getElementById('medications-empty-state').hidden = medications.filter((m) => !m.deleted).length !== 0;
 }
@@ -723,7 +1048,7 @@ function addDiagnosis(condition, dateDiagnosed, provider, notes) {
   const trimmedCondition = condition.trim();
   if (!trimmedCondition) return;
   const now = new Date().toISOString();
-  diagnoses.push({
+  const diagnosis = {
     id: makeId(),
     condition: trimmedCondition,
     dateDiagnosed: dateDiagnosed || null,
@@ -735,26 +1060,59 @@ function addDiagnosis(condition, dateDiagnosed, provider, notes) {
     deviceId: getDeviceId(),
     deleted: false,
     version: 0,
-  });
+  };
+  diagnoses.push(diagnosis);
   saveCollection(DIAGNOSES_KEY, diagnoses);
+  recordUndo('diagnoses', diagnosis.id, null, structuredClone(diagnosis));
   renderDiagnoses();
 }
 
 function updateDiagnosisStatus(id, newStatus) {
   const diagnosis = diagnoses.find((d) => d.id === id);
   if (!diagnosis || !DIAGNOSIS_STATUSES.includes(newStatus)) return;
+  const before = structuredClone(diagnosis);
   diagnosis.status = newStatus;
   stampSync(diagnosis);
   saveCollection(DIAGNOSES_KEY, diagnoses);
+  recordUndo('diagnoses', id, before, structuredClone(diagnosis));
   renderDiagnoses();
 }
 
 function deleteDiagnosis(id) {
   const diagnosis = diagnoses.find((d) => d.id === id);
   if (!diagnosis) return;
+  const before = structuredClone(diagnosis);
   diagnosis.deleted = true;
   stampSync(diagnosis);
   saveCollection(DIAGNOSES_KEY, diagnoses);
+  recordUndo('diagnoses', id, before, structuredClone(diagnosis));
+  renderDiagnoses();
+}
+
+function restoreDiagnosis(id) {
+  const diagnosis = diagnoses.find((d) => d.id === id);
+  if (!diagnosis || !diagnosis.deleted) return;
+  const before = structuredClone(diagnosis);
+  diagnosis.deleted = false;
+  stampSync(diagnosis);
+  saveCollection(DIAGNOSES_KEY, diagnoses);
+  recordUndo('diagnoses', id, before, structuredClone(diagnosis));
+  renderDiagnoses();
+}
+
+function updateDiagnosis(id, fields) {
+  const diagnosis = diagnoses.find((d) => d.id === id);
+  if (!diagnosis) return;
+  const trimmedCondition = fields.condition.trim();
+  if (!trimmedCondition) return;
+  const before = structuredClone(diagnosis);
+  diagnosis.condition = trimmedCondition;
+  diagnosis.dateDiagnosed = fields.dateDiagnosed || null;
+  diagnosis.provider = fields.provider.trim();
+  diagnosis.notes = fields.notes.trim();
+  stampSync(diagnosis);
+  saveCollection(DIAGNOSES_KEY, diagnoses);
+  recordUndo('diagnoses', id, before, structuredClone(diagnosis));
   renderDiagnoses();
 }
 
@@ -779,14 +1137,36 @@ function renderDiagnoses() {
   const template = document.getElementById('diagnoses-card-template');
   const comparator = DIAGNOSIS_SORTS[selectedDiagnosesSort] || DIAGNOSIS_SORTS.condition_asc;
 
-  DIAGNOSIS_STATUSES.forEach((status) => {
-    const list = document.querySelector(`[data-diagnosis-list="${status}"]`);
+  const lists = DIAGNOSIS_STATUSES.map((status) => document.querySelector(`[data-diagnosis-list="${status}"]`));
+
+  let openEdit = null;
+  for (const list of lists) {
+    const openForm = list.querySelector('.diagnosis-edit-form:not([hidden])');
+    if (openForm) {
+      openEdit = {
+        id: openForm.closest('.diagnosis-card').dataset.diagnosisId,
+        condition: openForm.querySelector('.diagnosis-edit-condition').value,
+        dateDiagnosed: openForm.querySelector('.diagnosis-edit-date').value,
+        provider: openForm.querySelector('.diagnosis-edit-provider').value,
+        notes: openForm.querySelector('.diagnosis-edit-notes').value,
+      };
+      break;
+    }
+  }
+
+  DIAGNOSIS_STATUSES.forEach((status, index) => {
+    const list = lists[index];
     list.innerHTML = '';
     const items = visible.filter((d) => d.status === status).sort(comparator);
     document.querySelector(`[data-diagnosis-count="${status}"]`).textContent = items.length;
 
     items.forEach((diagnosis) => {
       const node = template.content.cloneNode(true);
+      const card = node.querySelector('.diagnosis-card');
+      card.dataset.diagnosisId = diagnosis.id;
+      const viewSection = node.querySelector('.diagnosis-view');
+      const editForm = node.querySelector('.diagnosis-edit-form');
+
       node.querySelector('.diagnosis-condition').textContent = diagnosis.condition;
       node.querySelector('.diagnosis-date').textContent = diagnosis.dateDiagnosed || 'Date unknown';
 
@@ -806,7 +1186,52 @@ function renderDiagnoses() {
       moveSelect.value = diagnosis.status;
       moveSelect.addEventListener('change', (e) => updateDiagnosisStatus(diagnosis.id, e.target.value));
 
+      const editConditionInput = node.querySelector('.diagnosis-edit-condition');
+      const editDateInput = node.querySelector('.diagnosis-edit-date');
+      const editProviderInput = node.querySelector('.diagnosis-edit-provider');
+      const editNotesInput = node.querySelector('.diagnosis-edit-notes');
+
+      node.querySelector('.edit-btn').addEventListener('click', () => {
+        lists.forEach((otherList) => {
+          const otherOpenForm = otherList.querySelector('.diagnosis-edit-form:not([hidden])');
+          if (otherOpenForm && otherOpenForm !== editForm) {
+            otherOpenForm.hidden = true;
+            otherOpenForm.closest('.diagnosis-card').querySelector('.diagnosis-view').hidden = false;
+          }
+        });
+        editConditionInput.value = diagnosis.condition;
+        editDateInput.value = diagnosis.dateDiagnosed || '';
+        editProviderInput.value = diagnosis.provider;
+        editNotesInput.value = diagnosis.notes;
+        viewSection.hidden = true;
+        editForm.hidden = false;
+      });
+
+      node.querySelector('.cancel-btn').addEventListener('click', () => {
+        editForm.hidden = true;
+        viewSection.hidden = false;
+      });
+
+      editForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        updateDiagnosis(diagnosis.id, {
+          condition: editConditionInput.value,
+          dateDiagnosed: editDateInput.value,
+          provider: editProviderInput.value,
+          notes: editNotesInput.value,
+        });
+      });
+
       node.querySelector('.delete-btn').addEventListener('click', () => deleteDiagnosis(diagnosis.id));
+
+      if (openEdit && openEdit.id === diagnosis.id) {
+        editConditionInput.value = openEdit.condition;
+        editDateInput.value = openEdit.dateDiagnosed;
+        editProviderInput.value = openEdit.provider;
+        editNotesInput.value = openEdit.notes;
+        viewSection.hidden = true;
+        editForm.hidden = false;
+      }
 
       list.appendChild(node);
     });
@@ -846,7 +1271,7 @@ function addTodo(task, dueDate) {
   const trimmedTask = task.trim();
   if (!trimmedTask) return;
   const now = new Date().toISOString();
-  todos.push({
+  const todo = {
     id: makeId(),
     task: trimmedTask,
     completed: false,
@@ -856,26 +1281,57 @@ function addTodo(task, dueDate) {
     deviceId: getDeviceId(),
     deleted: false,
     version: 0,
-  });
+  };
+  todos.push(todo);
   saveCollection(TODOS_KEY, todos);
+  recordUndo('todos', todo.id, null, structuredClone(todo));
   renderTodos();
 }
 
 function toggleTodoCompleted(id, completed) {
   const todo = todos.find((t) => t.id === id);
   if (!todo) return;
+  const before = structuredClone(todo);
   todo.completed = completed;
   stampSync(todo);
   saveCollection(TODOS_KEY, todos);
+  recordUndo('todos', id, before, structuredClone(todo));
   renderTodos();
 }
 
 function deleteTodo(id) {
   const todo = todos.find((t) => t.id === id);
   if (!todo) return;
+  const before = structuredClone(todo);
   todo.deleted = true;
   stampSync(todo);
   saveCollection(TODOS_KEY, todos);
+  recordUndo('todos', id, before, structuredClone(todo));
+  renderTodos();
+}
+
+function restoreTodo(id) {
+  const todo = todos.find((t) => t.id === id);
+  if (!todo || !todo.deleted) return;
+  const before = structuredClone(todo);
+  todo.deleted = false;
+  stampSync(todo);
+  saveCollection(TODOS_KEY, todos);
+  recordUndo('todos', id, before, structuredClone(todo));
+  renderTodos();
+}
+
+function updateTodo(id, fields) {
+  const todo = todos.find((t) => t.id === id);
+  if (!todo) return;
+  const trimmedTask = fields.task.trim();
+  if (!trimmedTask) return;
+  const before = structuredClone(todo);
+  todo.task = trimmedTask;
+  todo.dueDate = fields.dueDate || null;
+  stampSync(todo);
+  saveCollection(TODOS_KEY, todos);
+  recordUndo('todos', id, before, structuredClone(todo));
   renderTodos();
 }
 
@@ -938,12 +1394,25 @@ function renderTodos() {
     .sort(comparator);
   const list = document.getElementById('todo-list');
   const template = document.getElementById('todo-card-template');
+
+  const openForm = list.querySelector('.todo-edit-form:not([hidden])');
+  const openEdit = openForm
+    ? {
+        id: openForm.closest('.todo-item').dataset.todoId,
+        task: openForm.querySelector('.todo-edit-task').value,
+        dueDate: openForm.querySelector('.todo-edit-due').value,
+      }
+    : null;
+
   list.innerHTML = '';
 
   visible.forEach((todo) => {
     const node = template.content.cloneNode(true);
     const li = node.querySelector('.todo-item');
+    li.dataset.todoId = todo.id;
     li.classList.toggle('completed', todo.completed);
+    const viewSection = node.querySelector('.todo-view');
+    const editForm = node.querySelector('.todo-edit-form');
 
     const checkbox = node.querySelector('.todo-completed-checkbox');
     checkbox.checked = todo.completed;
@@ -958,7 +1427,39 @@ function renderTodos() {
       dueEl.classList.toggle('overdue', isTodoOverdue(todo));
     }
 
+    const editTaskInput = node.querySelector('.todo-edit-task');
+    const editDueInput = node.querySelector('.todo-edit-due');
+
+    node.querySelector('.edit-btn').addEventListener('click', () => {
+      const otherOpenForm = list.querySelector('.todo-edit-form:not([hidden])');
+      if (otherOpenForm && otherOpenForm !== editForm) {
+        otherOpenForm.hidden = true;
+        otherOpenForm.closest('.todo-item').querySelector('.todo-view').hidden = false;
+      }
+      editTaskInput.value = todo.task;
+      editDueInput.value = todo.dueDate || '';
+      viewSection.hidden = true;
+      editForm.hidden = false;
+    });
+
+    node.querySelector('.cancel-btn').addEventListener('click', () => {
+      editForm.hidden = true;
+      viewSection.hidden = false;
+    });
+
+    editForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      updateTodo(todo.id, { task: editTaskInput.value, dueDate: editDueInput.value });
+    });
+
     node.querySelector('.delete-btn').addEventListener('click', () => deleteTodo(todo.id));
+
+    if (openEdit && openEdit.id === todo.id) {
+      editTaskInput.value = openEdit.task;
+      editDueInput.value = openEdit.dueDate;
+      viewSection.hidden = true;
+      editForm.hidden = false;
+    }
 
     list.appendChild(node);
   });
@@ -993,7 +1494,7 @@ function addShoppingItem(item, quantity, category) {
   const trimmedItem = item.trim();
   if (!trimmedItem) return;
   const now = new Date().toISOString();
-  shoppingItems.push({
+  const shoppingItem = {
     id: makeId(),
     item: trimmedItem,
     quantity: quantity.trim(),
@@ -1004,26 +1505,58 @@ function addShoppingItem(item, quantity, category) {
     deviceId: getDeviceId(),
     deleted: false,
     version: 0,
-  });
+  };
+  shoppingItems.push(shoppingItem);
   saveCollection(SHOPPING_KEY, shoppingItems);
+  recordUndo('shoppingList', shoppingItem.id, null, structuredClone(shoppingItem));
   renderShoppingList();
 }
 
 function toggleShoppingChecked(id, checked) {
   const item = shoppingItems.find((i) => i.id === id);
   if (!item) return;
+  const before = structuredClone(item);
   item.checked = checked;
   stampSync(item);
   saveCollection(SHOPPING_KEY, shoppingItems);
+  recordUndo('shoppingList', id, before, structuredClone(item));
   renderShoppingList();
 }
 
 function deleteShoppingItem(id) {
   const item = shoppingItems.find((i) => i.id === id);
   if (!item) return;
+  const before = structuredClone(item);
   item.deleted = true;
   stampSync(item);
   saveCollection(SHOPPING_KEY, shoppingItems);
+  recordUndo('shoppingList', id, before, structuredClone(item));
+  renderShoppingList();
+}
+
+function restoreShoppingItem(id) {
+  const item = shoppingItems.find((i) => i.id === id);
+  if (!item || !item.deleted) return;
+  const before = structuredClone(item);
+  item.deleted = false;
+  stampSync(item);
+  saveCollection(SHOPPING_KEY, shoppingItems);
+  recordUndo('shoppingList', id, before, structuredClone(item));
+  renderShoppingList();
+}
+
+function updateShoppingItem(id, fields) {
+  const item = shoppingItems.find((i) => i.id === id);
+  if (!item) return;
+  const trimmedItem = fields.item.trim();
+  if (!trimmedItem) return;
+  const before = structuredClone(item);
+  item.item = trimmedItem;
+  item.quantity = fields.quantity.trim();
+  item.category = fields.category.trim();
+  stampSync(item);
+  saveCollection(SHOPPING_KEY, shoppingItems);
+  recordUndo('shoppingList', id, before, structuredClone(item));
   renderShoppingList();
 }
 
@@ -1098,12 +1631,26 @@ function renderShoppingList() {
     .sort(comparator);
   const list = document.getElementById('shopping-list');
   const template = document.getElementById('shopping-card-template');
+
+  const openForm = list.querySelector('.shopping-edit-form:not([hidden])');
+  const openEdit = openForm
+    ? {
+        id: openForm.closest('.shopping-item').dataset.shoppingId,
+        item: openForm.querySelector('.shopping-edit-item').value,
+        quantity: openForm.querySelector('.shopping-edit-quantity').value,
+        category: openForm.querySelector('.shopping-edit-category').value,
+      }
+    : null;
+
   list.innerHTML = '';
 
   visible.forEach((item) => {
     const node = template.content.cloneNode(true);
     const li = node.querySelector('.shopping-item');
+    li.dataset.shoppingId = item.id;
     li.classList.toggle('completed', item.checked);
+    const viewSection = node.querySelector('.shopping-view');
+    const editForm = node.querySelector('.shopping-edit-form');
 
     const checkbox = node.querySelector('.shopping-checked-checkbox');
     checkbox.checked = item.checked;
@@ -1123,7 +1670,46 @@ function renderShoppingList() {
       categoryEl.hidden = false;
     }
 
+    const editItemInput = node.querySelector('.shopping-edit-item');
+    const editQuantityInput = node.querySelector('.shopping-edit-quantity');
+    const editCategoryInput = node.querySelector('.shopping-edit-category');
+
+    node.querySelector('.edit-btn').addEventListener('click', () => {
+      const otherOpenForm = list.querySelector('.shopping-edit-form:not([hidden])');
+      if (otherOpenForm && otherOpenForm !== editForm) {
+        otherOpenForm.hidden = true;
+        otherOpenForm.closest('.shopping-item').querySelector('.shopping-view').hidden = false;
+      }
+      editItemInput.value = item.item;
+      editQuantityInput.value = item.quantity;
+      editCategoryInput.value = item.category;
+      viewSection.hidden = true;
+      editForm.hidden = false;
+    });
+
+    node.querySelector('.cancel-btn').addEventListener('click', () => {
+      editForm.hidden = true;
+      viewSection.hidden = false;
+    });
+
+    editForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      updateShoppingItem(item.id, {
+        item: editItemInput.value,
+        quantity: editQuantityInput.value,
+        category: editCategoryInput.value,
+      });
+    });
+
     node.querySelector('.delete-btn').addEventListener('click', () => deleteShoppingItem(item.id));
+
+    if (openEdit && openEdit.id === item.id) {
+      editItemInput.value = openEdit.item;
+      editQuantityInput.value = openEdit.quantity;
+      editCategoryInput.value = openEdit.category;
+      viewSection.hidden = true;
+      editForm.hidden = false;
+    }
 
     list.appendChild(node);
   });
@@ -1161,7 +1747,7 @@ function addNote(title, body) {
   const trimmedBody = body.trim();
   if (!trimmedTitle && !trimmedBody) return { ok: false, error: 'A note needs a title or some text.' };
   const now = new Date().toISOString();
-  notes.push({
+  const note = {
     id: makeId(),
     title: trimmedTitle,
     body: trimmedBody,
@@ -1171,8 +1757,10 @@ function addNote(title, body) {
     deviceId: getDeviceId(),
     deleted: false,
     version: 0,
-  });
+  };
+  notes.push(note);
   saveCollection(NOTES_KEY, notes);
+  recordUndo('notes', note.id, null, structuredClone(note));
   renderNotes();
   return { ok: true };
 }
@@ -1183,13 +1771,13 @@ function updateNote(id, title, body) {
   if (!trimmedTitle && !trimmedBody) return { ok: false, error: 'A note needs a title or some text.' };
   const note = notes.find((n) => n.id === id);
   if (!note) return { ok: false, error: 'Note not found.' };
-  const now = new Date().toISOString();
+  const before = structuredClone(note);
   note.title = trimmedTitle;
   note.body = trimmedBody;
-  note.dateModified = now;
-  note.updatedAt = now;
-  note.deviceId = getDeviceId();
+  note.dateModified = new Date().toISOString(); // Notes-specific field, kept as its own step
+  stampSync(note); // sets updatedAt + deviceId via the shared helper
   saveCollection(NOTES_KEY, notes);
+  recordUndo('notes', id, before, structuredClone(note));
   renderNotes();
   return { ok: true };
 }
@@ -1197,9 +1785,22 @@ function updateNote(id, title, body) {
 function deleteNote(id) {
   const note = notes.find((n) => n.id === id);
   if (!note) return;
+  const before = structuredClone(note);
   note.deleted = true;
   stampSync(note);
   saveCollection(NOTES_KEY, notes);
+  recordUndo('notes', id, before, structuredClone(note));
+  renderNotes();
+}
+
+function restoreNote(id) {
+  const note = notes.find((n) => n.id === id);
+  if (!note || !note.deleted) return;
+  const before = structuredClone(note);
+  note.deleted = false;
+  stampSync(note);
+  saveCollection(NOTES_KEY, notes);
+  recordUndo('notes', id, before, structuredClone(note));
   renderNotes();
 }
 
@@ -1359,7 +1960,7 @@ function addLink(label, url, notes) {
   if (!trimmedLabel) return { ok: false, error: 'Label is required.' };
   if (!trimmedUrl) return { ok: false, error: 'URL is required.' };
   const now = new Date().toISOString();
-  links.push({
+  const link = {
     id: makeId(),
     label: trimmedLabel,
     url: trimmedUrl,
@@ -1369,8 +1970,10 @@ function addLink(label, url, notes) {
     deviceId: getDeviceId(),
     deleted: false,
     version: 0,
-  });
+  };
+  links.push(link);
   saveCollection(LINKS_KEY, links);
+  recordUndo('links', link.id, null, structuredClone(link));
   renderLinks();
   return { ok: true };
 }
@@ -1378,10 +1981,41 @@ function addLink(label, url, notes) {
 function deleteLink(id) {
   const link = links.find((l) => l.id === id);
   if (!link) return;
+  const before = structuredClone(link);
   link.deleted = true;
   stampSync(link);
   saveCollection(LINKS_KEY, links);
+  recordUndo('links', id, before, structuredClone(link));
   renderLinks();
+}
+
+function restoreLink(id) {
+  const link = links.find((l) => l.id === id);
+  if (!link || !link.deleted) return;
+  const before = structuredClone(link);
+  link.deleted = false;
+  stampSync(link);
+  saveCollection(LINKS_KEY, links);
+  recordUndo('links', id, before, structuredClone(link));
+  renderLinks();
+}
+
+function updateLink(id, fields) {
+  const link = links.find((l) => l.id === id);
+  if (!link) return { ok: false, error: 'Link not found.' };
+  const trimmedLabel = fields.label.trim();
+  const trimmedUrl = fields.url.trim();
+  if (!trimmedLabel) return { ok: false, error: 'Label is required.' };
+  if (!trimmedUrl) return { ok: false, error: 'URL is required.' };
+  const before = structuredClone(link);
+  link.label = trimmedLabel;
+  link.url = trimmedUrl;
+  link.notes = fields.notes.trim();
+  stampSync(link);
+  saveCollection(LINKS_KEY, links);
+  recordUndo('links', id, before, structuredClone(link));
+  renderLinks();
+  return { ok: true };
 }
 
 function matchesLinkSearch(link, term) {
@@ -1412,10 +2046,26 @@ function renderLinks() {
     .sort(comparator);
   const list = document.getElementById('resume-list');
   const template = document.getElementById('resume-card-template');
+
+  const openForm = list.querySelector('.link-edit-form:not([hidden])');
+  const openEdit = openForm
+    ? {
+        id: openForm.closest('.link-card').dataset.linkId,
+        label: openForm.querySelector('.link-edit-label').value,
+        url: openForm.querySelector('.link-edit-url').value,
+        notes: openForm.querySelector('.link-edit-notes').value,
+      }
+    : null;
+
   list.innerHTML = '';
 
   visible.forEach((link) => {
     const node = template.content.cloneNode(true);
+    const card = node.querySelector('.link-card');
+    card.dataset.linkId = link.id;
+    const viewSection = node.querySelector('.link-view');
+    const editForm = node.querySelector('.link-edit-form');
+
     node.querySelector('.link-label').textContent = link.label;
 
     const anchor = node.querySelector('.link-url');
@@ -1428,7 +2078,52 @@ function renderLinks() {
       notesEl.hidden = false;
     }
 
+    const editLabelInput = node.querySelector('.link-edit-label');
+    const editUrlInput = node.querySelector('.link-edit-url');
+    const editNotesInput = node.querySelector('.link-edit-notes');
+    const editError = node.querySelector('.link-edit-error');
+
+    node.querySelector('.edit-btn').addEventListener('click', () => {
+      const otherOpenForm = list.querySelector('.link-edit-form:not([hidden])');
+      if (otherOpenForm && otherOpenForm !== editForm) {
+        otherOpenForm.hidden = true;
+        otherOpenForm.closest('.link-card').querySelector('.link-view').hidden = false;
+      }
+      editLabelInput.value = link.label;
+      editUrlInput.value = link.url;
+      editNotesInput.value = link.notes;
+      editError.hidden = true;
+      viewSection.hidden = true;
+      editForm.hidden = false;
+    });
+
+    node.querySelector('.cancel-btn').addEventListener('click', () => {
+      editForm.hidden = true;
+      viewSection.hidden = false;
+    });
+
+    editForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const result = updateLink(link.id, {
+        label: editLabelInput.value,
+        url: editUrlInput.value,
+        notes: editNotesInput.value,
+      });
+      if (!result.ok) {
+        editError.textContent = result.error;
+        editError.hidden = false;
+      }
+    });
+
     node.querySelector('.delete-btn').addEventListener('click', () => deleteLink(link.id));
+
+    if (openEdit && openEdit.id === link.id) {
+      editLabelInput.value = openEdit.label;
+      editUrlInput.value = openEdit.url;
+      editNotesInput.value = openEdit.notes;
+      viewSection.hidden = true;
+      editForm.hidden = false;
+    }
 
     list.appendChild(node);
   });
@@ -1485,7 +2180,7 @@ function addCourse(fields) {
   if (!creditsResult.ok) return { ok: false, error: creditsResult.error };
   const status = COURSE_STATUSES.includes(fields.status) ? fields.status : 'planned';
   const now = new Date().toISOString();
-  courses.push({
+  const course = {
     id: makeId(),
     title: trimmedTitle,
     code: fields.code.trim(),
@@ -1499,8 +2194,10 @@ function addCourse(fields) {
     deviceId: getDeviceId(),
     deleted: false,
     version: 0,
-  });
+  };
+  courses.push(course);
   saveCollection(COURSES_KEY, courses);
+  recordUndo('courses', course.id, null, structuredClone(course));
   renderCourses();
   return { ok: true };
 }
@@ -1508,29 +2205,66 @@ function addCourse(fields) {
 function updateCourseStatus(id, newStatus) {
   const course = courses.find((c) => c.id === id);
   if (!course || !COURSE_STATUSES.includes(newStatus)) return;
+  const before = structuredClone(course);
   course.status = newStatus;
   if (newStatus !== 'completed') course.grade = null;
   stampSync(course);
   saveCollection(COURSES_KEY, courses);
+  recordUndo('courses', id, before, structuredClone(course));
   renderCourses();
 }
 
 function updateCourseGrade(id, grade) {
   const course = courses.find((c) => c.id === id);
   if (!course) return;
+  const before = structuredClone(course);
   const trimmedGrade = grade.trim();
   course.grade = trimmedGrade ? trimmedGrade : null;
   stampSync(course);
   saveCollection(COURSES_KEY, courses);
+  recordUndo('courses', id, before, structuredClone(course));
 }
 
 function deleteCourse(id) {
   const course = courses.find((c) => c.id === id);
   if (!course) return;
+  const before = structuredClone(course);
   course.deleted = true;
   stampSync(course);
   saveCollection(COURSES_KEY, courses);
+  recordUndo('courses', id, before, structuredClone(course));
   renderCourses();
+}
+
+function restoreCourse(id) {
+  const course = courses.find((c) => c.id === id);
+  if (!course || !course.deleted) return;
+  const before = structuredClone(course);
+  course.deleted = false;
+  stampSync(course);
+  saveCollection(COURSES_KEY, courses);
+  recordUndo('courses', id, before, structuredClone(course));
+  renderCourses();
+}
+
+function updateCourse(id, fields) {
+  const course = courses.find((c) => c.id === id);
+  if (!course) return { ok: false, error: 'Course not found.' };
+  const trimmedTitle = fields.title.trim();
+  if (!trimmedTitle) return { ok: false, error: 'Title is required.' };
+  const creditsResult = parseCredits(fields.credits);
+  if (!creditsResult.ok) return { ok: false, error: creditsResult.error };
+  const before = structuredClone(course);
+  course.title = trimmedTitle;
+  course.code = fields.code.trim();
+  course.credits = creditsResult.credits;
+  course.term = fields.term.trim();
+  course.notes = fields.notes.trim();
+  stampSync(course);
+  saveCollection(COURSES_KEY, courses);
+  recordUndo('courses', id, before, structuredClone(course));
+  renderCourses();
+  return { ok: true };
 }
 
 function matchesCourseSearch(course, term) {
@@ -1608,14 +2342,37 @@ function renderCourses() {
     .filter((c) => matchesCourseSearch(c, searchTerm))
     .filter((c) => matchesCourseTerm(c, selectedCourseTerm));
 
-  COURSE_STATUSES.forEach((status) => {
-    const list = document.querySelector(`[data-course-list="${status}"]`);
+  const lists = COURSE_STATUSES.map((status) => document.querySelector(`[data-course-list="${status}"]`));
+
+  let openEdit = null;
+  for (const list of lists) {
+    const openForm = list.querySelector('.course-edit-form:not([hidden])');
+    if (openForm) {
+      openEdit = {
+        id: openForm.closest('.course-card').dataset.courseId,
+        title: openForm.querySelector('.course-edit-title').value,
+        code: openForm.querySelector('.course-edit-code').value,
+        credits: openForm.querySelector('.course-edit-credits').value,
+        term: openForm.querySelector('.course-edit-term').value,
+        notes: openForm.querySelector('.course-edit-notes').value,
+      };
+      break;
+    }
+  }
+
+  COURSE_STATUSES.forEach((status, index) => {
+    const list = lists[index];
     list.innerHTML = '';
     const items = visible.filter((c) => c.status === status).sort(comparator);
     document.querySelector(`[data-course-count="${status}"]`).textContent = items.length;
 
     items.forEach((course) => {
       const node = template.content.cloneNode(true);
+      const card = node.querySelector('.course-card');
+      card.dataset.courseId = course.id;
+      const viewSection = node.querySelector('.course-view');
+      const editForm = node.querySelector('.course-edit-form');
+
       node.querySelector('.course-title').textContent = course.title;
 
       const codeEl = node.querySelector('.course-code');
@@ -1652,7 +2409,62 @@ function renderCourses() {
       moveSelect.value = course.status;
       moveSelect.addEventListener('change', (e) => updateCourseStatus(course.id, e.target.value));
 
+      const editTitleInput = node.querySelector('.course-edit-title');
+      const editCodeInput = node.querySelector('.course-edit-code');
+      const editCreditsInput = node.querySelector('.course-edit-credits');
+      const editTermInput = node.querySelector('.course-edit-term');
+      const editNotesInput = node.querySelector('.course-edit-notes');
+      const editError = node.querySelector('.course-edit-error');
+
+      node.querySelector('.edit-btn').addEventListener('click', () => {
+        lists.forEach((otherList) => {
+          const otherOpenForm = otherList.querySelector('.course-edit-form:not([hidden])');
+          if (otherOpenForm && otherOpenForm !== editForm) {
+            otherOpenForm.hidden = true;
+            otherOpenForm.closest('.course-card').querySelector('.course-view').hidden = false;
+          }
+        });
+        editTitleInput.value = course.title;
+        editCodeInput.value = course.code;
+        editCreditsInput.value = course.credits === null ? '' : String(course.credits);
+        editTermInput.value = course.term;
+        editNotesInput.value = course.notes;
+        editError.hidden = true;
+        viewSection.hidden = true;
+        editForm.hidden = false;
+      });
+
+      node.querySelector('.cancel-btn').addEventListener('click', () => {
+        editForm.hidden = true;
+        viewSection.hidden = false;
+      });
+
+      editForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const result = updateCourse(course.id, {
+          title: editTitleInput.value,
+          code: editCodeInput.value,
+          credits: editCreditsInput.value,
+          term: editTermInput.value,
+          notes: editNotesInput.value,
+        });
+        if (!result.ok) {
+          editError.textContent = result.error;
+          editError.hidden = false;
+        }
+      });
+
       node.querySelector('.delete-btn').addEventListener('click', () => deleteCourse(course.id));
+
+      if (openEdit && openEdit.id === course.id) {
+        editTitleInput.value = openEdit.title;
+        editCodeInput.value = openEdit.code;
+        editCreditsInput.value = openEdit.credits;
+        editTermInput.value = openEdit.term;
+        editNotesInput.value = openEdit.notes;
+        viewSection.hidden = true;
+        editForm.hidden = false;
+      }
 
       list.appendChild(node);
     });
@@ -1729,16 +2541,120 @@ function saveSyncConfig(config) {
 // localStorage key, and how to read/replace/render it — lets the sync
 // function stay generic instead of nine hand-written copies.
 const SYNC_COLLECTIONS = [
-  { name: 'books', label: 'Books', key: BOOKS_KEY, get: () => books, set: (v) => { books = v; }, render: renderBooks },
-  { name: 'recipes', label: 'Recipes', key: RECIPES_KEY, get: () => recipes, set: (v) => { recipes = v; }, render: renderRecipes },
-  { name: 'medications', label: 'Medications', key: MEDICATIONS_KEY, get: () => medications, set: (v) => { medications = v; }, render: renderMedications },
-  { name: 'diagnoses', label: 'Diagnoses', key: DIAGNOSES_KEY, get: () => diagnoses, set: (v) => { diagnoses = v; }, render: renderDiagnoses },
-  { name: 'todos', label: 'To-Do', key: TODOS_KEY, get: () => todos, set: (v) => { todos = v; }, render: renderTodos },
-  { name: 'shoppingList', label: 'Shopping List', key: SHOPPING_KEY, get: () => shoppingItems, set: (v) => { shoppingItems = v; }, render: renderShoppingList },
-  { name: 'notes', label: 'Notes', key: NOTES_KEY, get: () => notes, set: (v) => { notes = v; }, render: renderNotes },
-  { name: 'links', label: 'Resume', key: LINKS_KEY, get: () => links, set: (v) => { links = v; }, render: renderLinks },
-  { name: 'courses', label: 'Coursework', key: COURSES_KEY, get: () => courses, set: (v) => { courses = v; }, render: renderCourses },
+  { name: 'books', label: 'Books', key: BOOKS_KEY, get: () => books, set: (v) => { books = v; }, render: renderBooks, delete: deleteBook, restore: restoreBook },
+  { name: 'recipes', label: 'Recipes', key: RECIPES_KEY, get: () => recipes, set: (v) => { recipes = v; }, render: renderRecipes, delete: deleteRecipe, restore: restoreRecipe },
+  { name: 'medications', label: 'Medications', key: MEDICATIONS_KEY, get: () => medications, set: (v) => { medications = v; }, render: renderMedications, delete: deleteMedication, restore: restoreMedication },
+  { name: 'diagnoses', label: 'Diagnoses', key: DIAGNOSES_KEY, get: () => diagnoses, set: (v) => { diagnoses = v; }, render: renderDiagnoses, delete: deleteDiagnosis, restore: restoreDiagnosis },
+  { name: 'todos', label: 'To-Do', key: TODOS_KEY, get: () => todos, set: (v) => { todos = v; }, render: renderTodos, delete: deleteTodo, restore: restoreTodo },
+  { name: 'shoppingList', label: 'Shopping List', key: SHOPPING_KEY, get: () => shoppingItems, set: (v) => { shoppingItems = v; }, render: renderShoppingList, delete: deleteShoppingItem, restore: restoreShoppingItem },
+  { name: 'notes', label: 'Notes', key: NOTES_KEY, get: () => notes, set: (v) => { notes = v; }, render: renderNotes, delete: deleteNote, restore: restoreNote },
+  { name: 'links', label: 'Resume', key: LINKS_KEY, get: () => links, set: (v) => { links = v; }, render: renderLinks, delete: deleteLink, restore: restoreLink },
+  { name: 'courses', label: 'Coursework', key: COURSES_KEY, get: () => courses, set: (v) => { courses = v; }, render: renderCourses, delete: deleteCourse, restore: restoreCourse },
 ];
+
+// ---- Undo/redo application mechanics ----
+// Applies one side (`before` on undo, `after` on redo) of a recorded entry
+// back onto the live collection, generalized across all nine collections via
+// the get/set/render/delete/restore lookup above.
+
+function applyEntrySnapshot(entry, which) {
+  const target = entry[which]; // 'before' on undo, 'after' on redo
+  const cfg = SYNC_COLLECTIONS.find((c) => c.name === entry.collection);
+  if (!cfg) return;
+  const items = cfg.get();
+  const record = items.find((r) => r.id === entry.id);
+
+  if (target === null) {
+    // Undoing an "add": there is no prior state, so the record must be
+    // removed. Reuse the collection's own deleteX (tombstone), never a splice.
+    if (record && !record.deleted) cfg.delete(entry.id);
+    return;
+  }
+
+  if (!record) return; // defensive: id no longer exists at all — see spec §7.1
+
+  if (target.deleted && !record.deleted) {
+    cfg.delete(entry.id);
+    return;
+  }
+  if (!target.deleted && record.deleted) {
+    cfg.restore(entry.id); // un-tombstone via restoreX first
+  }
+
+  // Re-clone the target on every application — never assign the stack
+  // entry's own nested objects/arrays into the live record. This is the
+  // same reference-aliasing risk noted for the original mutation functions,
+  // applied here to the new engine: without this clone, a field like
+  // Recipes' `ingredients` array would end up shared between the live
+  // record and the entry still sitting in the opposite stack, so a later
+  // in-place mutation could silently corrupt history.
+  const snapshot = structuredClone(target);
+  Object.keys(snapshot).forEach((key) => {
+    // Never restore identity/version bookkeeping from history — id and
+    // dateAdded never change; version is server-assigned only; updatedAt/
+    // deviceId are always freshly stamped below, not replayed from the old
+    // snapshot, because this undo/redo action IS a new local mutation, not
+    // a replay of the old timestamp. `deleted` was already handled above.
+    if (['id', 'dateAdded', 'version', 'updatedAt', 'deviceId', 'deleted'].includes(key)) return;
+    record[key] = snapshot[key];
+  });
+  stampSync(record);
+  saveCollection(cfg.key, items);
+  cfg.render(); // only this one collection re-renders — never the whole app
+}
+
+function undo() {
+  if (undoStack.length === 0) return;
+  const entry = undoStack.pop();
+  isApplyingHistory = true;
+  applyEntrySnapshot(entry, 'before');
+  isApplyingHistory = false;
+  redoStack.push(entry);
+  if (redoStack.length > MAX_UNDO_DEPTH) redoStack.shift();
+  updateUndoRedoButtons();
+}
+
+function redo() {
+  if (redoStack.length === 0) return;
+  const entry = redoStack.pop();
+  isApplyingHistory = true;
+  applyEntrySnapshot(entry, 'after');
+  isApplyingHistory = false;
+  undoStack.push(entry);
+  if (undoStack.length > MAX_UNDO_DEPTH) undoStack.shift();
+  updateUndoRedoButtons();
+}
+
+const RECORD_LABEL_FIELD = {
+  books: 'title', recipes: 'title', medications: 'name', diagnoses: 'condition',
+  todos: 'task', shoppingList: 'item', notes: 'title', links: 'label', courses: 'title',
+};
+
+function describeEntry(entry) {
+  const labelField = RECORD_LABEL_FIELD[entry.collection];
+  const source = entry.after || entry.before;
+  const identifier = source && labelField ? source[labelField] : null;
+  let action;
+  if (entry.before === null) action = 'added';
+  else if (entry.after.deleted && !entry.before.deleted) action = 'deleted';
+  else if (!entry.after.deleted && entry.before.deleted) action = 'restored';
+  else action = 'edited';
+  return identifier ? `${action} '${identifier}'` : `${action} an item`;
+}
+
+function updateUndoRedoButtons() {
+  const undoBtn = document.getElementById('undo-btn');
+  const redoBtn = document.getElementById('redo-btn');
+  const topUndo = undoStack[undoStack.length - 1];
+  const topRedo = redoStack[redoStack.length - 1];
+  undoBtn.disabled = undoStack.length === 0;
+  redoBtn.disabled = redoStack.length === 0;
+  undoBtn.title = topUndo ? `Undo: ${describeEntry(topUndo)}` : 'Undo';
+  redoBtn.title = topRedo ? `Redo: ${describeEntry(topRedo)}` : 'Redo';
+}
+
+document.getElementById('undo-btn').addEventListener('click', undo);
+document.getElementById('redo-btn').addEventListener('click', redo);
 
 let syncInFlight = false;
 let lastSyncedAt = null;
@@ -2046,5 +2962,6 @@ renderShoppingList();
 renderNotes();
 renderLinks();
 renderCourses();
+updateUndoRedoButtons();
 setActiveTab(loadUiState().activeTab || 'books');
 initSyncUI();
