@@ -3,6 +3,77 @@
 This file is maintained by the Archivist role. Newest entries at the top. Each entry
 records what was decided, why, and any standing constraint future work must respect.
 
+## 2026-09-16 — Reachable sync from any network via Tailscale
+
+**Decision:** The user said "lets open the app up so it is avaliable even when not
+connected to this session. i move back and forth between different houses and school
+alot so its inconvenient. i dont mind this being unavaliable when theres no wifi." Since
+the sync server already runs independently of any chat session (auto-started via the
+Windows Startup-folder script from an earlier cycle), the Architect asked a clarifying
+question first: whether this meant (a) making home-network access self-healing so it
+stops requiring manual fixes when the LAN IP changes, or (b) genuinely reachable from a
+different physical network entirely (e.g. school), which cannot work with LAN-only sync
+no matter how self-healing it is. The user chose (b). The Architect then presented two
+real options for making the server reachable by an address not tied to a specific
+physical network, rather than picking one silently, given their very different security
+implications: port-forwarding + Dynamic DNS (exposes the server to the public internet —
+the existing shared passphrase becomes the sole defense, and needs router admin access
+the Architect doesn't have) versus Tailscale (a private mesh VPN — the server is never
+exposed to the public internet, only reachable through an encrypted connection between
+the user's own authenticated devices, no router configuration needed). The user chose
+Tailscale.
+
+**What was done:**
+1. Installed the Tailscale Windows client via winget (`Tailscale.Tailscale`), with
+   explicit confirmation before installing (it adds a background service + virtual
+   network adapter).
+2. The Architect triggered `tailscale up`, which produced a sign-in URL; the user
+   completed the actual account sign-in themselves (Google/Microsoft/GitHub/Apple/
+   email) — the Architect explicitly did not attempt to sign in on the user's behalf,
+   since entering credentials/creating accounts for the user is outside what it will do.
+3. Once signed in (Tailscale IP `100.66.1.95`, MagicDNS hostname
+   `gingerslaptop.tail434cf9.ts.net`), updated `sync_server.py` (commit `8390b2b`):
+   `ensure_cert()`/`cert_covers()` were generalized from a single required IP to a list
+   of `(kind, value)` SAN entries (IP or DNS), so a partial-coverage certificate (e.g.
+   covering the LAN IP but missing a newly-available Tailscale IP) correctly triggers
+   full regeneration rather than being treated as good enough. A new
+   `get_tailscale_info()` shells out to `tailscale status --json` (via a new
+   `find_tailscale()`, checking the standard Windows install path then PATH) and returns
+   `(None, None)` gracefully if Tailscale isn't installed, isn't running, or isn't signed
+   in yet — Tailscale is fully optional; the server behaves exactly as before if it's
+   absent. `main()` now includes the Tailscale IP and MagicDNS hostname in the
+   certificate's SAN list whenever they're available, alongside the existing LAN IP/
+   loopback/localhost entries.
+4. Restarted the server to regenerate the certificate under the new logic, then verified
+   live: read back the regenerated cert's SAN list (confirmed it now lists the LAN IP,
+   `127.0.0.1`, `localhost`, the Tailscale IP, and the Tailscale MagicDNS hostname all
+   together) and confirmed via `curl` that the server actually responds correctly when
+   reached over both the Tailscale IP and the Tailscale hostname, not just the LAN
+   address.
+5. Updated README.md with a new "Syncing from a different network" section explaining
+   the Tailscale setup and pointing at the MagicDNS hostname as the address to use when
+   away from the home network.
+
+**Outcome:** the user's phone still needs the Tailscale app installed and signed into the
+same account (a step only the user can complete, same as the computer's sign-in) before
+the new address will actually work end-to-end from a different network — this was
+communicated to the user as the next step, not yet confirmed complete as of this entry.
+
+**Standing constraints established:**
+- The sync server now detects Tailscale automatically on every startup — no code changes
+  needed if the user reinstalls/reconnects Tailscale later; a restart of `sync_server.py`
+  is enough to pick up a newly-available Tailscale IP the same way it already does for
+  LAN IP changes.
+- This is explicitly framed as safer than the port-forwarding alternative: the server is
+  never exposed to the public internet under this design, only reachable through the
+  user's own private Tailscale network. If a future request asks for something like "let
+  anyone with the link access it" or public/internet-wide access, that is a materially
+  different, higher-risk request that was explicitly declined/deferred here and should
+  not be assumed to already be covered by this change.
+- `cert.pem`/`key.pem` remain machine-specific, gitignored, regenerated-on-demand files —
+  this cycle changed how their SAN coverage is computed, not their gitignore status or
+  their role as local-only generated artifacts.
+
 ## 2026-09-16 — Budget tab: recurring bills on a rolling 5-week calendar
 
 **Decision:** The user asked for a new Budget tab with specific requirements: a rolling
