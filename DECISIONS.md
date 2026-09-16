@@ -3,6 +3,110 @@
 This file is maintained by the Archivist role. Newest entries at the top. Each entry
 records what was decided, why, and any standing constraint future work must respect.
 
+## 2026-09-16 — Budget tab: recurring bills on a rolling 5-week calendar
+
+**Decision:** The user asked for a new Budget tab with specific requirements: a rolling
+5-week calendar (2 past weeks, current week in the middle, 2 future weeks), a month
+header, each day showing date top-right/bills in the middle/a manually-enterable number
+bottom-right, a bills list below with name/amount/due-date/frequency that auto-updates
+the calendar, checkable paid status per occurrence, and a weekly total that carries
+forward unpaid bills from past weeks. The user explicitly invited additions ("add
+anything else you think may function well with this"). The Researcher validated the
+technical approach first (`docs/research/budget-calendar.md`), confirming two real,
+cited bugs to avoid: `Date.setMonth()` doesn't clamp an out-of-range day to month-end
+(MDN's own example shows Jan 31 + `setMonth(1)` producing March 2, not Feb 29) — fixed
+via the "day-0 trick" (`new Date(y, m+1, 0).getDate()`) to clamp to the target month's
+actual last day; and local-millisecond `Date` diffing is DST-unsafe for weekly/biweekly
+recurrence, fixed by diffing `Date.UTC()`-anchored timestamps instead. The Researcher
+also flagged (out of scope to fix) a related pre-existing latent bug: this app's
+existing `isTodoOverdue()`/`todayForFilename()` derive "today" via
+`toISOString().slice(0,10)`, which is UTC not local — meaning "today" can flip hours
+before local midnight for US timezones. New Budget code was explicitly required not to
+copy this pattern. The Researcher recommended on-the-fly occurrence computation (never
+pre-generating/persisting future rows) and confirmed the carry-forward weekly-total
+formula directly from the user's own wording.
+
+**Architect decisions on the Researcher's flagged open questions:** included `yearly` as
+a 4th recurring frequency (cheap given the clamp logic already exists for monthly)
+alongside weekly/biweekly/monthly, plus `one_time` for non-recurring bills; the manual
+per-day number is a free-form personal value with no forced meaning, not included in any
+total; editing a bill's due date/frequency after some occurrences are paid is allowed
+with no warning — any now-stale `paidDates` entry that no longer matches the new
+recurrence rule just becomes silently inert (same "accept the limitation rather than
+build reconciliation UI" pattern already used for Medications and Books' Jon's-
+Bookshelf); all three of the Researcher's suggested additions were approved (overdue
+visual state reusing `.todo-due.overdue`/`--accent-2`, an overall unpaid-total summary
+line reusing `renderBooksStats()`'s pattern, an optional per-bill category chip filter);
+and Bills was built as a full 10th `SYNC_COLLECTIONS` citizen from day one (proper sync/
+export/import/edit-form/undo-redo integration), not a special-cased feature, since that
+generic infrastructure had just been built the cycle before.
+
+**Spec (`docs/specs/budget-tab.md`):** the Analyst spec'd closed-form (not day-by-day-
+loop) occurrence-counting math so a bill anchored years in the past doesn't cost
+unbounded render time, and flagged one real, non-data-loss UX gap the settled decisions
+didn't cover: once a day cell scrolls more than ~2 weeks into the past, it permanently
+leaves the visible window with no way to mark it paid after the fact, silently inflating
+every future total forever. The Architect approved building a fix immediately rather
+than shipping the gap: a "Mark oldest unpaid as paid" button on each bill's Bills-list
+card that finds and pays off that bill's single oldest unpaid occurrence, reusing the
+exact same `toggleBillPaid()` function the calendar checkboxes use.
+
+**What was built (Bob, commit `854be99`):** the `Bill` record shape (`name`/`amount`/
+`dueDate`/`frequency`/`category`/`paidDates` + standard sync fields), the occurrence-
+generation math (`occursOnDate`, `occurrenceCountThrough`, `unpaidAmountThrough` — all
+using the UTC-day-diff and month-end-clamp techniques), the 35-day rolling window
+(`getCalendarWindowDays`, Sunday-start, recomputed fresh on every render rather than on a
+ticking interval), the calendar UI (date top-right, occurrences with an internal-scroll
+cap reusing the just-established Books-column-scroll pattern, manual number bottom-right
+in its own local-only `secondMemory.budgetDailyNumbers.v1` storage key — deliberately
+outside `SYNC_COLLECTIONS`/undo-redo/export since nothing else depends on it), the Bills
+list column (add/edit/delete, category chip filter reusing shared chip helpers, sort
+options), and the "mark oldest unpaid" button/helper. Budget was placed in the existing
+"Personal" nav group, last after Notes.
+
+**Outcome:** a dedicated Tester pass hand-traced the date math against concrete numeric
+examples (day-31-anchored bill correctly clamps to Feb 28/Apr 30/Mar 31; a Feb-29-
+anchored yearly bill correctly clamps to Feb 28 in non-leap years and lands on Feb 29 in
+leap years; closed-form monthly occurrence count matched a manual count with no off-by-
+one; carry-forward formula confirmed to make the same unpaid bill contribute identically
+to all 5 visible weeks when its due date predates the window; orphaned `paidDates`
+entries after a bill edit confirmed excluded from the unpaid count) — all 10 requested
+checks passed. The Tester found one real bug: the "mark oldest unpaid" lookup was
+running on every render for every bill (an expensive day-by-day walk, worst-case ~3,650
+iterations for an old yearly bill) just to compute a button's disabled state, contrary to
+its own code comment. Fixed before committing: the render-time disabled-check now uses
+the already-cheap `unpaidAmountThrough() > 0` instead, and the expensive walk only runs
+inside the actual button-click handler. The Architect then live-tested end-to-end: a
+monthly $1200 rent bill anchored two months back correctly appeared overdue, weekly
+totals showed correct carry-forward amounts ($2400 for two unpaid occurrences, stepping
+to $3600 once a third entered the window), checking a calendar occurrence paid dropped
+totals by exactly that amount, "mark oldest unpaid" correctly cleared the out-of-window
+backlog occurrence and then disabled itself, undo/redo works identically to every other
+collection for bill-paid-state changes, and a focused manual-number input mid-keystroke
+survives an unrelated checkbox-triggered re-render without losing its value or focus.
+Zero console errors throughout.
+
+**Standing constraints established:**
+- Budget/Bills' date-key handling (`todayKey()`/`dateKeyFromLocalDate()`) is local-date-
+  derived, deliberately NOT using `toISOString().slice(0,10)` like the app's older
+  `isTodoOverdue()`/`todayForFilename()` do — that older pattern is a known, still-
+  unfixed latent UTC-vs-local bug flagged twice now; a future cycle could consider fixing
+  those two functions to match the new local-date convention, but that's an explicit
+  follow-up decision, not something silently done as part of this cycle.
+- The manual per-day number is intentionally the one piece of user-entered data in this
+  entire app that doesn't sync across devices, doesn't survive export/import, and isn't
+  protected by undo — a conscious Architect trade-off for simplicity, not an oversight;
+  revisit only if the user explicitly asks for it to follow them across devices (it would
+  need to become an 11th `SYNC_COLLECTIONS` entry).
+- The weekly total's carry-forward double-counting (the same unpaid bill contributing to
+  every subsequent week's total) is intentional per the user's own explicit wording — a
+  future cycle must not "fix" this as a perceived bug without re-reading this entry and
+  `docs/specs/budget-tab.md` §4 first.
+- Any future recurring-date logic anywhere in this app should reuse the `utcDayDiff`/
+  day-0-trick clamp technique established here rather than re-deriving it, given the two
+  real, cited bugs (DST-unsafe diffing, `setMonth()` non-clamping) this cycle specifically
+  worked around.
+
 ## 2026-09-16 — Edit buttons + global undo/redo across all nine collections
 
 **Decision:** The user asked to "create edit buttons and an undo/redo button for
@@ -985,3 +1089,4 @@ network requests are made (confirmed via the browser's network log — only the 
 Tester subagent should be dispatched for verification from the next feature cycle
 onward.
 </content>
+</invoke>
