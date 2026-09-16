@@ -195,7 +195,7 @@ document.querySelectorAll('.nav-item').forEach((btn) => {
 // ---- Books ----
 
 const BOOKS_KEY = 'secondMemory.books.v1';
-const BOOK_STATUSES = ['want_to_buy', 'owned_unread', 'currently_reading', 'owned_read', 'jons_bookshelf'];
+const BOOK_STATUSES = ['want_to_buy', 'owned_unread', 'currently_reading', 'owned_read', 'textbook', 'jons_bookshelf', 'jons_bookshelf_read'];
 
 let books = migrateSyncFields(loadCollection(BOOKS_KEY), BOOKS_KEY, getDeviceId());
 
@@ -270,7 +270,8 @@ function renderBooksStats(nonDeletedBooks) {
   const countFor = (status) => nonDeletedBooks.filter((b) => b.status === status).length;
   el.textContent = `${total} book${total === 1 ? '' : 's'} · ${countFor('want_to_buy')} want to buy · ` +
     `${countFor('owned_unread')} unread · ${countFor('currently_reading')} currently reading · ` +
-    `${countFor('owned_read')} read · ${countFor('jons_bookshelf')} on Jon's Bookshelf`;
+    `${countFor('owned_read')} read · ${countFor('textbook')} textbooks · ` +
+    `${countFor('jons_bookshelf')} on Jon's Bookshelf (unread) · ${countFor('jons_bookshelf_read')} on Jon's Bookshelf (read)`;
 }
 
 function renderBooks() {

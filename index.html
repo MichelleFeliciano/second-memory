@@ -167,7 +167,9 @@
           <option value="owned_unread">Owned — Unread</option>
           <option value="currently_reading">Currently Reading</option>
           <option value="owned_read">Owned — Read</option>
-          <option value="jons_bookshelf">Jon's Bookshelf</option>
+          <option value="textbook">Textbooks</option>
+          <option value="jons_bookshelf">Jon's Bookshelf — Unread</option>
+          <option value="jons_bookshelf_read">Jon's Bookshelf — Read</option>
         </select>
         <button type="submit">Add book</button>
       </form>
@@ -189,9 +191,17 @@
           <h3>Owned — Read <span class="count" data-count="owned_read">0</span></h3>
           <ul class="card-list" data-list="owned_read"></ul>
         </div>
+        <div class="column" data-status="textbook">
+          <h3>Textbooks <span class="count" data-count="textbook">0</span></h3>
+          <ul class="card-list" data-list="textbook"></ul>
+        </div>
         <div class="column" data-status="jons_bookshelf">
-          <h3>Jon's Bookshelf <span class="count" data-count="jons_bookshelf">0</span></h3>
+          <h3>Jon's Bookshelf — Unread <span class="count" data-count="jons_bookshelf">0</span></h3>
           <ul class="card-list" data-list="jons_bookshelf"></ul>
+        </div>
+        <div class="column" data-status="jons_bookshelf_read">
+          <h3>Jon's Bookshelf — Read <span class="count" data-count="jons_bookshelf_read">0</span></h3>
+          <ul class="card-list" data-list="jons_bookshelf_read"></ul>
         </div>
       </div>
 
@@ -484,7 +494,9 @@
         <option value="owned_unread">Move: Owned — Unread</option>
         <option value="currently_reading">Move: Currently Reading</option>
         <option value="owned_read">Move: Owned — Read</option>
-        <option value="jons_bookshelf">Move: Jon's Bookshelf</option>
+        <option value="textbook">Move: Textbooks</option>
+        <option value="jons_bookshelf">Move: Jon's Bookshelf — Unread</option>
+        <option value="jons_bookshelf_read">Move: Jon's Bookshelf — Read</option>
       </select>
       <button type="button" class="delete-btn" aria-label="Delete book">Delete</button>
     </div>
