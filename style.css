@@ -574,6 +574,15 @@ body::before {
   gap: 12px;
 }
 
+/* Books can hold hundreds of records per column (218 in the real dataset) —
+   cap each column's own height and let it scroll internally instead of the
+   whole page growing to the length of the longest column. */
+.book-columns .card-list {
+  max-height: min(520px, 60vh);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
 .flat-list {
   gap: 16px;
 }
@@ -627,6 +636,11 @@ body::before {
 .book-actions select,
 .diagnosis-actions select,
 .course-actions select {
+  /* A <select>'s closed-state width is intrinsic to its widest <option> text
+     ("Move: Currently Reading", "Move: Jon's Bookshelf") — without a cap it
+     overflows a card at Books' narrower 5-column width. flex-wrap alone
+     doesn't stop a single item from being wider than its container. */
+  max-width: 100%;
   padding: 5px 8px;
   border: 1px solid var(--border);
   border-radius: 13px;
