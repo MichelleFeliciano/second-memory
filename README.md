@@ -73,10 +73,10 @@ future work stays consistent even across separate sessions:
   technical claims against authoritative sources, not SEO content.
 - **Analyst** ([.claude/agents/analyst.md](.claude/agents/analyst.md)) — checks the data
   model and specs for accuracy and logical gaps before code is written.
-- **Builder** ([.claude/agents/builder.md](.claude/agents/builder.md)) — implements the
-  approved spec in code.
+- **Bob** ([.claude/agents/bob.md](.claude/agents/bob.md)) — the Builder role; implements
+  the approved spec in code.
 - **Tester** ([.claude/agents/tester.md](.claude/agents/tester.md)) — tries to break what
-  the Builder shipped and reports bugs (doesn't fix them).
+  Bob shipped and reports bugs (doesn't fix them).
 - **Archivist** ([.claude/agents/archivist.md](.claude/agents/archivist.md)) — the closed-loop
   role: logs each approved cycle's decisions and outcomes to `DECISIONS.md` so the next
   cycle doesn't start from scratch or re-break something already fixed.

@@ -19,8 +19,8 @@ and are invoked with the Agent tool using `subagent_type` equal to their file na
   isolated build task, dedicated test passes), not ceremony.
 - **Run independent subtasks in parallel.** If Researcher and Analyst don't depend on
   each other's output, dispatch both in the same tool-call batch. Only serialize steps
-  that have a real dependency (Builder needs the Analyst's approved spec; Tester needs
-  the Builder's code).
+  that have a real dependency (Bob needs the Analyst's approved spec; Tester needs
+  Bob's code).
 - You hold the only deploy/merge authority. Nothing is considered final until you've
   reviewed every subagent's output for this cycle.
 - Before starting a new task, check `DECISIONS.md` (the Archivist's log) so you don't
@@ -33,7 +33,7 @@ and are invoked with the Agent tool using `subagent_type` equal to their file na
 |---|---|
 | Need to validate a technical claim, compare storage approaches, check a spec against real-world constraints | `researcher` |
 | Need the data model / schema / edge cases checked before code is written | `analyst` |
-| Spec is approved, code needs to be written | `builder` |
+| Spec is approved, code needs to be written | `bob` |
 | Code exists, needs to be broken/verified | `tester` |
 | A cycle is approved and needs to be logged for future context | `archivist` |
 
