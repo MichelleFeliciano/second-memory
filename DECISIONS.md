@@ -3,6 +3,77 @@
 This file is maintained by the Archivist role. Newest entries at the top. Each entry
 records what was decided, why, and any standing constraint future work must respect.
 
+## 2026-09-15 — Currently Reading column + Jon's Bookshelf
+
+**Decision:** The user asked to add a "Currently Reading" column and a "Jon's Bookshelf"
+section to Books, to hold books that aren't the user's own (Jon is a household member
+already referenced in the app's imported Recipes data, e.g. "Jon's Porkchops"). When asked
+whether Jon's Bookshelf needed the same status pipeline as the user's own books or
+something simpler, the user said: "make it just another column like the others" — settling
+it as a 5th status value rendered as a 5th column in the same Books view, not a separate
+section/tab or a duplicated pipeline, and not a second `owner` field.
+
+**Process:** the Analyst read the existing Books code (`BOOK_STATUSES`, `addBook`,
+`updateBookStatus`, `updateBookRating`, `renderBooks`, `renderBooksStats`, `BOOK_SORTS`)
+and wrote `docs/specs/books-currently-reading-jons-bookshelf.md`. Key findings: the new
+`BOOK_STATUSES` order is `['want_to_buy', 'owned_unread', 'currently_reading',
+'owned_read', 'jons_bookshelf']` (the reading pipeline stays contiguous; Jon's shelf sits
+outside it since it's a different fact — whose book it is — not a step in the user's own
+journey); free movement between all 5 statuses in both directions, matching the existing
+move-dropdown's behavior (no adjacency graph exists today either); the existing `if
+(newStatus !== 'owned_read') book.rating = null` and the `status === 'owned_read'`
+rating-display gate already generalize correctly to 5 statuses with zero code changes; no
+new fields were proposed for either addition (no reading-progress tracker on
+`currently_reading`, no `owner` field for `jons_bookshelf`) per the user's literal
+instruction and CLAUDE.md's scope-discipline rule; and the existing sort/render loop
+already iterates `BOOK_STATUSES` generically, so the two new columns automatically inherit
+sorting with no special-casing. The spec explicitly flagged one accepted (not fixed)
+limitation: a book can't be simultaneously "Jon's" and "the user's in-progress read" under
+this single-status-axis design — noted as a real gap versus a two-axis design, accepted
+because it matches the user's literal instruction and only one non-owner (Jon) exists in
+the data today; revisit with an explicit `owner` field only if this becomes real friction
+in practice.
+
+**What was built (Bob, commit `4ccd5ab`):** `BOOK_STATUSES` extended to the 5-value array
+above; two new columns added to the Books grid in `index.html` (heading, count badge,
+card-list, matching existing markup exactly); the add-form status `<select>` and every
+book-card's move-`<select>` got the two new options; `renderBooksStats()` extended to
+report counts for both new statuses in the same terse style as the existing summary line;
+a new `.book-columns` CSS grid rule (`repeat(auto-fit, minmax(200px, 1fr))`) replacing the
+fixed 3-track layout for Books specifically, so 5 columns wrap sensibly rather than
+becoming 5 cramped tracks — scoped so Diagnoses' separate fixed 3-column grid is untouched.
+
+**Outcome:** the Architect live-tested in the browser (fresh port) rather than dispatching
+a separate Tester pass, since the spec had no open questions and the change was small/
+mechanical. Confirmed: all 5 columns render with correct labels and the auto-fit grid
+wraps to 3+2 at typical widths; moving a book with a set rating from `owned_read` into
+`currently_reading` correctly clears the rating and hides the rating control; the stats
+line updates correctly to include both new categories; adding books directly into
+`jons_bookshelf` and applying the existing Author-A-Z sort correctly ordered them alongside
+the other columns' sort behavior, confirming no special-casing was needed. Also confirmed
+this is purely additive to the existing 218-book dataset (all 218 were previously imported
+as only `owned_unread`/`want_to_buy`, so nothing needed migrating).
+
+**Standing constraints established:**
+- `jons_bookshelf` is a single-axis status value, not a general ownership/owner field — if
+  a second non-owner household member is ever introduced, or if tracking "currently
+  reading a book that's still Jon's" becomes a real need, that requires a deliberate
+  follow-up cycle (likely an `owner` field orthogonal to `status`), not an assumption that
+  the current model already supports it.
+- `BOOK_STATUSES` is now `['want_to_buy', 'owned_unread', 'currently_reading',
+  'owned_read', 'jons_bookshelf']` — the reading-pipeline statuses stay contiguous and
+  `jons_bookshelf` stays last/outside that pipeline; any future status addition should
+  preserve this ordering distinction rather than interleaving pipeline and non-pipeline
+  values.
+
+Also note: in the same session, the Architect accidentally bundled this Books feature's
+file changes into a commit intended only for the redesign's DECISIONS.md log entry (a
+staging mistake, not a data issue), caught immediately, and corrected via a local `git
+reset --soft` (no remote existed, nothing had been pushed) into two properly separated
+commits: `4ccd5ab` (Books feature) and `1c00886` (redesign log). Not worth its own entry,
+but worth a one-line mention here since it explains why the two commits' timestamps are
+adjacent despite being unrelated changes.
+
 ## 2026-09-15 — Foresty light/dark redesign + dark-mode contrast fix
 
 **Decision:** The user said the app "look[ed] dark" and asked for "light and airy,
@@ -719,3 +790,4 @@ network requests are made (confirmed via the browser's network log — only the 
 Tester subagent should be dispatched for verification from the next feature cycle
 onward.
 </content>
+</invoke>
