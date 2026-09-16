@@ -1,39 +1,35 @@
 :root {
   color-scheme: light dark;
-  --bg: #F6F1E7;
-  --surface: #FBF8F2;
-  --text: #3B2A1E;
-  --muted: #5C4B3A;
-  --accent: #4B6043;
+  --bg: #F6FAF4;
+  --surface: #FFFFFF;
+  --text: #1C2B1A;
+  --muted: #4C5D46;
+  --accent: #2E5D34;
   --accent-2: #A34A2A;
-  --border: #8A7460;
+  --border: #6B7A63;
   --accent-contrast: #ffffff;
   --accent-rose: #A24B68;
   --accent-lavender: #6B5B95;
   --tint-blush: #F6E4E9;
-  /* Judgment call: docs/research/feminine-redesign.md only specifies a light-theme
-     hex (#C9B9A0). No dark-theme value is given, so this is a blend of --border
-     toward dark --bg at roughly the same ratio the light value sits between its
-     --border/--bg pair, kept intentionally low-contrast since it's decorative-only. */
-  --border-soft: #C9B9A0;
+  --border-soft: #D7E3CE;
   --font-heading: "Snell Roundhand", "Bradley Hand", "Segoe Script", "Segoe Print",
     cursive, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #221913;
-    --surface: #2E241C;
-    --text: #EFE6D8;
-    --muted: #C9BBA5;
-    --accent: #9CBB8C;
+    --bg: #101C12;
+    --surface: #182A17;
+    --text: #EAF3E6;
+    --muted: #AEC7A4;
+    --accent: #7BC174;
     --accent-2: #E08A5B;
-    --border: #8A7460;
-    --accent-contrast: #221913;
+    --border: #63795A;
+    --accent-contrast: #101C12;
     --accent-rose: #E8A9BE;
     --accent-lavender: #C9B8E8;
     --tint-blush: #3A2530;
-    --border-soft: #514236;
+    --border-soft: #33452F;
   }
 }
 
@@ -71,12 +67,45 @@ body::before {
   z-index: -1;
   pointer-events: none;
   background-repeat: repeat;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cdefs%3E%3Cpattern id='leaf' width='140' height='140' patternUnits='userSpaceOnUse'%3E%3Cpath d='M20 90 C20 60 40 30 70 20 C65 50 55 75 30 95 Z' fill='rgba(75,96,67,0.06)'/%3E%3Cpath d='M20 90 C35 85 55 70 65 45' stroke='rgba(75,96,67,0.07)' stroke-width='2' fill='none'/%3E%3Cpath d='M100 120 C100 95 115 70 135 60 C130 85 122 105 105 122 Z' fill='rgba(75,96,67,0.05)'/%3E%3Cg%3E%3Cellipse cx='100' cy='22' rx='5' ry='9' fill='rgba(162,75,104,0.05)'/%3E%3Cellipse cx='100' cy='22' rx='5' ry='9' fill='rgba(162,75,104,0.05)' transform='rotate(72 100 30)'/%3E%3Cellipse cx='100' cy='22' rx='5' ry='9' fill='rgba(162,75,104,0.05)' transform='rotate(144 100 30)'/%3E%3Cellipse cx='100' cy='22' rx='5' ry='9' fill='rgba(162,75,104,0.05)' transform='rotate(216 100 30)'/%3E%3Cellipse cx='100' cy='22' rx='5' ry='9' fill='rgba(162,75,104,0.05)' transform='rotate(288 100 30)'/%3E%3Ccircle cx='100' cy='30' r='3' fill='rgba(162,75,104,0.06)'/%3E%3C/g%3E%3C/pattern%3E%3C/defs%3E%3Crect width='140' height='140' fill='url(%23leaf)'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cdefs%3E%3Cpattern id='leaf' width='220' height='220' patternUnits='userSpaceOnUse'%3E%3Cpath d='M30 140 C25 95 55 55 100 35 C95 80 80 120 45 150 Z' fill='rgba(46,93,52,0.06)'/%3E%3Cpath d='M30 140 C50 130 75 105 90 70' stroke='rgba(46,93,52,0.07)' stroke-width='2.5' fill='none'/%3E%3Cpath d='M45 125 L62 112 M55 105 L72 90 M65 85 L80 68' stroke='rgba(46,93,52,0.05)' stroke-width='1.2' fill='none'/%3E%3Cpath d='M155 185 C155 150 175 115 205 100 C198 135 185 165 160 188 Z' fill='rgba(46,93,52,0.05)'/%3E%3Cpath d='M155 185 C170 175 185 155 195 130' stroke='rgba(46,93,52,0.06)' stroke-width='2' fill='none'/%3E%3Cg%3E%3Cellipse cx='155' cy='35' rx='7' ry='14' fill='rgba(162,75,104,0.05)'/%3E%3Cellipse cx='155' cy='35' rx='7' ry='14' fill='rgba(162,75,104,0.05)' transform='rotate(72 155 49)'/%3E%3Cellipse cx='155' cy='35' rx='7' ry='14' fill='rgba(162,75,104,0.05)' transform='rotate(144 155 49)'/%3E%3Cellipse cx='155' cy='35' rx='7' ry='14' fill='rgba(162,75,104,0.05)' transform='rotate(216 155 49)'/%3E%3Cellipse cx='155' cy='35' rx='7' ry='14' fill='rgba(162,75,104,0.05)' transform='rotate(288 155 49)'/%3E%3Ccircle cx='155' cy='49' r='4.5' fill='rgba(162,75,104,0.06)'/%3E%3C/g%3E%3C/pattern%3E%3C/defs%3E%3Crect width='220' height='220' fill='url(%23leaf)'/%3E%3C/svg%3E");
 }
 
 @media (prefers-color-scheme: dark) {
   body::before {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cdefs%3E%3Cpattern id='leaf' width='140' height='140' patternUnits='userSpaceOnUse'%3E%3Cpath d='M20 90 C20 60 40 30 70 20 C65 50 55 75 30 95 Z' fill='rgba(156,187,140,0.045)'/%3E%3Cpath d='M20 90 C35 85 55 70 65 45' stroke='rgba(156,187,140,0.05)' stroke-width='2' fill='none'/%3E%3Cpath d='M100 120 C100 95 115 70 135 60 C130 85 122 105 105 122 Z' fill='rgba(156,187,140,0.04)'/%3E%3Cg%3E%3Cellipse cx='100' cy='22' rx='5' ry='9' fill='rgba(232,169,190,0.045)'/%3E%3Cellipse cx='100' cy='22' rx='5' ry='9' fill='rgba(232,169,190,0.045)' transform='rotate(72 100 30)'/%3E%3Cellipse cx='100' cy='22' rx='5' ry='9' fill='rgba(232,169,190,0.045)' transform='rotate(144 100 30)'/%3E%3Cellipse cx='100' cy='22' rx='5' ry='9' fill='rgba(232,169,190,0.045)' transform='rotate(216 100 30)'/%3E%3Cellipse cx='100' cy='22' rx='5' ry='9' fill='rgba(232,169,190,0.045)' transform='rotate(288 100 30)'/%3E%3Ccircle cx='100' cy='30' r='3' fill='rgba(232,169,190,0.05)'/%3E%3C/g%3E%3C/pattern%3E%3C/defs%3E%3Crect width='140' height='140' fill='url(%23leaf)'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cdefs%3E%3Cpattern id='leaf' width='220' height='220' patternUnits='userSpaceOnUse'%3E%3Cpath d='M30 140 C25 95 55 55 100 35 C95 80 80 120 45 150 Z' fill='rgba(123,193,116,0.045)'/%3E%3Cpath d='M30 140 C50 130 75 105 90 70' stroke='rgba(123,193,116,0.05)' stroke-width='2.5' fill='none'/%3E%3Cpath d='M45 125 L62 112 M55 105 L72 90 M65 85 L80 68' stroke='rgba(123,193,116,0.04)' stroke-width='1.2' fill='none'/%3E%3Cpath d='M155 185 C155 150 175 115 205 100 C198 135 185 165 160 188 Z' fill='rgba(123,193,116,0.04)'/%3E%3Cpath d='M155 185 C170 175 185 155 195 130' stroke='rgba(123,193,116,0.045)' stroke-width='2' fill='none'/%3E%3Cg%3E%3Cellipse cx='155' cy='35' rx='7' ry='14' fill='rgba(232,169,190,0.045)'/%3E%3Cellipse cx='155' cy='35' rx='7' ry='14' fill='rgba(232,169,190,0.045)' transform='rotate(72 155 49)'/%3E%3Cellipse cx='155' cy='35' rx='7' ry='14' fill='rgba(232,169,190,0.045)' transform='rotate(144 155 49)'/%3E%3Cellipse cx='155' cy='35' rx='7' ry='14' fill='rgba(232,169,190,0.045)' transform='rotate(216 155 49)'/%3E%3Cellipse cx='155' cy='35' rx='7' ry='14' fill='rgba(232,169,190,0.045)' transform='rotate(288 155 49)'/%3E%3Ccircle cx='155' cy='49' r='4.5' fill='rgba(232,169,190,0.05)'/%3E%3C/g%3E%3C/pattern%3E%3C/defs%3E%3Crect width='220' height='220' fill='url(%23leaf)'/%3E%3C/svg%3E");
+  }
+}
+
+.sidebar-header {
+  position: relative;
+  overflow: visible;
+}
+
+.sidebar-header::after {
+  content: '';
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 84px;
+  height: 84px;
+  pointer-events: none;
+  background: no-repeat center/contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='84' height='84' viewBox='0 0 84 84'%3E%3Cpath d='M80 4 C60 8 40 24 30 48 C48 42 68 26 80 4 Z' fill='%232E5D34' opacity='0.18'/%3E%3Cpath d='M70 12 C55 22 40 36 32 50' stroke='%232E5D34' stroke-width='1.4' fill='none' opacity='0.2'/%3E%3C/svg%3E");
+}
+
+@media (prefers-color-scheme: dark) {
+  .sidebar-header::after {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='84' height='84' viewBox='0 0 84 84'%3E%3Cpath d='M80 4 C60 8 40 24 30 48 C48 42 68 26 80 4 Z' fill='%237BC174' opacity='0.18'/%3E%3Cpath d='M70 12 C55 22 40 36 32 50' stroke='%237BC174' stroke-width='1.4' fill='none' opacity='0.2'/%3E%3C/svg%3E");
+  }
+}
+
+.leaf-divider {
+  height: 32px;
+  background: no-repeat center/160px url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='40' viewBox='0 0 200 40'%3E%3Cpath d='M10 20 C60 20 60 20 100 20 C140 20 140 20 190 20' stroke='%232E5D34' stroke-width='1.5' fill='none' opacity='0.35'/%3E%3Cpath d='M60 20 C55 10 45 8 38 12 C45 18 55 20 60 20 Z' fill='%232E5D34' opacity='0.3'/%3E%3Cpath d='M100 20 C100 8 92 2 84 4 C88 14 96 20 100 20 Z' fill='%232E5D34' opacity='0.32'/%3E%3Cpath d='M140 20 C145 10 155 8 162 12 C155 18 145 20 140 20 Z' fill='%232E5D34' opacity='0.3'/%3E%3Ccircle cx='100' cy='20' r='3' fill='%23A24B68' opacity='0.35'/%3E%3C/svg%3E");
+}
+
+@media (prefers-color-scheme: dark) {
+  .leaf-divider {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='40' viewBox='0 0 200 40'%3E%3Cpath d='M10 20 C60 20 60 20 100 20 C140 20 140 20 190 20' stroke='%237BC174' stroke-width='1.5' fill='none' opacity='0.35'/%3E%3Cpath d='M60 20 C55 10 45 8 38 12 C45 18 55 20 60 20 Z' fill='%237BC174' opacity='0.3'/%3E%3Cpath d='M100 20 C100 8 92 2 84 4 C88 14 96 20 100 20 Z' fill='%237BC174' opacity='0.32'/%3E%3Cpath d='M140 20 C145 10 155 8 162 12 C155 18 145 20 140 20 Z' fill='%237BC174' opacity='0.3'/%3E%3Ccircle cx='100' cy='20' r='3' fill='%23E8A9BE' opacity='0.35'/%3E%3C/svg%3E");
   }
 }
 
@@ -457,6 +486,37 @@ body::before {
   min-width: 0;
 }
 
+/* Corner-accent decor. Scoped to .column and .toolbar-leaf only (not every
+   individual card class) to avoid repeating a corner motif once per card —
+   Books alone has 218 real records, so per-card decor would read as noise
+   rather than "dramatic". .toolbar-leaf marks the collection-toolbar of the
+   five flat-list collections (Recipes, To-Do, Shopping List, Notes, Resume &
+   Portfolio) that have no .column wrapper, so every collection still gets
+   exactly one corner accent near its heading. */
+.column,
+.toolbar-leaf {
+  position: relative;
+}
+
+.column::before,
+.toolbar-leaf::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 36px;
+  height: 36px;
+  pointer-events: none;
+  background: no-repeat center/contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='36' viewBox='0 0 36 36'%3E%3Cpath d='M34 2 C20 4 8 14 4 28 C16 24 28 16 34 2 Z' fill='%232E5D34' opacity='0.16'/%3E%3Cpath d='M30 6 C22 12 14 20 8 26' stroke='%232E5D34' stroke-width='1' fill='none' opacity='0.18'/%3E%3C/svg%3E");
+}
+
+@media (prefers-color-scheme: dark) {
+  .column::before,
+  .toolbar-leaf::before {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='36' viewBox='0 0 36 36'%3E%3Cpath d='M34 2 C20 4 8 14 4 28 C16 24 28 16 34 2 Z' fill='%237BC174' opacity='0.16'/%3E%3Cpath d='M30 6 C22 12 14 20 8 26' stroke='%237BC174' stroke-width='1' fill='none' opacity='0.18'/%3E%3C/svg%3E");
+  }
+}
+
 .column:hover {
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.055);
 }
@@ -598,8 +658,8 @@ body::before {
 .recipe-title { font-size: 1rem; }
 
 .badge {
-  background: var(--accent-2);
-  color: #ffffff;
+  background: var(--accent);
+  color: var(--accent-contrast);
   border-radius: 999px;
   padding: 2px 10px;
   font-size: 0.75rem;
@@ -850,7 +910,7 @@ body::before {
 .link-label { font-size: 0.95rem; }
 
 .link-url {
-  color: var(--accent-2);
+  color: var(--accent-lavender);
   font-size: 0.85rem;
   word-break: break-all;
 }
