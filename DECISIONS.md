@@ -3,6 +3,85 @@
 This file is maintained by the Archivist role. Newest entries at the top. Each entry
 records what was decided, why, and any standing constraint future work must respect.
 
+## 2026-09-15 — Foresty light/dark redesign + dark-mode contrast fix
+
+**Decision:** The user said the app "look[ed] dark" and asked for "light and airy,
+foresty and feminine... more dramatic decor" with leaves. Investigation found the app
+already had a light theme (cream/tan `--bg`) but also a `prefers-color-scheme: dark`
+override to a dark brown palette (`--bg: #221913`) that likely triggers automatically
+from the user's OS/browser dark-mode setting — probably the actual source of "it looks
+dark," not a light-theme problem. When asked whether to remove dark mode entirely or
+redesign both, the user chose to keep dark mode but redesign it too, so both themes share
+the same forest/feminine identity (dark mode should read as "nighttime forest," not muddy
+brown).
+
+**Process:** the Researcher read the current `style.css` palette and the three prior
+visual-redesign research docs (`palette-fields-nav.md`, `soft-calm-leaf-background.md`,
+`feminine-redesign.md`) before proposing anything, then wrote
+`docs/research/foresty-light-redesign.md` — a full revised light+dark palette (forest
+green promoted to sole dominant accent, rose/lavender/blush feminine accents kept
+unchanged, rust demoted from co-lead), every text/background pairing verified against the
+actual WCAG 2.1 relative-luminance contrast formula (not asserted), a computed ~18-20%
+opacity ceiling for decorative shapes near text (so "more dramatic" decor could be added
+without risking contrast), and concrete SVG/CSS for a bigger ambient leaf tile plus new
+corner-accent and divider decor. It explicitly flagged open judgment calls rather than
+deciding them: whether the background should carry a green tint or stay neutral, whether
+to keep rust (demoted role) or replace it with amber, whether the proposed "dramatic"
+level still fit the project's established "calm" character, and a pre-existing bug it
+found along the way (`.badge` hardcoded white text on `--accent-2`, which fails WCAG AA
+in dark mode at 2.64:1).
+
+**Architect decisions on the flagged points:** kept the sage-tinted background (reads
+more "foresty" per the user's explicit wording); kept rust's hex but narrowed its role to
+error/destructive/overdue-only (`.form-error`, `.delete-btn:hover`, `.todo-due.overdue`),
+moving `.badge` to the accent-green/accent-contrast fill pattern (which also fixes the
+dark-mode contrast bug as a side effect) and `.link-url` to the lavender accent (plain
+link text isn't an error semantic); approved the proposed decor "drama" level as still
+calm-but-decorated rather than busy; and made one scope reduction beyond the brief itself
+— the corner-accent decor (brief's §3.3) was implemented once per `.column`/collection-
+toolbar rather than once per individual card, specifically because Books alone has 218
+real records and per-card decoration at that scale would read as visual noise rather than
+intentional decor.
+
+**What was built (Bob, commit `5d8cacb`):** full light+dark palette swap in `style.css`
+(`--bg`, `--surface`, `--text`, `--muted`, `--accent`, `--border`, `--border-soft`, dark
+`--accent-contrast`); `.badge` and `.link-url` remapped off `--accent-2`; a bigger/more-
+detailed 220x220 ambient leaf-tile watermark (same verified-safe 4-8% alpha range as
+before, just bigger and more legibly leaf-shaped); a new sidebar-header corner accent
+(~18% alpha); a new column/toolbar corner accent applied once per status-column and once
+per flat-list collection's toolbar (not per card, per the scope reduction above); a new
+`.leaf-divider` element between each of the sidebar's four nav groups (3 dividers total).
+All fully static, zero new dependencies, matching every existing hard constraint.
+
+**Outcome:** the Architect live-tested in the browser (fresh port, light AND dark
+`prefers-color-scheme` emulation) rather than delegating to the Tester for this purely-
+visual cycle, confirming: light mode reads noticeably lighter/airier with forest green as
+the dominant hue; dark mode is deep forest green, not brown; the `.badge` fix renders
+legible green-on-dark text (confirming the dark-mode contrast bug is actually fixed, not
+just theoretically); the To-Do overdue-date text still shows the rust warning color
+correctly; the Resume & Portfolio link text correctly renders the lavender accent color in
+dark mode (computed color matched the exact expected hex `#C9B8E8`); all 3 leaf-dividers
+present in the DOM; zero console errors.
+
+**Standing constraints established:**
+- Corner-accent decor (leaf accents on `.column`/`.collection-toolbar`) is deliberately
+  scoped to once per column/section, never per individual card — if a future cycle is
+  tempted to add per-card decoration, revisit the 218-book visual-noise reasoning above
+  first rather than assuming more decor is automatically better.
+- `--accent-2` (rust) is now a narrow-purpose semantic color (error/destructive/overdue
+  only) — any future feature needing a new colored UI element should reach for `--accent`
+  (green) or the rose/lavender feminine accents first, not rust, to keep it from creeping
+  back into a co-lead role.
+- Any new text/background color pairing added in a future visual cycle should get the
+  same treatment this one did: compute the actual WCAG contrast ratio, don't assert it
+  from vibes — `docs/research/foresty-light-redesign.md`'s Section 2 is the reference
+  example of the expected rigor.
+- Data URIs (used for all the leaf decor) can't reference CSS custom properties —
+  light/dark variants of every decorative SVG must have their hex values hardcoded and
+  swapped manually in each `@media (prefers-color-scheme: dark)` block; this is an
+  existing, now-four-times-repeated pattern (ambient tile, sidebar corner, column corner,
+  divider), not something to rediscover next time.
+
 ## 2026-09-15 — Filter/sort across all nine collections
 
 **Decision:** The user asked for filter/sort "on anything that logically needs to be
