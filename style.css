@@ -621,7 +621,8 @@ body::before {
 .shopping-item,
 .note-card,
 .link-card,
-.course-card {
+.course-card,
+.bill-card {
   border: 1px solid var(--border-soft);
   border-radius: 18px;
   padding: 16px;
@@ -638,7 +639,8 @@ body::before {
 .shopping-item:hover,
 .note-card:hover,
 .link-card:hover,
-.course-card:hover {
+.course-card:hover,
+.bill-card:hover {
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.055);
 }
 
@@ -972,7 +974,8 @@ body::before {
 .med-view, .med-edit-form,
 .diagnosis-view, .diagnosis-edit-form,
 .link-view, .link-edit-form,
-.course-view, .course-edit-form {
+.course-view, .course-edit-form,
+.bill-view, .bill-edit-form {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -985,7 +988,8 @@ body::before {
 .med-view[hidden], .med-edit-form[hidden],
 .diagnosis-view[hidden], .diagnosis-edit-form[hidden],
 .link-view[hidden], .link-edit-form[hidden],
-.course-view[hidden], .course-edit-form[hidden] {
+.course-view[hidden], .course-edit-form[hidden],
+.bill-view[hidden], .bill-edit-form[hidden] {
   display: none;
 }
 
@@ -994,7 +998,8 @@ body::before {
 .med-edit-form input, .med-edit-form textarea,
 .diagnosis-edit-form input, .diagnosis-edit-form textarea,
 .link-edit-form input, .link-edit-form textarea,
-.course-edit-form input, .course-edit-form textarea {
+.course-edit-form input, .course-edit-form textarea,
+.bill-edit-form input, .bill-edit-form select {
   width: 100%;
   padding: 9px 12px;
   border: 1px solid var(--border);
@@ -1011,7 +1016,8 @@ body::before {
 
 .book-edit-form button[type="submit"], .recipe-edit-form button[type="submit"],
 .med-edit-form button[type="submit"], .diagnosis-edit-form button[type="submit"],
-.link-edit-form button[type="submit"], .course-edit-form button[type="submit"] {
+.link-edit-form button[type="submit"], .course-edit-form button[type="submit"],
+.bill-edit-form button[type="submit"] {
   padding: 5px 14px;
   border: none;
   border-radius: 13px;
@@ -1024,7 +1030,8 @@ body::before {
 
 .book-edit-form button[type="submit"]:hover, .recipe-edit-form button[type="submit"]:hover,
 .med-edit-form button[type="submit"]:hover, .diagnosis-edit-form button[type="submit"]:hover,
-.link-edit-form button[type="submit"]:hover, .course-edit-form button[type="submit"]:hover {
+.link-edit-form button[type="submit"]:hover, .course-edit-form button[type="submit"]:hover,
+.bill-edit-form button[type="submit"]:hover {
   opacity: 0.9;
 }
 
@@ -1157,4 +1164,163 @@ body::before {
   display: flex;
   justify-content: flex-end;
   gap: 6px;
+}
+
+/* Budget */
+
+.bill-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+
+.bill-name { font-size: 0.95rem; }
+
+.bill-amount,
+.bill-due,
+.bill-frequency {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.bill-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.mark-oldest-paid-btn {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.mark-oldest-paid-btn:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.mark-oldest-paid-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.budget-calendar {
+  margin-bottom: 20px;
+}
+
+.budget-weekday-row {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+  margin-bottom: 6px;
+  text-align: right;
+  font-size: 0.78rem;
+  color: var(--muted);
+  padding-right: 4px;
+}
+
+.budget-week {
+  border: 1px solid var(--border-soft);
+  border-radius: 18px;
+  padding: 12px;
+  margin-bottom: 12px;
+  background: var(--surface);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.035);
+}
+
+.budget-week-current {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent) inset;
+}
+
+.budget-week-cells {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+}
+
+.budget-day-cell {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 96px;
+  padding: 6px;
+  border: 1px solid var(--border-soft);
+  border-radius: 13px;
+  background: var(--bg);
+}
+
+.budget-day-header {
+  text-align: right;
+}
+
+.budget-day-date {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.budget-day-occurrences {
+  max-height: 72px;
+  padding-left: 0;
+  list-style: none;
+  margin: 4px 0;
+}
+
+/* Higher specificity than the generic `.scroll-block li` rule (which would
+   otherwise win on source order alone and force these back to 0.9rem) —
+   needed so occurrences actually fit a tiny day cell. */
+.budget-day-occurrences .budget-occurrence {
+  font-size: 0.75rem;
+  margin-bottom: 2px;
+}
+
+.budget-occurrence label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.budget-occurrence-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.budget-occurrence.overdue .budget-occurrence-name {
+  color: var(--accent-2);
+  font-weight: 600;
+}
+
+.budget-day-footer {
+  margin-top: auto;
+  text-align: right;
+}
+
+.budget-day-manual-input {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.78rem;
+  text-align: right;
+}
+
+.budget-week-total {
+  margin: 10px 0 0;
+  text-align: right;
+  color: var(--muted);
+  font-size: 0.85rem;
 }

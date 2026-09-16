@@ -186,7 +186,7 @@ function recordUndo(collectionName, id, before, after) {
 // ---- UI state (active tab) ----
 
 const UI_STORAGE_KEY = 'secondMemory.ui.v1';
-const TABS = ['books', 'recipes', 'medications', 'diagnoses', 'todo', 'shopping', 'notes', 'resume', 'coursework'];
+const TABS = ['books', 'recipes', 'medications', 'diagnoses', 'todo', 'shopping', 'notes', 'budget', 'resume', 'coursework'];
 
 function loadUiState() {
   try {
@@ -2515,6 +2515,658 @@ document.getElementById('coursework-sort-input').addEventListener('change', (e) 
   renderCourses();
 });
 
+// ---- Budget (Bills + rolling 5-week calendar) ----
+// Storage key: secondMemory.bills.v1. See docs/specs/budget-tab.md.
+
+const BILLS_KEY = 'secondMemory.bills.v1';
+const BILL_FREQUENCIES = ['one_time', 'weekly', 'biweekly', 'monthly', 'yearly'];
+const BILL_FREQUENCY_LABELS = {
+  one_time: 'One-time', weekly: 'Weekly', biweekly: 'Biweekly', monthly: 'Monthly', yearly: 'Yearly',
+};
+
+let bills = migrateSyncFields(loadCollection(BILLS_KEY), BILLS_KEY, getDeviceId());
+
+// ---- Date helpers ----
+// All date-key values are local-date-derived 'YYYY-MM-DD' strings — never
+// `toISOString()`-derived, which is UTC, not local (the existing
+// `isTodoOverdue()`/`todayForFilename()` bug pattern this new code must not
+// repeat). Comparisons between two date keys use plain string comparison,
+// which is correct for this fixed zero-padded format.
+
+function dateKeyFromParts(year, monthIndex, day) {
+  return `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function dateKeyFromLocalDate(date) {
+  return dateKeyFromParts(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function todayKey() {
+  return dateKeyFromLocalDate(new Date());
+}
+
+function parseDateKey(key) {
+  const [y, m, d] = key.split('-').map(Number);
+  return { y, m: m - 1, d }; // m is 0-indexed to match Date's convention
+}
+
+function daysInMonth(year, monthIndex) {
+  // The "day 0" trick: day 0 of month M+1 is the last day of month M.
+  return new Date(year, monthIndex + 1, 0).getDate();
+}
+
+function utcDayDiff(fromKey, toKey) {
+  const a = parseDateKey(fromKey);
+  const b = parseDateKey(toKey);
+  // UTC-anchored per the research brief — never diff local-millisecond
+  // timestamps, that's DST-unsafe. Every UTC day is exactly 86,400,000ms.
+  return Math.round((Date.UTC(b.y, b.m, b.d) - Date.UTC(a.y, a.m, a.d)) / 86400000);
+}
+
+// Local calendar-day arithmetic (safe from the DST pitfall above because it
+// increments the day-of-month FIELD, letting Date's constructor normalize
+// month/year rollover — the same technique the calendar window math uses).
+function shiftDateKey(key, deltaDays) {
+  const { y, m, d } = parseDateKey(key);
+  return dateKeyFromLocalDate(new Date(y, m, d + deltaDays));
+}
+
+// ---- Occurrence generation ----
+
+function occursOnDate(bill, dateKey) {
+  if (bill.frequency === 'one_time') return dateKey === bill.dueDate;
+
+  const anchor = parseDateKey(bill.dueDate);
+  const candidate = parseDateKey(dateKey);
+
+  if (bill.frequency === 'weekly' || bill.frequency === 'biweekly') {
+    const period = bill.frequency === 'weekly' ? 7 : 14;
+    const dayDiff = utcDayDiff(bill.dueDate, dateKey);
+    return dayDiff >= 0 && dayDiff % period === 0;
+  }
+
+  if (bill.frequency === 'monthly') {
+    const monthOffset = (candidate.y - anchor.y) * 12 + (candidate.m - anchor.m);
+    if (monthOffset < 0) return false;
+    const expectedDay = Math.min(anchor.d, daysInMonth(candidate.y, candidate.m));
+    return candidate.d === expectedDay;
+  }
+
+  if (bill.frequency === 'yearly') {
+    const yearOffset = candidate.y - anchor.y;
+    if (yearOffset < 0 || candidate.m !== anchor.m) return false;
+    const expectedDay = Math.min(anchor.d, daysInMonth(candidate.y, candidate.m));
+    return candidate.d === expectedDay;
+  }
+
+  return false;
+}
+
+// Closed-form occurrence count through a date, no day-by-day loop — needed
+// for the weekly-total carry-forward formula, which must ask "how many
+// occurrences has this bill had, on or before this date" for a bill whose
+// anchor could be arbitrarily far in the past.
+function occurrenceCountThrough(bill, throughKey) {
+  if (throughKey < bill.dueDate) return 0;
+  if (bill.frequency === 'one_time') return 1;
+
+  const anchor = parseDateKey(bill.dueDate);
+  const through = parseDateKey(throughKey);
+
+  if (bill.frequency === 'weekly' || bill.frequency === 'biweekly') {
+    const period = bill.frequency === 'weekly' ? 7 : 14;
+    const dayDiff = utcDayDiff(bill.dueDate, throughKey);
+    return Math.floor(dayDiff / period) + 1;
+  }
+
+  if (bill.frequency === 'monthly') {
+    const monthOffsetMax = (through.y - anchor.y) * 12 + (through.m - anchor.m);
+    const expectedDay = Math.min(anchor.d, daysInMonth(through.y, through.m));
+    const lastOccurrenceKey = dateKeyFromParts(through.y, through.m, expectedDay);
+    // If this month's occurrence hasn't happened yet as of throughKey, don't count it.
+    return lastOccurrenceKey <= throughKey ? monthOffsetMax + 1 : monthOffsetMax;
+  }
+
+  if (bill.frequency === 'yearly') {
+    const yearOffsetMax = through.y - anchor.y;
+    const expectedDay = Math.min(anchor.d, daysInMonth(anchor.y + yearOffsetMax, anchor.m));
+    const lastOccurrenceKey = dateKeyFromParts(anchor.y + yearOffsetMax, anchor.m, expectedDay);
+    return lastOccurrenceKey <= throughKey ? yearOffsetMax + 1 : yearOffsetMax;
+  }
+
+  return 0;
+}
+
+function unpaidAmountThrough(bill, throughKey) {
+  const totalOccurrences = occurrenceCountThrough(bill, throughKey);
+  if (totalOccurrences === 0) return 0;
+  const paidCount = (bill.paidDates || [])
+    .filter((d) => d <= throughKey && occursOnDate(bill, d))
+    .length;
+  return Math.max(0, totalOccurrences - paidCount) * bill.amount;
+}
+
+// Walks forward from the bill's anchor dueDate to find the single earliest
+// occurrence date that is real (per occursOnDate) and not already paid, up
+// through and including throughKey. A plain day-by-day walk (not a
+// closed-form jump) is deliberately the simplest-correct approach here —
+// this only runs on an explicit user click (the "mark oldest unpaid as
+// paid" button's handler); render-time code uses the O(1)-ish
+// unpaidAmountThrough instead to avoid paying this walk's cost on every render.
+function oldestUnpaidOccurrence(bill, throughKey) {
+  const paidSet = new Set(bill.paidDates || []);
+  let dateKey = bill.dueDate;
+  while (dateKey <= throughKey) {
+    if (occursOnDate(bill, dateKey) && !paidSet.has(dateKey)) return dateKey;
+    dateKey = shiftDateKey(dateKey, 1);
+  }
+  return null;
+}
+
+// ---- Calendar window ----
+
+function getCalendarWindowDays(today = new Date()) {
+  const dow = today.getDay(); // 0 = Sunday
+  const startOfThisWeek = new Date(today.getFullYear(), today.getMonth(), today.getDate() - dow);
+  const windowStart = new Date(
+    startOfThisWeek.getFullYear(),
+    startOfThisWeek.getMonth(),
+    startOfThisWeek.getDate() - 14
+  );
+  const days = [];
+  for (let i = 0; i < 35; i++) {
+    days.push(new Date(windowStart.getFullYear(), windowStart.getMonth(), windowStart.getDate() + i));
+  }
+  return days.map(dateKeyFromLocalDate); // 35 date-key strings, Sunday-start
+}
+
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
+  'August', 'September', 'October', 'November', 'December'];
+
+const BUDGET_WEEK_LABELS = ['2 weeks ago', 'Last week', 'This week', 'Next week', '2 weeks from now'];
+
+// Cumulative "total currently owed as of the end of this week" — the same
+// unpaid occurrence contributes to every week's total from the week it's due
+// through every subsequent week, for as long as it stays unpaid. Deliberate,
+// not a bug — see docs/specs/budget-tab.md §4.
+function weekTotal(weekEndKey, allBills) {
+  return allBills
+    .filter((b) => !b.deleted)
+    .reduce((sum, b) => sum + unpaidAmountThrough(b, weekEndKey), 0);
+}
+
+// ---- Manual per-day number ----
+// Local-only, deliberately not a SYNC_COLLECTIONS member: own localStorage
+// key, plain flat date-key-to-number map, not synced/exported/undo-tracked.
+// See docs/specs/budget-tab.md §1.2/§10.2 (Architect decision #2).
+
+const BUDGET_DAILY_NUMBERS_KEY = 'secondMemory.budgetDailyNumbers.v1';
+
+function loadBudgetDailyNumbers() {
+  try {
+    const raw = localStorage.getItem(BUDGET_DAILY_NUMBERS_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveBudgetDailyNumbers(map) {
+  localStorage.setItem(BUDGET_DAILY_NUMBERS_KEY, JSON.stringify(map));
+}
+
+let budgetDailyNumbers = loadBudgetDailyNumbers();
+
+// ---- Bill CRUD ----
+
+function validateBillFields(fields) {
+  const trimmedName = fields.name.trim();
+  if (!trimmedName) return { ok: false, error: 'Bill name is required.' };
+  const amount = Number(fields.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return { ok: false, error: 'Amount must be a number greater than $0.' };
+  }
+  const dueDate = fields.dueDate;
+  if (!dueDate) return { ok: false, error: 'Due date is required.' };
+  const frequency = BILL_FREQUENCIES.includes(fields.frequency) ? fields.frequency : 'monthly';
+  return { ok: true, name: trimmedName, amount, dueDate, frequency, category: fields.category.trim() };
+}
+
+function addBill(fields) {
+  const result = validateBillFields(fields);
+  if (!result.ok) return result;
+  const now = new Date().toISOString();
+  const bill = {
+    id: makeId(),
+    name: result.name,
+    amount: result.amount,
+    dueDate: result.dueDate,
+    frequency: result.frequency,
+    category: result.category,
+    paidDates: [],
+    dateAdded: now,
+    updatedAt: now,
+    deviceId: getDeviceId(),
+    deleted: false,
+    version: 0,
+  };
+  bills.push(bill);
+  saveCollection(BILLS_KEY, bills);
+  recordUndo('bills', bill.id, null, structuredClone(bill));
+  renderBudget();
+  return { ok: true };
+}
+
+// Never touches paidDates — only toggleBillPaid (and the "mark oldest unpaid
+// as paid" button, which calls the same function) ever mutates it.
+function updateBill(id, fields) {
+  const bill = bills.find((b) => b.id === id);
+  if (!bill) return { ok: false, error: 'Bill not found.' };
+  const result = validateBillFields(fields);
+  if (!result.ok) return result;
+  const before = structuredClone(bill);
+  bill.name = result.name;
+  bill.amount = result.amount;
+  bill.dueDate = result.dueDate;
+  bill.frequency = result.frequency;
+  bill.category = result.category;
+  stampSync(bill);
+  saveCollection(BILLS_KEY, bills);
+  recordUndo('bills', id, before, structuredClone(bill));
+  renderBudget();
+  return { ok: true };
+}
+
+function deleteBill(id) {
+  const bill = bills.find((b) => b.id === id);
+  if (!bill) return;
+  const before = structuredClone(bill);
+  bill.deleted = true;
+  stampSync(bill);
+  saveCollection(BILLS_KEY, bills);
+  recordUndo('bills', id, before, structuredClone(bill));
+  renderBudget();
+}
+
+function restoreBill(id) {
+  const bill = bills.find((b) => b.id === id);
+  if (!bill || !bill.deleted) return;
+  const before = structuredClone(bill);
+  bill.deleted = false;
+  stampSync(bill);
+  saveCollection(BILLS_KEY, bills);
+  recordUndo('bills', id, before, structuredClone(bill));
+  renderBudget();
+}
+
+// Direct structural match to toggleTodoCompleted/toggleShoppingChecked: find
+// record, snapshot before, mutate exactly one field, stampSync,
+// saveCollection, recordUndo, re-render. paidDates is never touched anywhere
+// else — see updateBill above.
+function toggleBillPaid(billId, dateKey, paid) {
+  const bill = bills.find((b) => b.id === billId);
+  if (!bill) return;
+  const before = structuredClone(bill);
+  const paidSet = new Set(bill.paidDates || []);
+  if (paid) paidSet.add(dateKey); else paidSet.delete(dateKey);
+  bill.paidDates = [...paidSet];
+  stampSync(bill);
+  saveCollection(BILLS_KEY, bills);
+  recordUndo('bills', billId, before, structuredClone(bill));
+  renderBudget();
+}
+
+function matchesBillSearch(bill, term) {
+  if (!term) return true;
+  const haystack = `${bill.name} ${bill.category}`.toLowerCase();
+  return haystack.includes(term.toLowerCase());
+}
+
+// 'all' is the default/initial state, same convention as every other
+// chip-filtered collection.
+let selectedBillCategory = 'all';
+
+function matchesBillCategory(bill, categoryKey) {
+  return categoryKey === 'all' || normalizeChipKey(bill.category) === categoryKey;
+}
+
+function renderBillCategoryFilters(nonDeletedBills) {
+  const container = document.getElementById('budget-category-filters');
+  const options = [{ key: 'all', label: 'All' }, ...deriveChipOptions(nonDeletedBills, (b) => b.category)];
+  renderChipFilter(
+    container,
+    options,
+    () => selectedBillCategory,
+    (key) => { selectedBillCategory = key; },
+    renderBudget
+  );
+}
+
+// 'due_date_asc' is the default/initial state, matching the add-form's sort
+// <select>'s first (and pre-selected) option.
+let selectedBillsSort = 'due_date_asc';
+
+const BILL_SORTS = {
+  due_date_asc: compareByField((b) => b.dueDate, 1, { text: false }),
+  due_date_desc: compareByField((b) => b.dueDate, -1, { text: false }),
+  name_asc: compareByField((b) => b.name, 1),
+  amount_desc: compareByField((b) => b.amount, -1, { text: false }),
+  amount_asc: compareByField((b) => b.amount, 1, { text: false }),
+};
+
+function renderBudgetStats(nonDeletedBills) {
+  const el = document.getElementById('budget-stats');
+  if (!el) return;
+  const today = todayKey();
+  const overallUnpaid = nonDeletedBills.reduce((sum, b) => sum + unpaidAmountThrough(b, today), 0);
+  const count = nonDeletedBills.length;
+  el.textContent = `$${overallUnpaid.toFixed(2)} unpaid across ${count} bill${count === 1 ? '' : 's'}.`;
+}
+
+// Renders the 35-day rolling calendar into #budget-calendar (everything
+// after the static .budget-weekday-row) and the month/year header. Always
+// runs against the full live `bills` array — unaffected by the Bills list's
+// search/category filter below (§6 of the spec: the calendar is a pure
+// function of (bill, dateKey), not of whatever's currently filtered/sorted
+// in the list column).
+function renderBudgetCalendar(nonDeletedBills, focusedManualInput) {
+  const today = new Date();
+  const todayK = todayKey();
+  document.getElementById('budget-month-label').textContent =
+    `${MONTH_NAMES[today.getMonth()]} ${today.getFullYear()}`;
+
+  const windowDays = getCalendarWindowDays(today);
+  const calendarEl = document.getElementById('budget-calendar');
+  calendarEl.querySelectorAll('.budget-week').forEach((el) => el.remove());
+
+  for (let weekIndex = 0; weekIndex < 5; weekIndex++) {
+    const weekDays = windowDays.slice(weekIndex * 7, weekIndex * 7 + 7);
+    const weekEndKey = weekDays[6];
+
+    const weekEl = document.createElement('div');
+    weekEl.className = 'budget-week';
+    weekEl.dataset.weekIndex = String(weekIndex);
+    weekEl.classList.toggle('budget-week-current', weekIndex === 2);
+
+    const cellsEl = document.createElement('div');
+    cellsEl.className = 'budget-week-cells';
+
+    weekDays.forEach((dateKey) => {
+      const { m, d } = parseDateKey(dateKey);
+
+      const cellEl = document.createElement('div');
+      cellEl.className = 'budget-day-cell';
+      cellEl.dataset.dateKey = dateKey;
+
+      const headerEl = document.createElement('div');
+      headerEl.className = 'budget-day-header';
+      const dateSpan = document.createElement('span');
+      dateSpan.className = 'budget-day-date';
+      dateSpan.textContent = String(d);
+      headerEl.appendChild(dateSpan);
+      cellEl.appendChild(headerEl);
+
+      const occurrencesEl = document.createElement('ul');
+      occurrencesEl.className = 'budget-day-occurrences scroll-block';
+      nonDeletedBills
+        .filter((bill) => occursOnDate(bill, dateKey))
+        .forEach((bill) => {
+          const itemEl = document.createElement('li');
+          itemEl.className = 'budget-occurrence';
+          const paid = (bill.paidDates || []).includes(dateKey);
+          const overdue = !paid && dateKey < todayK;
+          itemEl.classList.toggle('overdue', overdue);
+
+          const label = document.createElement('label');
+          const checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.className = 'budget-occurrence-checkbox';
+          checkbox.dataset.billId = bill.id;
+          checkbox.dataset.dateKey = dateKey;
+          checkbox.checked = paid;
+          checkbox.addEventListener('change', (e) => toggleBillPaid(bill.id, dateKey, e.target.checked));
+
+          const nameSpan = document.createElement('span');
+          nameSpan.className = 'budget-occurrence-name';
+          nameSpan.textContent = bill.name;
+
+          const amountText = `$${bill.amount.toFixed(2)}`;
+          label.title = bill.category ? `${bill.name} — ${amountText} (${bill.category})` : `${bill.name} — ${amountText}`;
+
+          label.appendChild(checkbox);
+          label.appendChild(nameSpan);
+          itemEl.appendChild(label);
+          occurrencesEl.appendChild(itemEl);
+        });
+      cellEl.appendChild(occurrencesEl);
+
+      const footerEl = document.createElement('div');
+      footerEl.className = 'budget-day-footer';
+      const manualInput = document.createElement('input');
+      manualInput.type = 'number';
+      manualInput.step = 'any';
+      manualInput.className = 'budget-day-manual-input';
+      manualInput.dataset.dateKey = dateKey;
+      manualInput.setAttribute('aria-label', `Note for ${MONTH_NAMES[m]} ${d}`);
+      manualInput.value = (dateKey in budgetDailyNumbers) ? String(budgetDailyNumbers[dateKey]) : '';
+      manualInput.addEventListener('change', (e) => {
+        const value = e.target.value;
+        if (value === '') {
+          delete budgetDailyNumbers[dateKey];
+        } else {
+          budgetDailyNumbers[dateKey] = Number(value);
+        }
+        saveBudgetDailyNumbers(budgetDailyNumbers);
+        // Deliberately no renderBudget() call here — nothing else on screen
+        // depends on this value, and re-rendering on every change would risk
+        // the exact cross-cell focus-loss bug this preservation logic guards
+        // against. See docs/specs/budget-tab.md §7.
+      });
+      footerEl.appendChild(manualInput);
+      cellEl.appendChild(footerEl);
+
+      cellsEl.appendChild(cellEl);
+    });
+
+    weekEl.appendChild(cellsEl);
+
+    const totalEl = document.createElement('p');
+    totalEl.className = 'budget-week-total';
+    totalEl.innerHTML = `${BUDGET_WEEK_LABELS[weekIndex]}: <strong>$${weekTotal(weekEndKey, nonDeletedBills).toFixed(2)}</strong>`;
+    weekEl.appendChild(totalEl);
+
+    calendarEl.appendChild(weekEl);
+  }
+
+  if (focusedManualInput) {
+    const restored = calendarEl.querySelector(
+      `.budget-day-manual-input[data-date-key="${focusedManualInput.dateKey}"]`
+    );
+    if (restored) {
+      restored.value = focusedManualInput.value;
+      restored.focus();
+    }
+  }
+}
+
+function renderBudgetList(nonDeletedBills, openEdit) {
+  const searchTerm = document.getElementById('budget-search-input').value;
+  const comparator = BILL_SORTS[selectedBillsSort] || BILL_SORTS.due_date_asc;
+  const visible = nonDeletedBills
+    .filter((b) => matchesBillSearch(b, searchTerm))
+    .filter((b) => matchesBillCategory(b, selectedBillCategory))
+    .sort(comparator);
+
+  const list = document.getElementById('budget-list');
+  const template = document.getElementById('budget-card-template');
+  const todayK = todayKey();
+
+  list.innerHTML = '';
+
+  visible.forEach((bill) => {
+    const node = template.content.cloneNode(true);
+    const card = node.querySelector('.bill-card');
+    card.dataset.billId = bill.id;
+    const viewSection = node.querySelector('.bill-view');
+    const editForm = node.querySelector('.bill-edit-form');
+
+    node.querySelector('.bill-name').textContent = bill.name;
+    node.querySelector('.bill-amount').textContent = `$${bill.amount.toFixed(2)}`;
+    node.querySelector('.bill-due').textContent = `Due: ${bill.dueDate}`;
+    node.querySelector('.bill-frequency').textContent = BILL_FREQUENCY_LABELS[bill.frequency] || bill.frequency;
+
+    const categoryEl = node.querySelector('.bill-category');
+    if (bill.category) {
+      categoryEl.textContent = bill.category;
+      categoryEl.hidden = false;
+    }
+
+    const markOldestBtn = node.querySelector('.mark-oldest-paid-btn');
+    const hasUnpaid = unpaidAmountThrough(bill, todayK) > 0;
+    markOldestBtn.disabled = !hasUnpaid;
+    markOldestBtn.addEventListener('click', () => {
+      const target = oldestUnpaidOccurrence(bill, todayKey());
+      if (target) toggleBillPaid(bill.id, target, true);
+    });
+
+    const editNameInput = node.querySelector('.bill-edit-name');
+    const editAmountInput = node.querySelector('.bill-edit-amount');
+    const editDueDateInput = node.querySelector('.bill-edit-duedate');
+    const editFrequencyInput = node.querySelector('.bill-edit-frequency');
+    const editCategoryInput = node.querySelector('.bill-edit-category');
+    const editError = node.querySelector('.bill-edit-error');
+
+    node.querySelector('.edit-btn').addEventListener('click', () => {
+      // Only one bill can be in edit mode at a time — close any other open
+      // bill edit form first, same invariant as every other collection.
+      const otherOpenForm = list.querySelector('.bill-edit-form:not([hidden])');
+      if (otherOpenForm && otherOpenForm !== editForm) {
+        otherOpenForm.hidden = true;
+        otherOpenForm.closest('.bill-card').querySelector('.bill-view').hidden = false;
+      }
+      editNameInput.value = bill.name;
+      editAmountInput.value = String(bill.amount);
+      editDueDateInput.value = bill.dueDate;
+      editFrequencyInput.value = bill.frequency;
+      editCategoryInput.value = bill.category;
+      editError.hidden = true;
+      viewSection.hidden = true;
+      editForm.hidden = false;
+    });
+
+    node.querySelector('.cancel-btn').addEventListener('click', () => {
+      editForm.hidden = true;
+      viewSection.hidden = false;
+    });
+
+    editForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const result = updateBill(bill.id, {
+        name: editNameInput.value,
+        amount: editAmountInput.value,
+        dueDate: editDueDateInput.value,
+        frequency: editFrequencyInput.value,
+        category: editCategoryInput.value,
+      });
+      if (!result.ok) {
+        editError.textContent = result.error;
+        editError.hidden = false;
+      }
+    });
+
+    node.querySelector('.delete-btn').addEventListener('click', () => deleteBill(bill.id));
+
+    if (openEdit && openEdit.id === bill.id) {
+      editNameInput.value = openEdit.name;
+      editAmountInput.value = openEdit.amount;
+      editDueDateInput.value = openEdit.dueDate;
+      editFrequencyInput.value = openEdit.frequency;
+      editCategoryInput.value = openEdit.category;
+      viewSection.hidden = true;
+      editForm.hidden = false;
+    }
+
+    list.appendChild(node);
+  });
+
+  document.getElementById('budget-empty-state').hidden = nonDeletedBills.length !== 0;
+}
+
+// Generalizes the "preserve in-progress unsaved input across a re-render"
+// pattern to the two kinds of in-progress state specific to this tab: the
+// Bills list's open edit form (identical to every other collection) AND a
+// currently-focused .budget-day-manual-input (a real, non-obvious risk
+// unique to this tab — toggling any single paid-checkbox anywhere calls
+// renderBudget(), which wipes and rebuilds all 35 day cells including
+// whichever one the user might be mid-typing into). See
+// docs/specs/budget-tab.md §6.1.
+function renderBudget() {
+  const nonDeleted = bills.filter((b) => !b.deleted);
+
+  const activeEl = document.activeElement;
+  const focusedManualInput = (activeEl && activeEl.classList && activeEl.classList.contains('budget-day-manual-input'))
+    ? { dateKey: activeEl.dataset.dateKey, value: activeEl.value }
+    : null;
+
+  const list = document.getElementById('budget-list');
+  const openForm = list.querySelector('.bill-edit-form:not([hidden])');
+  const openEdit = openForm
+    ? {
+        id: openForm.closest('.bill-card').dataset.billId,
+        name: openForm.querySelector('.bill-edit-name').value,
+        amount: openForm.querySelector('.bill-edit-amount').value,
+        dueDate: openForm.querySelector('.bill-edit-duedate').value,
+        frequency: openForm.querySelector('.bill-edit-frequency').value,
+        category: openForm.querySelector('.bill-edit-category').value,
+      }
+    : null;
+
+  renderBudgetStats(nonDeleted);
+  renderBillCategoryFilters(nonDeleted);
+  renderBudgetCalendar(nonDeleted, focusedManualInput);
+  renderBudgetList(nonDeleted, openEdit);
+}
+
+document.getElementById('budget-add-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const nameInput = document.getElementById('budget-name-input');
+  const amountInput = document.getElementById('budget-amount-input');
+  const dueDateInput = document.getElementById('budget-duedate-input');
+  const frequencyInput = document.getElementById('budget-frequency-input');
+  const categoryInput = document.getElementById('budget-category-input');
+  const errorEl = document.getElementById('budget-form-error');
+
+  const result = addBill({
+    name: nameInput.value,
+    amount: amountInput.value,
+    dueDate: dueDateInput.value,
+    frequency: frequencyInput.value,
+    category: categoryInput.value,
+  });
+
+  if (!result.ok) {
+    errorEl.textContent = result.error;
+    errorEl.hidden = false;
+    return;
+  }
+
+  errorEl.hidden = true;
+  nameInput.value = '';
+  amountInput.value = '';
+  dueDateInput.value = '';
+  frequencyInput.value = 'monthly';
+  categoryInput.value = '';
+  nameInput.focus();
+});
+
+document.getElementById('budget-search-input').addEventListener('input', renderBudget);
+
+document.getElementById('budget-sort-input').addEventListener('change', (e) => {
+  selectedBillsSort = e.target.value;
+  renderBudget();
+});
+
 // ---- Device Sync ----
 // Optional: the app is fully functional offline with no sync configured, and
 // keeps working from local data if the server is ever unreachable — sync is
@@ -2550,6 +3202,7 @@ const SYNC_COLLECTIONS = [
   { name: 'notes', label: 'Notes', key: NOTES_KEY, get: () => notes, set: (v) => { notes = v; }, render: renderNotes, delete: deleteNote, restore: restoreNote },
   { name: 'links', label: 'Resume', key: LINKS_KEY, get: () => links, set: (v) => { links = v; }, render: renderLinks, delete: deleteLink, restore: restoreLink },
   { name: 'courses', label: 'Coursework', key: COURSES_KEY, get: () => courses, set: (v) => { courses = v; }, render: renderCourses, delete: deleteCourse, restore: restoreCourse },
+  { name: 'bills', label: 'Bills', key: BILLS_KEY, get: () => bills, set: (v) => { bills = v; }, render: renderBudget, delete: deleteBill, restore: restoreBill },
 ];
 
 // ---- Undo/redo application mechanics ----
@@ -2627,7 +3280,7 @@ function redo() {
 
 const RECORD_LABEL_FIELD = {
   books: 'title', recipes: 'title', medications: 'name', diagnoses: 'condition',
-  todos: 'task', shoppingList: 'item', notes: 'title', links: 'label', courses: 'title',
+  todos: 'task', shoppingList: 'item', notes: 'title', links: 'label', courses: 'title', bills: 'name',
 };
 
 function describeEntry(entry) {
@@ -2962,6 +3615,7 @@ renderShoppingList();
 renderNotes();
 renderLinks();
 renderCourses();
+renderBudget();
 updateUndoRedoButtons();
 setActiveTab(loadUiState().activeTab || 'books');
 initSyncUI();
