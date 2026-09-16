@@ -465,6 +465,10 @@ body::before {
   grid-template-columns: repeat(2, 1fr);
 }
 
+.book-columns {
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
 @media (max-width: 700px) {
   .columns { grid-template-columns: 1fr; }
   .app-shell { flex-direction: column; }
