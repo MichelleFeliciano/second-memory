@@ -2835,6 +2835,23 @@ function matchesBillCategory(bill, categoryKey) {
   return categoryKey === 'all' || normalizeChipKey(bill.category) === categoryKey;
 }
 
+// Deterministic category -> palette-color mapping for the calendar's
+// occurrence dots. Categories are free-text (no fixed enum), so this hashes
+// the normalized string (same normalization matchesBillCategory uses, so
+// "Rent"/"rent " share a color) into one of exactly 3 palette colors — never
+// var(--accent-2), which is reserved app-wide for error/overdue/destructive
+// semantics per DECISIONS.md. Blank categories return null (neutral/no dot)
+// rather than being hashed in.
+const BILL_CATEGORY_PALETTE = ['var(--accent)', 'var(--accent-rose)', 'var(--accent-lavender)'];
+
+function billCategoryColor(category) {
+  const key = normalizeChipKey(category);
+  if (!key) return null;
+  let hash = 0;
+  for (let i = 0; i < key.length; i++) hash += key.charCodeAt(i);
+  return BILL_CATEGORY_PALETTE[hash % BILL_CATEGORY_PALETTE.length];
+}
+
 function renderBillCategoryFilters(nonDeletedBills) {
   const container = document.getElementById('budget-category-filters');
   const options = [{ key: 'all', label: 'All' }, ...deriveChipOptions(nonDeletedBills, (b) => b.category)];
@@ -2870,15 +2887,29 @@ function renderBudgetStats(nonDeletedBills) {
 
 // Renders the 35-day rolling calendar into #budget-calendar (everything
 // after the static .budget-weekday-row) and the month/year header. Always
-// runs against the full live `bills` array — unaffected by the Bills list's
-// search/category filter below (§6 of the spec: the calendar is a pure
-// function of (bill, dateKey), not of whatever's currently filtered/sorted
-// in the list column).
+// runs against the full live `bills` array, and unaffected by the Bills
+// list's search filter below — but the category chip filter DOES apply here
+// too (occurrence rendering only; every total stays unfiltered, see the
+// matchesBillCategory comment inside the render loop below).
 function renderBudgetCalendar(nonDeletedBills, focusedManualInput) {
   const today = new Date();
   const todayK = todayKey();
+  const dueSoonEndK = shiftDateKey(todayK, 2);
   document.getElementById('budget-month-label').textContent =
     `${MONTH_NAMES[today.getMonth()]} ${today.getFullYear()}`;
+
+  // "This month" total: same cumulative unpaidAmountThrough semantics as the
+  // weekly totals below, just anchored at the current calendar month's last
+  // day instead of a week-end — deliberately unfiltered by category, same
+  // carve-out as weekTotal() (see matchesBillCategory filter further down).
+  const monthEndKey = dateKeyFromParts(
+    today.getFullYear(), today.getMonth(), daysInMonth(today.getFullYear(), today.getMonth())
+  );
+  const monthTotal = nonDeletedBills.reduce((sum, b) => sum + unpaidAmountThrough(b, monthEndKey), 0);
+  const monthTotalEl = document.getElementById('budget-month-total');
+  if (monthTotalEl) {
+    monthTotalEl.innerHTML = `${MONTH_NAMES[today.getMonth()]} total: <strong>$${monthTotal.toFixed(2)}</strong>`;
+  }
 
   const windowDays = getCalendarWindowDays(today);
   const calendarEl = document.getElementById('budget-calendar');
@@ -2902,6 +2933,7 @@ function renderBudgetCalendar(nonDeletedBills, focusedManualInput) {
       const cellEl = document.createElement('div');
       cellEl.className = 'budget-day-cell';
       cellEl.dataset.dateKey = dateKey;
+      cellEl.classList.toggle('budget-day-today', dateKey === todayK);
 
       const headerEl = document.createElement('div');
       headerEl.className = 'budget-day-header';
@@ -2915,12 +2947,24 @@ function renderBudgetCalendar(nonDeletedBills, focusedManualInput) {
       occurrencesEl.className = 'budget-day-occurrences scroll-block';
       nonDeletedBills
         .filter((bill) => occursOnDate(bill, dateKey))
+        // Calendar-only category filter — the same chip selection filters the
+        // Bills list below. Deliberately does NOT touch weekTotal()/monthTotal
+        // above or renderBudgetStats(), which always sum the full
+        // nonDeletedBills array regardless of the selected chip (see §3 of
+        // the cycle's spec: totals must never look smaller than the true
+        // unpaid amount just because a category filter is active).
+        .filter((bill) => matchesBillCategory(bill, selectedBillCategory))
         .forEach((bill) => {
           const itemEl = document.createElement('li');
           itemEl.className = 'budget-occurrence';
           const paid = (bill.paidDates || []).includes(dateKey);
           const overdue = !paid && dateKey < todayK;
+          // Mutually exclusive by construction: overdue is strictly before
+          // today, due-soon is today-or-later, so a single dateKey can never
+          // satisfy both.
+          const dueSoon = !paid && dateKey >= todayK && dateKey <= dueSoonEndK;
           itemEl.classList.toggle('overdue', overdue);
+          itemEl.classList.toggle('due-soon', dueSoon);
 
           const label = document.createElement('label');
           const checkbox = document.createElement('input');
@@ -2931,6 +2975,14 @@ function renderBudgetCalendar(nonDeletedBills, focusedManualInput) {
           checkbox.checked = paid;
           checkbox.addEventListener('change', (e) => toggleBillPaid(bill.id, dateKey, e.target.checked));
 
+          const categoryColor = billCategoryColor(bill.category);
+          let dotSpan = null;
+          if (categoryColor) {
+            dotSpan = document.createElement('span');
+            dotSpan.className = 'budget-occurrence-dot';
+            dotSpan.style.backgroundColor = categoryColor;
+          }
+
           const nameSpan = document.createElement('span');
           nameSpan.className = 'budget-occurrence-name';
           nameSpan.textContent = bill.name;
@@ -2939,6 +2991,7 @@ function renderBudgetCalendar(nonDeletedBills, focusedManualInput) {
           label.title = bill.category ? `${bill.name} — ${amountText} (${bill.category})` : `${bill.name} — ${amountText}`;
 
           label.appendChild(checkbox);
+          if (dotSpan) label.appendChild(dotSpan);
           label.appendChild(nameSpan);
           itemEl.appendChild(label);
           occurrencesEl.appendChild(itemEl);

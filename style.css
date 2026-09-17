@@ -1268,6 +1268,12 @@ body::before {
   box-shadow: 0 0 0 2px var(--accent) inset;
 }
 
+.budget-month-total {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
 .budget-week-cells {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
@@ -1307,6 +1313,14 @@ body::before {
   background: var(--bg);
 }
 
+/* Same "ring" treatment as .budget-week-current, at cell scale rather than
+   row scale, so the two read as related-but-distinct: today's cell still
+   gets its own visible ring even when (always) inside the current week. */
+.budget-day-cell.budget-day-today {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent) inset;
+}
+
 .budget-day-header {
   text-align: right;
 }
@@ -1338,6 +1352,13 @@ body::before {
   cursor: pointer;
 }
 
+.budget-occurrence-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
 .budget-occurrence-name {
   flex: 1 1 auto;
   min-width: 0;
@@ -1348,6 +1369,11 @@ body::before {
 
 .budget-occurrence.overdue .budget-occurrence-name {
   color: var(--accent-2);
+  font-weight: 600;
+}
+
+.budget-occurrence.due-soon .budget-occurrence-name {
+  color: var(--accent-rose);
   font-weight: 600;
 }
 
