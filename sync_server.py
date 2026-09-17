@@ -30,7 +30,7 @@ PORT = 8443
 
 COLLECTION_NAMES = [
     "books", "recipes", "medications", "diagnoses", "todos",
-    "shoppingList", "notes", "links", "courses",
+    "shoppingList", "notes", "links", "courses", "bills",
 ]
 
 CONTENT_TYPES = {
