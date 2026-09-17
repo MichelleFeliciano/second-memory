@@ -2670,7 +2670,7 @@ function oldestUnpaidOccurrence(bill, throughKey) {
 // ---- Calendar window ----
 
 function getCalendarWindowDays(today = new Date()) {
-  const dow = today.getDay(); // 0 = Sunday
+  const dow = (today.getDay() + 6) % 7; // days since Monday (getDay() is 0 = Sunday)
   const startOfThisWeek = new Date(today.getFullYear(), today.getMonth(), today.getDate() - dow);
   const windowStart = new Date(
     startOfThisWeek.getFullYear(),
@@ -2681,7 +2681,7 @@ function getCalendarWindowDays(today = new Date()) {
   for (let i = 0; i < 35; i++) {
     days.push(new Date(windowStart.getFullYear(), windowStart.getMonth(), windowStart.getDate() + i));
   }
-  return days.map(dateKeyFromLocalDate); // 35 date-key strings, Sunday-start
+  return days.map(dateKeyFromLocalDate); // 35 date-key strings, Monday-start
 }
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
