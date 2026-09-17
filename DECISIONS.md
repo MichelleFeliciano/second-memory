@@ -3,6 +3,81 @@
 This file is maintained by the Archivist role. Newest entries at the top. Each entry
 records what was decided, why, and any standing constraint future work must respect.
 
+## 2026-09-16 — Bills sync bug fix + real bill data import (24 records)
+
+**Decision:** The user shared a screenshot of their real "Fixed Monthly Expenses" bills
+spreadsheet (20 rows) and asked to import it. While preparing the import, the Architect
+discovered a real, previously-unnoticed bug from the immediately-prior Budget tab cycle:
+`sync_server.py`'s `COLLECTION_NAMES` list was never updated to include `"bills"` when
+Bills was added as the 10th `SYNC_COLLECTIONS` entry on the client side — meaning Bills
+had silently never been syncing across devices at all, despite the Budget spec's explicit
+design goal of Bills being a full sync citizen from day one. This was fixed first (commit
+`74c4ea1`, a one-line addition to `COLLECTION_NAMES`) before the import proceeded, since
+importing bill data would have been pointless if it couldn't sync. `load_dataset()`
+already gracefully backfills any missing collection key to an empty array, so no
+migration script was needed — a server restart was sufficient. The fix was verified by
+round-tripping through the actual `/api/sync` endpoint (not just inspecting the JSON
+file) and confirming bills came back correctly — the Architect first inspected
+`merge_collection()`'s semantics to confirm sending an empty client payload for
+verification purposes was safe (it is — the tombstone-based design means an empty client
+array is correctly treated as "no changes from this device," never as "delete
+everything," confirmed by checking the real dataset's record counts were unchanged after
+the verification call).
+
+**Data import:** 24 bill records were written directly into `sync_data.json` (the
+canonical sync datastore), matching the exact shape `addBill()` produces, following the
+same direct-datastore-edit technique validated in prior personal-data-import cycles
+(books/recipes/coursework/notes). From the user's 20-row spreadsheet:
+- 18 rows were imported as ordinary `monthly` bills, anchored to their day-of-month in
+  September 2026 (the anchor month doesn't affect correctness of the ongoing monthly
+  recurrence, per the Budget tab's `occursOnDate` logic — only the day-of-month and
+  forward offset matter).
+- 2 rows were **not** imported as recurring bills: the user's spreadsheet described them
+  as "for 3 payments" with three explicit dates each (a Klarna $45 installment on Sept
+  23/Oct 7/Oct 21, and a Klarna $20 installment on Oct 3/Oct 17/Oct 31) — genuinely finite
+  installment plans, not open-ended recurrence. The Bill data model only supports
+  open-ended recurring frequencies or a single `one_time` occurrence, with no "recurring
+  but capped at N occurrences" concept. Rather than force these into `biweekly` (which
+  would incorrectly imply they continue forever), each of the 6 known payment dates was
+  imported as its own separate `one_time` bill — an accurate fit for the current model
+  with no schema change needed.
+- The Architect also assigned categories to all 24 bills (Utilities, Installments,
+  Insurance, Vehicle, Phone, Subscriptions, Fitness) using the category chip-filter field
+  the Budget tab already supports, to make that existing feature immediately useful on
+  real data — matching the same "the app should be more useful, not just literally what
+  was asked" spirit as the earlier Recipes-categorization cycle, though not explicitly
+  requested this time.
+- **A known, accepted limitation, not fixed:** three of the imported monthly bills have a
+  real end date the spreadsheet noted ("last payment") that the current Bill model has no
+  field to record — an Affirm $10/month bill ending January 2027, an Affirm $23/month
+  bill ending March 2027, and a parking $83/month bill ending November 2026. These were
+  imported as ordinary open-ended `monthly` bills; they will keep recurring (and keep
+  counting toward unpaid totals if not paid/deleted) past their real end dates unless the
+  user manually deletes or edits them when those dates arrive. This should be surfaced to
+  the user, not silently absorbed — it's a real, if minor and distant, future correctness
+  gap in the imported data, not a bug in the app itself.
+
+**Outcome:** confirmed via the live `/api/sync` round-trip that all 24 bills came back
+with correct amounts, due dates, frequencies, and categories, cross-checked against the
+source spreadsheet.
+
+**Standing constraints established:**
+- `sync_server.py`'s `COLLECTION_NAMES` now includes `"bills"` — any future new
+  collection added to `SYNC_COLLECTIONS` on the client must also be added to
+  `COLLECTION_NAMES` on the server, or it will silently fail to sync with no error
+  surfaced anywhere (exactly what happened here for one full cycle).
+- If the user ever asks for bills with a genuine end-after-N-occurrences or end-by-date
+  concept (rather than always-open-ended recurrence), that requires an actual schema
+  change to the Bill record (an optional `endDate` or `occurrenceLimit` field plus
+  corresponding changes to `occursOnDate`/`occurrenceCountThrough`) — don't assume the
+  current model already supports it, and don't silently bolt it on without an Analyst
+  pass, since it changes the core recurrence math multiple other cycles have already
+  carefully verified.
+- Three imported bills (Affirm $10, Affirm $23, parking $83) have real-world end dates
+  the app has no field for and will keep recurring past those dates until the user
+  manually intervenes — not a defect to silently fix, but should be mentioned to the user
+  if a future cycle touches Bills.
+
 ## 2026-09-16 — Reachable sync from any network via Tailscale
 
 **Decision:** The user said "lets open the app up so it is avaliable even when not
