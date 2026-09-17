@@ -3,6 +3,34 @@
 This file is maintained by the Archivist role. Newest entries at the top. Each entry
 records what was decided, why, and any standing constraint future work must respect.
 
+## 2026-09-17 — Budget calendar: Sunday-start weeks changed to Monday-start
+
+**Decision:** The Budget tab's rolling 5-week calendar originally launched with
+Sunday-start weeks, per the Researcher's original `docs/research/budget-calendar.md`
+brief — which explicitly flagged that choice as "the commonly cited US calendar
+convention... a low-stakes, easily-changed-later UI choice, not a data-model commitment."
+The user asked to change it to Monday-start. Given the small, well-contained, unambiguous
+nature of the change (and the Researcher's own framing of it as low-stakes), the
+Architect made it directly, without dispatching Researcher/Analyst/Bob.
+
+In `app.js`, `getCalendarWindowDays()`'s day-of-week offset changed from `today.getDay()`
+(0 = Sunday, producing Sunday-start weeks) to `(today.getDay() + 6) % 7` (days since
+Monday, producing Monday-start weeks). The underlying date-key generation, occurrence
+math, and carry-forward weekly-total logic are all unaffected, since none of them depend
+on which day a week starts on — only the calendar's day-grouping/rendering does (confirmed
+by grepping `app.js`/`style.css` for other Sunday/Monday/week-start references — none
+found). The static weekday header markup in `index.html` was reordered from Sun-Sat to
+Mon-Sun to match.
+
+**Outcome:** Live-tested by computing the actual 35-day window and confirming every one of
+the 5 week-chunks starts on a real Monday, the weekday header visually reads Mon-Sun, and
+the "This week" highlighted row still correctly contains today's date. Zero console
+errors. No further changes needed.
+
+**Standing constraints established:** The Budget calendar's week-start convention is now
+Monday, not Sunday — future date-math or UI touching the calendar should assume
+Monday-start weeks.
+
 ## 2026-09-16 — Home dashboard tab + mobile/PWA improvements
 
 **Decision:** The user asked what else could make the app "more functional, but also
