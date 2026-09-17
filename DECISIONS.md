@@ -3,6 +3,58 @@
 This file is maintained by the Archivist role. Newest entries at the top. Each entry
 records what was decided, why, and any standing constraint future work must respect.
 
+## 2026-09-17 — Budget calendar: five usability quick wins
+
+**Decision:** After building the Home dashboard, the user asked the Architect to review
+the Budget calendar and suggest usability/innovation improvements. The Architect reviewed
+the implementation directly (no Researcher/Analyst dispatch needed) and proposed 8 ideas,
+split into "quick wins" (1-5) and "bigger, more innovative" ideas (6-8) needing more design
+work. The user approved building 1-5 immediately, with #8 (a longer-horizon forecast line)
+queued as an immediate follow-up.
+
+Bob (commit `83c1ba0`) implemented, all in the Budget tab (`app.js`/`index.html`/`style.css`):
+1. Today's specific calendar cell gets its own accent-ring highlight
+   (`.budget-day-today`), distinct from the existing whole-week highlight
+   (`.budget-week-current`) — same border/inset-box-shadow technique, applied at cell scope.
+2. Bill occurrences show a small colored category dot, via a deterministic hash of the
+   trim+lowercase-normalized category string into one of exactly 3 existing accent colors
+   (`--accent`/`--accent-rose`/`--accent-lavender`) — deliberately excluding `--accent-2`,
+   which stays reserved for error/overdue only, per the standing constraint from the
+   earlier redesign cycle. Blank categories get no dot.
+3. The existing category chip filter (previously only affecting the Bills list) now also
+   filters calendar occurrences. Critical carve-out, decided explicitly by the Architect:
+   week/month/overall totals are NEVER affected by this filter and always sum every
+   non-deleted bill, regardless of the selected chip — to prevent a filtered view from
+   ever implying someone owes less than they actually do.
+4. A new "due soon" state (unpaid, due today through 2 days out, `--accent-rose`) distinct
+   from "overdue" (unpaid, past due, reserved `--accent-2`) — mutually exclusive by
+   construction, since one requires a past date and the other today-or-later.
+5. A month total next to the month/year header, using the same cumulative "unpaid as of
+   this date" math the weekly totals already use (`unpaidAmountThrough`), anchored at the
+   calendar month's last day instead of a week's end — a genuinely distinct figure, not a
+   duplicate of the weekly totals.
+
+**Outcome:** The Architect live-tested with real seeded data and chased down one
+confusing-looking result before ruling it out as a bug: a bill named "Overdue Bill"
+initially showed "due-soon" instead of "overdue" — traced to the bill's actual overdue
+occurrence (from a month-old anchor date) falling outside the visible 5-week window, so
+what rendered was a different, genuinely-not-yet-due monthly occurrence of the same bill.
+A second bill with a truly past-due occurrence inside the window confirmed the overdue
+class applies correctly. Also confirmed: category-color hashing groups
+normalized-equivalent strings identically (e.g. "Subscriptions" vs "subscriptions ");
+filtering the calendar to one category narrows visible occurrences while every total
+(stats line, week totals, month total) stayed byte-identical before/after; month total
+computed correctly. Zero console errors.
+
+**Standing constraints established:** Any future feature that filters what's displayed on
+the Budget calendar or Bills list must never let that filter also narrow a total/sum
+calculation without an explicit, deliberate decision to do so — the default assumption is
+that "how much do I actually owe" figures stay true and complete regardless of any active
+display filter, matching this cycle's category-filter carve-out.
+
+(Note: idea #8, a longer-horizon forecast line, was queued as an immediate follow-up to
+this cycle and, if already built, has its own separate entry above this one.)
+
 ## 2026-09-17 — Budget calendar: Sunday-start weeks changed to Monday-start
 
 **Decision:** The Budget tab's rolling 5-week calendar originally launched with
