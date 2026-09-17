@@ -3,6 +3,35 @@
 This file is maintained by the Archivist role. Newest entries at the top. Each entry
 records what was decided, why, and any standing constraint future work must respect.
 
+## 2026-09-17 — Budget calendar: 90-day bill forecast line (idea #8)
+
+**Decision:** Idea #8 from the Architect's earlier shortlist of Budget calendar
+improvements (the "bigger, more innovative" tier, queued as an immediate follow-up once
+the five "quick wins" landed) — a longer-horizon bill forecast. The user asked for it to
+be built as soon as those five shipped.
+
+Bob (commit `abcf248`) implemented a 90-day forecast line on the Budget tab, reading e.g.
+"By December 16, 2026: ~$X in recurring bills." It reuses the exact same cumulative
+`unpaidAmountThrough()` math already powering the weekly totals and the prior cycle's
+month total — no new calculation logic, just anchored at `shiftDateKey(todayKey(), 90)`
+instead of a week/month end. It sums over the same unfiltered bill list the other totals
+use, so selecting a category chip never changes this figure either — same carve-out
+established in the prior cycle. Displayed in italic, on its own line below the calendar,
+as a third, clearly distinct time horizon alongside the rolling weekly totals and the
+calendar-month total.
+
+**Outcome:** The Architect live-tested with real seeded data: hand-confirmed the date
+arithmetic (today 2026-09-17 + 90 days = December 16, 2026, with no hardcoded year, so it
+rolls correctly across a year boundary) and hand-traced a monthly bill anchored 45 days
+ago to confirm it correctly accumulates 5 occurrences by the 90-day mark. Also confirmed
+the forecast total is byte-identical before and after selecting a category filter chip,
+and that it recomputes on every render alongside the other totals. Zero console errors —
+approved as-is, no fixes needed.
+
+**Standing constraints established:** None new — this cycle reuses the prior cycle's
+established cumulative-total math and filter-carve-out convention rather than introducing
+a new pattern.
+
 ## 2026-09-17 — Budget calendar: five usability quick wins
 
 **Decision:** After building the Home dashboard, the user asked the Architect to review
