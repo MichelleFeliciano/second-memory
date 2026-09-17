@@ -186,7 +186,7 @@ function recordUndo(collectionName, id, before, after) {
 // ---- UI state (active tab) ----
 
 const UI_STORAGE_KEY = 'secondMemory.ui.v1';
-const TABS = ['books', 'recipes', 'medications', 'diagnoses', 'todo', 'shopping', 'notes', 'budget', 'resume', 'coursework'];
+const TABS = ['home', 'books', 'recipes', 'medications', 'diagnoses', 'todo', 'shopping', 'notes', 'budget', 'resume', 'coursework'];
 
 function loadUiState() {
   try {
@@ -203,7 +203,7 @@ function saveUiState(state) {
 }
 
 function setActiveTab(tab) {
-  const activeTab = TABS.includes(tab) ? tab : 'books';
+  const activeTab = TABS.includes(tab) ? tab : 'home';
   TABS.forEach((t) => {
     document.getElementById(`${t}-collection`).hidden = t !== activeTab;
     document.querySelector(`.nav-item[data-tab="${t}"]`).classList.toggle('active', t === activeTab);
@@ -438,6 +438,8 @@ function renderBooks() {
   });
 
   document.getElementById('books-empty-state').hidden = nonDeleted.length !== 0;
+
+  renderHome(); // Home aggregates books/todos/bills — keep this in sync
 }
 
 document.getElementById('books-add-form').addEventListener('submit', (e) => {
@@ -1465,6 +1467,8 @@ function renderTodos() {
   });
 
   document.getElementById('todo-empty-state').hidden = todos.filter((t) => !t.deleted).length !== 0;
+
+  renderHome(); // Home aggregates books/todos/bills — keep this in sync
 }
 
 document.getElementById('todo-add-form').addEventListener('submit', (e) => {
@@ -3126,6 +3130,8 @@ function renderBudget() {
   renderBillCategoryFilters(nonDeleted);
   renderBudgetCalendar(nonDeleted, focusedManualInput);
   renderBudgetList(nonDeleted, openEdit);
+
+  renderHome(); // Home aggregates books/todos/bills — keep this in sync
 }
 
 document.getElementById('budget-add-form').addEventListener('submit', (e) => {
@@ -3166,6 +3172,173 @@ document.getElementById('budget-sort-input').addEventListener('change', (e) => {
   selectedBillsSort = e.target.value;
   renderBudget();
 });
+
+// ---- Home ----
+// Pure, render-only aggregation over the live books/todos/bills arrays — no
+// own storage key, nothing to sync/export/undo. Re-rendered by hooking the
+// end of renderBooks()/renderTodos()/renderBudget() rather than adding new
+// call sites at every mutation (see docs/specs/home-dashboard.md §5).
+
+const HOME_DUE_SOON_DAYS = 7;
+
+function computeHomeBills(nonDeletedBills) {
+  const todayK = todayKey();
+  const yesterdayK = shiftDateKey(todayK, -1);
+
+  // Overdue: real unpaid balance strictly before today. unpaidAmountThrough
+  // (closed-form) on purpose — NOT oldestUnpaidOccurrence, which is an
+  // unbounded day-by-day walk restricted to the "mark oldest unpaid" button's
+  // click handler for cost reasons. Home re-renders on every add/edit/delete/
+  // undo/redo/sync across three collections, so it must stay cheap.
+  const overdue = nonDeletedBills
+    .map((bill) => ({ bill, amount: unpaidAmountThrough(bill, yesterdayK) }))
+    .filter((x) => x.amount > 0)
+    .sort((a, b) => b.amount - a.amount);
+
+  // Due soon: unpaid occurrences landing on any of the next HOME_DUE_SOON_DAYS
+  // days (today inclusive) — a bounded per-bill loop, same technique
+  // renderBudgetCalendar() already uses.
+  const dueSoon = [];
+  nonDeletedBills.forEach((bill) => {
+    for (let i = 0; i <= HOME_DUE_SOON_DAYS; i++) {
+      const dateKey = shiftDateKey(todayK, i);
+      if (occursOnDate(bill, dateKey) && !(bill.paidDates || []).includes(dateKey)) {
+        dueSoon.push({ bill, dateKey });
+      }
+    }
+  });
+  dueSoon.sort((a, b) => (a.dateKey < b.dateKey ? -1 : a.dateKey > b.dateKey ? 1 : 0));
+
+  return { overdue, dueSoon };
+}
+
+function computeHomeTodos(nonDeletedTodos) {
+  const overdue = nonDeletedTodos
+    .filter((t) => !t.completed && isTodoOverdue(t))
+    .sort(compareByField((t) => t.dueDate, 1, { text: false }));
+
+  // Deliberately the same UTC idiom isTodoOverdue() already uses internally
+  // (toISOString, not the corrected local-date todayKey()) so this widget's
+  // two buckets partition cleanly against isTodoOverdue()'s own boundary
+  // instead of drifting apart near local midnight. See
+  // docs/specs/home-dashboard.md §11.1 — not a bug, not to be "fixed" here.
+  const dueSoonThroughKey = new Date(Date.now() + HOME_DUE_SOON_DAYS * 86400000).toISOString().slice(0, 10);
+
+  const dueSoon = nonDeletedTodos
+    .filter((t) => !t.completed && t.dueDate && !isTodoOverdue(t) && t.dueDate <= dueSoonThroughKey)
+    .sort(compareByField((t) => t.dueDate, 1, { text: false }));
+
+  return { overdue, dueSoon };
+}
+
+function computeCurrentlyReading(nonDeletedBooks) {
+  return nonDeletedBooks.filter((b) => b.status === 'currently_reading').sort(BOOK_SORTS.author_asc);
+}
+
+function renderHome() {
+  const nonDeletedBills = bills.filter((b) => !b.deleted);
+  const nonDeletedTodos = todos.filter((t) => !t.deleted);
+  const nonDeletedBooks = books.filter((b) => !b.deleted);
+
+  const { overdue: overdueBills, dueSoon: dueSoonBills } = computeHomeBills(nonDeletedBills);
+  const { overdue: overdueTodos, dueSoon: dueSoonTodos } = computeHomeTodos(nonDeletedTodos);
+  const currentlyReading = computeCurrentlyReading(nonDeletedBooks);
+
+  const actionableCount = overdueBills.length + dueSoonBills.length + overdueTodos.length + dueSoonTodos.length;
+
+  const statsEl = document.getElementById('home-stats');
+  const emptyEl = document.getElementById('home-empty-state');
+  const billsPanel = document.getElementById('home-bills-panel');
+  const todoPanel = document.getElementById('home-todo-panel');
+  const readingPanel = document.getElementById('home-reading-panel');
+  const billsList = document.getElementById('home-bills-list');
+  const todoList = document.getElementById('home-todo-list');
+  const readingList = document.getElementById('home-reading-list');
+
+  billsList.innerHTML = '';
+  todoList.innerHTML = '';
+  readingList.innerHTML = '';
+
+  function makeHomeRow(onClick, buildContent) {
+    const li = document.createElement('li');
+    li.className = 'home-item';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'home-item-link';
+    buildContent(btn);
+    btn.addEventListener('click', onClick);
+    li.appendChild(btn);
+    return li;
+  }
+
+  if (actionableCount > 0) {
+    statsEl.textContent = `${actionableCount} thing${actionableCount === 1 ? '' : 's'} ` +
+      `need${actionableCount === 1 ? 's' : ''} your attention this week.`;
+    statsEl.hidden = false;
+    emptyEl.hidden = true;
+    billsPanel.hidden = false;
+    todoPanel.hidden = false;
+
+    overdueBills.forEach(({ bill, amount }) => {
+      billsList.appendChild(makeHomeRow(() => setActiveTab('budget'), (btn) => {
+        const name = document.createElement('strong');
+        name.className = 'bill-name';
+        name.textContent = bill.name;
+        const due = document.createElement('span');
+        due.className = 'bill-due overdue';
+        due.textContent = `$${amount.toFixed(2)} overdue`;
+        btn.append(name, due);
+      }));
+    });
+
+    dueSoonBills.forEach(({ bill, dateKey }) => {
+      billsList.appendChild(makeHomeRow(() => setActiveTab('budget'), (btn) => {
+        const name = document.createElement('strong');
+        name.className = 'bill-name';
+        name.textContent = bill.name;
+        const due = document.createElement('span');
+        due.className = 'bill-due';
+        due.textContent = `$${bill.amount.toFixed(2)} due ${dateKey}`;
+        btn.append(name, due);
+      }));
+    });
+
+    [...overdueTodos, ...dueSoonTodos].forEach((todo) => {
+      todoList.appendChild(makeHomeRow(() => setActiveTab('todo'), (btn) => {
+        const task = document.createElement('span');
+        task.className = 'todo-task';
+        task.textContent = todo.task;
+        const due = document.createElement('span');
+        due.className = 'todo-due';
+        due.textContent = todo.dueDate;
+        due.classList.toggle('overdue', isTodoOverdue(todo));
+        btn.append(task, due);
+      }));
+    });
+  } else {
+    statsEl.hidden = true;
+    emptyEl.hidden = false;
+    billsPanel.hidden = true;
+    todoPanel.hidden = true;
+  }
+
+  if (currentlyReading.length > 0) {
+    readingPanel.hidden = false;
+    currentlyReading.forEach((book) => {
+      readingList.appendChild(makeHomeRow(() => setActiveTab('books'), (btn) => {
+        const title = document.createElement('strong');
+        title.className = 'book-title';
+        title.textContent = book.title;
+        const author = document.createElement('span');
+        author.className = 'book-author';
+        author.textContent = book.author || '';
+        btn.append(title, author);
+      }));
+    });
+  } else {
+    readingPanel.hidden = true;
+  }
+}
 
 // ---- Device Sync ----
 // Optional: the app is fully functional offline with no sync configured, and
@@ -3617,5 +3790,5 @@ renderLinks();
 renderCourses();
 renderBudget();
 updateUndoRedoButtons();
-setActiveTab(loadUiState().activeTab || 'books');
+setActiveTab(loadUiState().activeTab || 'home');
 initSyncUI();

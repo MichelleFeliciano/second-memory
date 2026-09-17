@@ -519,6 +519,20 @@ body::before {
   .columns { grid-template-columns: 1fr; }
   .app-shell { flex-direction: column; }
   .sidebar { flex: 0 0 auto; }
+
+  /* iOS Safari zooms the viewport on focusing any form control whose
+     computed font-size is under 16px. App-wide, not just Budget — every
+     collection's inputs/selects are candidates, not only
+     .budget-day-manual-input. See docs/research/mobile-pwa.md Part 2.3. */
+  input[type="text"],
+  input[type="search"],
+  input[type="number"],
+  input[type="date"],
+  input[type="password"],
+  textarea,
+  select {
+    font-size: 16px;
+  }
 }
 
 .column {
@@ -622,7 +636,8 @@ body::before {
 .note-card,
 .link-card,
 .course-card,
-.bill-card {
+.bill-card,
+.home-item {
   border: 1px solid var(--border-soft);
   border-radius: 18px;
   padding: 16px;
@@ -640,8 +655,20 @@ body::before {
 .note-card:hover,
 .link-card:hover,
 .course-card:hover,
-.bill-card:hover {
+.bill-card:hover,
+.home-item:hover {
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.055);
+}
+
+.home-item-link {
+  background: none;
+  border: none;
+  width: 100%;
+  text-align: left;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
 }
 
 .book-info {
@@ -876,7 +903,8 @@ body::before {
   white-space: nowrap;
 }
 
-.todo-due.overdue {
+.todo-due.overdue,
+.bill-due.overdue {
   color: var(--accent-2);
   font-weight: 600;
 }
@@ -1244,6 +1272,28 @@ body::before {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 8px;
+}
+
+/* The Budget calendar's 7-column .budget-week-cells grid is already cramped
+   at the app-wide 700px breakpoint (the fixed 220px sidebar isn't collapsed
+   until then either, so even a moderately narrow desktop window hits the
+   same problem well above 700px) — give it its own, wider breakpoint instead
+   of reusing the generic .columns rule. See docs/research/mobile-pwa.md
+   Part 2.1/2.2. Must come AFTER the base .budget-week-cells/.budget-weekday-row
+   rules above — same specificity, so source order decides the cascade tie,
+   and a media query earlier in the file than the rule it overrides loses. */
+@media (max-width: 900px) {
+  .budget-week-cells {
+    grid-template-columns: 1fr;
+  }
+
+  /* A separate, unlinked 7-column grid above the .budget-week rows — once
+     .budget-week-cells collapses to one column, keeping this at 7 columns
+     would visually misalign it against the stack beneath. Each day cell's
+     own date number is enough for orientation once collapsed. */
+  .budget-weekday-row {
+    display: none;
+  }
 }
 
 .budget-day-cell {
