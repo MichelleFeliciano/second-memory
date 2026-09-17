@@ -2911,6 +2911,22 @@ function renderBudgetCalendar(nonDeletedBills, focusedManualInput) {
     monthTotalEl.innerHTML = `${MONTH_NAMES[today.getMonth()]} total: <strong>$${monthTotal.toFixed(2)}</strong>`;
   }
 
+  // 90-day forecast: a third, longer time horizon alongside the week totals
+  // (rolling, per-week) and the month total (current calendar month) above —
+  // same unpaidAmountThrough cumulative math, just anchored 90 days out
+  // instead of at a week/month boundary. Deliberately unfiltered by category,
+  // same carve-out as monthTotal/weekTotal (see matchesBillCategory comment
+  // further down).
+  const forecastEndKey = shiftDateKey(todayK, 90);
+  const forecastTotal = nonDeletedBills.reduce((sum, b) => sum + unpaidAmountThrough(b, forecastEndKey), 0);
+  const forecastEl = document.getElementById('budget-forecast-total');
+  if (forecastEl) {
+    const { y: forecastYear, m: forecastMonth, d: forecastDay } = parseDateKey(forecastEndKey);
+    forecastEl.innerHTML =
+      `By ${MONTH_NAMES[forecastMonth]} ${forecastDay}, ${forecastYear}: ` +
+      `<strong>~$${forecastTotal.toFixed(2)}</strong> in recurring bills`;
+  }
+
   const windowDays = getCalendarWindowDays(today);
   const calendarEl = document.getElementById('budget-calendar');
   calendarEl.querySelectorAll('.budget-week').forEach((el) => el.remove());

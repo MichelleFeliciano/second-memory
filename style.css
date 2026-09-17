@@ -1274,6 +1274,13 @@ body::before {
   font-size: 0.85rem;
 }
 
+.budget-forecast-total {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
 .budget-week-cells {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
