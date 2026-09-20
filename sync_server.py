@@ -39,6 +39,12 @@ CONTENT_TYPES = {
     ".js": "application/javascript; charset=utf-8",
 }
 
+# The app's HTML/JS is now hosted separately from this server (GitHub Pages,
+# not this machine), so browsers treat sync requests as cross-origin and
+# block them without an explicit CORS allowlist. Only these exact origins
+# are ever allowed to call /api/sync from a browser.
+ALLOWED_SYNC_ORIGINS = {"https://sagebrushsites.com", "https://michellefeliciano.github.io"}
+
 # Explicit allowlist, not just a path-traversal check: the app root also
 # holds .sync_secret, cert.pem, key.pem, sync_data.json, and this script's
 # own source — a traversal guard alone still serves all of those to any
@@ -95,8 +101,8 @@ def get_tailscale_info():
             capture_output=True, text=True, check=True, timeout=5,
         ).stdout
         status = json.loads(out)
-        self_node = status.get("Self", {})
-        ips = self_node.get("TailscaleIPs", [])
+        self_node = status.get("Self") or {}
+        ips = self_node.get("TailscaleIPs") or []
         ip = next((a for a in ips if ":" not in a), None)  # first IPv4
         hostname = (self_node.get("DNSName") or "").rstrip(".") or None
         return ip, hostname
@@ -291,11 +297,23 @@ def merge_collection(server_items, client_items):
 class SyncHandler(BaseHTTPRequestHandler):
     server_version = "SecondMemorySync/1"
 
+    def _allowed_origin(self):
+        origin = self.headers.get("Origin")
+        return origin if origin in ALLOWED_SYNC_ORIGINS else None
+
     def _send_json(self, status, payload):
         body = json.dumps(payload).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        # CORS headers belong on every response, not just success — the
+        # client's JS specifically branches on response.status === 401 to
+        # show "check passphrase", and a browser hides that status behind a
+        # generic network error if the response lacks these headers.
+        origin = self._allowed_origin()
+        if origin:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
         self.end_headers()
         self.wfile.write(body)
 
@@ -303,6 +321,24 @@ class SyncHandler(BaseHTTPRequestHandler):
         expected = self.server.sync_token
         got = self.headers.get("X-Sync-Token", "")
         return hmac.compare_digest(got, expected)
+
+    def do_OPTIONS(self):
+        if self.path != "/api/sync":
+            self.send_response(404)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+
+        self.send_response(204)
+        origin = self._allowed_origin()
+        if origin:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Sync-Token")
+        self.send_header("Access-Control-Max-Age", "86400")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def do_POST(self):
         if self.path != "/api/sync":

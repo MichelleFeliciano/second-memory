@@ -6,3 +6,9 @@ Thumbs.db
 cert.pem
 key.pem
 sync_data.json
+
+# Dev-process files — not part of the public repo.
+.claude/
+CLAUDE.md
+DECISIONS.md
+docs/
