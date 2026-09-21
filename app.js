@@ -220,6 +220,8 @@ document.querySelectorAll('.nav-item').forEach((btn) => {
 const BOOKS_KEY = 'secondMemory.books.v1';
 const BOOK_STATUSES = ['want_to_buy', 'owned_unread', 'currently_reading', 'owned_read', 'textbook', 'jons_bookshelf', 'jons_bookshelf_read'];
 
+const SYNC_SERVER_URL = 'https://second-memory-mwm3.onrender.com';
+
 let books = migrateSyncFields(loadCollection(BOOKS_KEY), BOOKS_KEY, getDeviceId());
 
 function addBook(title, author, status) {
@@ -3420,7 +3422,10 @@ function loadSyncConfig() {
   try {
     const raw = localStorage.getItem(SYNC_CONFIG_KEY);
     const parsed = raw ? JSON.parse(raw) : null;
-    if (parsed && parsed.serverUrl && parsed.token) return parsed;
+    // Old pre-Render config was {serverUrl, token}; treat the whole object as
+    // stale rather than reusing its token against the new server.
+    if (parsed && typeof parsed === 'object' && 'serverUrl' in parsed) return null;
+    if (parsed && parsed.token) return parsed;
   } catch {
     // fall through
   }
@@ -3574,7 +3579,7 @@ async function runSync() {
   SYNC_COLLECTIONS.forEach((c) => { payload.collections[c.name] = c.get(); });
 
   try {
-    const response = await fetch(`${config.serverUrl.replace(/\/+$/, '')}/api/sync`, {
+    const response = await fetch(`${SYNC_SERVER_URL}/api/sync`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Sync-Token': config.token },
       body: JSON.stringify(payload),
@@ -3638,18 +3643,18 @@ function initSyncUI() {
 
   form.addEventListener('submit', (e) => {
     e.preventDefault();
-    const urlInput = document.getElementById('sync-url-input');
     const tokenInput = document.getElementById('sync-token-input');
-    const url = urlInput.value.trim();
     const token = tokenInput.value.trim();
-    if (!url || !token) return;
-    saveSyncConfig({ serverUrl: url, token });
+    if (!token) return;
+    saveSyncConfig({ token });
+    tokenInput.value = '';
     setupSection.hidden = true;
     statusSection.hidden = false;
     runSync();
   });
 
   changeBtn.addEventListener('click', () => {
+    document.getElementById('sync-token-input').value = '';
     setupSection.hidden = false;
     statusSection.hidden = true;
   });
