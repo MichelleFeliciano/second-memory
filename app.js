@@ -234,7 +234,7 @@ if (sidebarToggleBtn) {
 // ---- Books ----
 
 const BOOKS_KEY = 'secondMemory.books.v1';
-const BOOK_STATUSES = ['want_to_buy', 'owned_unread', 'currently_reading', 'owned_read', 'textbook', 'jons_bookshelf', 'jons_bookshelf_read'];
+const BOOK_STATUSES = ['want_to_buy', 'owned_unread', 'currently_reading', 'owned_read', 'textbook', 'textbook_read', 'jons_bookshelf', 'jons_bookshelf_read'];
 
 const SYNC_SERVER_URL = 'https://second-memory-mwm3.onrender.com';
 
@@ -344,7 +344,8 @@ function renderBooksStats(nonDeletedBooks) {
   const countFor = (status) => nonDeletedBooks.filter((b) => b.status === status).length;
   el.textContent = `${total} book${total === 1 ? '' : 's'} · ${countFor('want_to_buy')} want to buy · ` +
     `${countFor('owned_unread')} unread · ${countFor('currently_reading')} currently reading · ` +
-    `${countFor('owned_read')} read · ${countFor('textbook')} textbooks · ` +
+    `${countFor('owned_read')} read · ${countFor('textbook')} textbooks (unread) · ` +
+    `${countFor('textbook_read')} textbooks (read) · ` +
     `${countFor('jons_bookshelf')} on Jon's Bookshelf (unread) · ${countFor('jons_bookshelf_read')} on Jon's Bookshelf (read)`;
 }
 

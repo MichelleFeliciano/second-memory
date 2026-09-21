@@ -230,7 +230,8 @@
           <option value="owned_unread">Owned — Unread</option>
           <option value="currently_reading">Currently Reading</option>
           <option value="owned_read">Owned — Read</option>
-          <option value="textbook">Textbooks</option>
+          <option value="textbook">Textbooks — Unread</option>
+          <option value="textbook_read">Textbooks — Read</option>
           <option value="jons_bookshelf">Jon's Bookshelf — Unread</option>
           <option value="jons_bookshelf_read">Jon's Bookshelf — Read</option>
         </select>
@@ -255,8 +256,12 @@
           <ul class="card-list" data-list="owned_read"></ul>
         </div>
         <div class="column" data-status="textbook">
-          <h3>Textbooks <span class="count" data-count="textbook">0</span></h3>
+          <h3>Textbooks — Unread <span class="count" data-count="textbook">0</span></h3>
           <ul class="card-list" data-list="textbook"></ul>
+        </div>
+        <div class="column" data-status="textbook_read">
+          <h3>Textbooks — Read <span class="count" data-count="textbook_read">0</span></h3>
+          <ul class="card-list" data-list="textbook_read"></ul>
         </div>
         <div class="column" data-status="jons_bookshelf">
           <h3>Jon's Bookshelf — Unread <span class="count" data-count="jons_bookshelf">0</span></h3>
@@ -612,7 +617,8 @@
           <option value="owned_unread">Move: Owned — Unread</option>
           <option value="currently_reading">Move: Currently Reading</option>
           <option value="owned_read">Move: Owned — Read</option>
-          <option value="textbook">Move: Textbooks</option>
+          <option value="textbook">Move: Textbooks — Unread</option>
+          <option value="textbook_read">Move: Textbooks — Read</option>
           <option value="jons_bookshelf">Move: Jon's Bookshelf — Unread</option>
           <option value="jons_bookshelf_read">Move: Jon's Bookshelf — Read</option>
         </select>

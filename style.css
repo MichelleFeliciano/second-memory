@@ -880,6 +880,7 @@ body::before {
 .med-actions,
 .diagnosis-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 6px;
 }
@@ -999,6 +1000,7 @@ body::before {
 
 .note-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
 }
@@ -1193,6 +1195,7 @@ body::before {
 
 .link-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 6px;
 }
@@ -1246,6 +1249,7 @@ body::before {
 
 .course-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 6px;
 }
