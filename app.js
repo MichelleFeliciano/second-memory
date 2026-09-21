@@ -3861,3 +3861,14 @@ renderBudget();
 updateUndoRedoButtons();
 setActiveTab(loadUiState().activeTab || 'home');
 initSyncUI();
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').then((registration) => {
+      registration.update();
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') registration.update();
+      });
+    });
+  });
+}
