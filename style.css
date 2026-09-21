@@ -617,7 +617,8 @@ body::before {
 /* Books can hold hundreds of records per column (218 in the real dataset) —
    cap each column's own height and let it scroll internally instead of the
    whole page growing to the length of the longest column. */
-.book-columns .card-list {
+.book-columns .card-list,
+.course-columns .card-list {
   max-height: min(520px, 60vh);
   overflow-y: auto;
   padding-right: 4px;
