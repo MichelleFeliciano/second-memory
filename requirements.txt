@@ -1,0 +1,1 @@
+# No dependencies — sync_server.py is Python stdlib only.
