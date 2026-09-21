@@ -209,11 +209,27 @@ function setActiveTab(tab) {
     document.querySelector(`.nav-item[data-tab="${t}"]`).classList.toggle('active', t === activeTab);
   });
   saveUiState({ activeTab });
+
+  if (window.matchMedia('(max-width: 700px)').matches) {
+    const sidebar = document.querySelector('.sidebar');
+    sidebar.classList.remove('sidebar-open');
+    const toggleBtn = document.getElementById('sidebar-toggle');
+    if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'false');
+  }
 }
 
 document.querySelectorAll('.nav-item').forEach((btn) => {
   btn.addEventListener('click', () => setActiveTab(btn.dataset.tab));
 });
+
+const sidebarToggleBtn = document.getElementById('sidebar-toggle');
+if (sidebarToggleBtn) {
+  sidebarToggleBtn.addEventListener('click', () => {
+    const sidebar = document.querySelector('.sidebar');
+    const isOpen = sidebar.classList.toggle('sidebar-open');
+    sidebarToggleBtn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+  });
+}
 
 // ---- Books ----
 

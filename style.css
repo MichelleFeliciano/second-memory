@@ -156,6 +156,35 @@ body::before {
   font-size: 0.85rem;
 }
 
+.sidebar-toggle {
+  display: none;
+}
+
+.sidebar-toggle-icon {
+  position: relative;
+  width: 20px;
+  height: 1.6px;
+  background: currentColor;
+}
+
+.sidebar-toggle-icon::before,
+.sidebar-toggle-icon::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  width: 20px;
+  height: 1.6px;
+  background: currentColor;
+}
+
+.sidebar-toggle-icon::before {
+  top: -6px;
+}
+
+.sidebar-toggle-icon::after {
+  top: 6px;
+}
+
 .nav-list {
   list-style: none;
   margin: 0;
@@ -519,6 +548,32 @@ body::before {
   .columns { grid-template-columns: 1fr; }
   .app-shell { flex-direction: column; }
   .sidebar { flex: 0 0 auto; }
+
+  .sidebar-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 13px;
+    background: transparent;
+    color: var(--text);
+    font-size: 0.9rem;
+    cursor: pointer;
+    margin-top: 12px;
+  }
+
+  .sidebar-toggle:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .sidebar:not(.sidebar-open) #undo-redo-panel,
+  .sidebar:not(.sidebar-open) .nav-list,
+  .sidebar:not(.sidebar-open) .sync-panel,
+  .sidebar:not(.sidebar-open) .data-io {
+    display: none;
+  }
 
   /* iOS Safari zooms the viewport on focusing any form control whose
      computed font-size is under 16px. App-wide, not just Budget — every
