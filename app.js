@@ -2718,28 +2718,154 @@ function weekTotal(weekEndKey, allBills) {
     .reduce((sum, b) => sum + unpaidAmountThrough(b, weekEndKey), 0);
 }
 
-// ---- Manual per-day number ----
-// Local-only, deliberately not a SYNC_COLLECTIONS member: own localStorage
-// key, plain flat date-key-to-number map, not synced/exported/undo-tracked.
-// See docs/specs/budget-tab.md §1.2/§10.2 (Architect decision #2).
+// ---- Income (per-day manual number, now a real synced collection) ----
+// `id` is deliberately the record's own `dateKey`, not a fresh makeId() UUID
+// — see docs/specs/budget-income.md §1.1. This is a conscious divergence
+// from every other collection's convention: it gives "one income entry per
+// date" a real identity-level guarantee across the normal sync-merge paths,
+// at the cost of setIncomeForDate needing to find-or-create by dateKey
+// instead of blindly pushing like every other addX.
 
 const BUDGET_DAILY_NUMBERS_KEY = 'secondMemory.budgetDailyNumbers.v1';
+const INCOME_KEY = 'secondMemory.income.v1';
+let income = migrateSyncFields(loadCollection(INCOME_KEY), INCOME_KEY, getDeviceId());
 
-function loadBudgetDailyNumbers() {
-  try {
-    const raw = localStorage.getItem(BUDGET_DAILY_NUMBERS_KEY);
-    const parsed = raw ? JSON.parse(raw) : {};
-    return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
-  } catch {
-    return {};
+// One-time migration off the old local-only flat map into the `income`
+// collection. Not a reusable pattern (migrateSyncFields is a different,
+// idempotent-forever thing) — designed from scratch for this one retirement.
+// See docs/specs/budget-income.md §2.
+function migrateBudgetDailyNumbersToIncome() {
+  let raw;
+  try { raw = localStorage.getItem(BUDGET_DAILY_NUMBERS_KEY); } catch { raw = null; }
+  if (!raw) return; // covers "feature never used" and "already migrated" identically
+
+  let map;
+  try { map = JSON.parse(raw); } catch { map = null; }
+  if (!map || typeof map !== 'object' || Array.isArray(map)) {
+    localStorage.removeItem(BUDGET_DAILY_NUMBERS_KEY); // unparseable garbage — clear, don't retry forever
+    return;
   }
+
+  const now = new Date().toISOString();
+  const deviceId = getDeviceId();
+  let changed = false;
+
+  Object.keys(map).forEach((dateKey) => {
+    const amount = Number(map[dateKey]);
+    if (!Number.isFinite(amount)) return;       // defensive: skip corrupt individual entries
+    if (income.some((r) => r.id === dateKey)) return; // don't duplicate if this somehow already ran
+
+    income.push({
+      id: dateKey,
+      dateKey,
+      amount,
+      dateAdded: now,
+      updatedAt: now,
+      deviceId,
+      deleted: false,
+      version: 0,
+    });
+    changed = true;
+  });
+
+  if (changed) saveCollection(INCOME_KEY, income);
+  localStorage.removeItem(BUDGET_DAILY_NUMBERS_KEY); // unconditional — prevents re-running/re-duplicating on next load
 }
 
-function saveBudgetDailyNumbers(map) {
-  localStorage.setItem(BUDGET_DAILY_NUMBERS_KEY, JSON.stringify(map));
+migrateBudgetDailyNumbersToIncome();
+
+function setIncomeForDate(dateKey, rawValue) {
+  const existing = income.find((r) => r.id === dateKey);
+
+  if (rawValue === '') {
+    if (existing && !existing.deleted) deleteIncome(dateKey);
+    return; // already blank/absent — no-op, nothing to record
+  }
+
+  const amount = Number(rawValue);
+  if (!Number.isFinite(amount)) return; // defensive; a native <input type=number>'s
+                                          // committed value should never actually hit this
+
+  if (existing) {
+    const before = structuredClone(existing);
+    existing.amount = amount;
+    existing.deleted = false; // re-entering a value on a previously-cleared date un-tombstones
+                               // the same record rather than creating a second one for that id
+    stampSync(existing);
+    saveCollection(INCOME_KEY, income);
+    recordUndo('income', dateKey, before, structuredClone(existing));
+  } else {
+    const now = new Date().toISOString();
+    const record = {
+      id: dateKey, dateKey, amount,
+      dateAdded: now, updatedAt: now,
+      deviceId: getDeviceId(), deleted: false, version: 0,
+    };
+    income.push(record);
+    saveCollection(INCOME_KEY, income);
+    recordUndo('income', dateKey, null, structuredClone(record));
+  }
+
+  // Deferred, not called synchronously: this fires from the income input's
+  // `change` handler, which the browser dispatches as part of a Tab key's
+  // default action — moving focus to the next cell is a later step of that
+  // same synchronous algorithm. Rebuilding the calendar (which destroys and
+  // recreates every cell, including the one about to be focused) inside that
+  // window pulls the rug out from under the browser's own focus-move, and it
+  // lands on nothing (document.body) instead of the next cell. Deferring to
+  // a macrotask lets Tab's native focus-move finish first, so the existing
+  // focusedManualInput capture (in renderBudget) correctly sees the *new*
+  // cell as focused and restores focus onto its freshly-rebuilt replacement.
+  setTimeout(renderBudget, 0);
 }
 
-let budgetDailyNumbers = loadBudgetDailyNumbers();
+function deleteIncome(id) {
+  const record = income.find((r) => r.id === id);
+  if (!record) return;
+  const before = structuredClone(record);
+  record.deleted = true;
+  stampSync(record);
+  saveCollection(INCOME_KEY, income);
+  recordUndo('income', id, before, structuredClone(record));
+  // Deferred — see the matching comment in setIncomeForDate. Reachable
+  // directly from that function's "clear the input" path, which is a Tab
+  // key commit exactly like the add/edit path.
+  setTimeout(renderBudget, 0);
+}
+
+function restoreIncome(id) {
+  const record = income.find((r) => r.id === id);
+  if (!record || !record.deleted) return;
+  const before = structuredClone(record);
+  record.deleted = false;
+  stampSync(record);
+  saveCollection(INCOME_KEY, income);
+  recordUndo('income', id, before, structuredClone(record));
+  renderBudget();
+}
+
+// Deliberately NOT cumulative-through-date, unlike weekTotal()/unpaidAmountThrough(). Each
+// income record is summed into exactly the one week (or month) whose range its dateKey falls
+// in — never carried into subsequent periods. See docs/specs/budget-income.md §5.
+function incomeSumInRange(startKey, endKey, allIncome) {
+  return allIncome
+    .filter((r) => !r.deleted && r.dateKey >= startKey && r.dateKey <= endKey)
+    .reduce((sum, r) => sum + r.amount, 0);
+}
+
+// Every existing currency display in this tab is guaranteed non-negative by
+// construction (unpaidAmountThrough clamps at 0; Bills' amount is validated
+// > 0), so `$${x.toFixed(2)}` has never had to handle a negative number.
+// Income (§1.2 of the income spec allows negative amounts) and net totals
+// (can go negative) both can — use this instead, never the plain template
+// literal, for those two figures. See docs/specs/budget-income.md §7.1.
+function formatSignedCurrency(amount) {
+  const abs = Math.abs(amount).toFixed(2);
+  // Check the sign of the *rounded* magnitude, not the raw value — a tiny
+  // negative amount (a near-cancelling net total, a stray floating-point
+  // epsilon) that rounds to 0.00 should never display as "-$0.00".
+  return (amount < 0 && abs !== '0.00') ? `-$${abs}` : `$${abs}`;
+}
 
 // ---- Bill CRUD ----
 
@@ -2910,7 +3036,7 @@ function renderBudgetStats(nonDeletedBills) {
 // list's search filter below — but the category chip filter DOES apply here
 // too (occurrence rendering only; every total stays unfiltered, see the
 // matchesBillCategory comment inside the render loop below).
-function renderBudgetCalendar(nonDeletedBills, focusedManualInput) {
+function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, focusedManualInput) {
   const today = new Date();
   const todayK = todayKey();
   const dueSoonEndK = shiftDateKey(todayK, 2);
@@ -2921,6 +3047,7 @@ function renderBudgetCalendar(nonDeletedBills, focusedManualInput) {
   // weekly totals below, just anchored at the current calendar month's last
   // day instead of a week-end — deliberately unfiltered by category, same
   // carve-out as weekTotal() (see matchesBillCategory filter further down).
+  const monthStartKey = dateKeyFromParts(today.getFullYear(), today.getMonth(), 1);
   const monthEndKey = dateKeyFromParts(
     today.getFullYear(), today.getMonth(), daysInMonth(today.getFullYear(), today.getMonth())
   );
@@ -2928,6 +3055,28 @@ function renderBudgetCalendar(nonDeletedBills, focusedManualInput) {
   const monthTotalEl = document.getElementById('budget-month-total');
   if (monthTotalEl) {
     monthTotalEl.innerHTML = `${MONTH_NAMES[today.getMonth()]} total: <strong>$${monthTotal.toFixed(2)}</strong>`;
+  }
+
+  // Plain range-sum, deliberately not cumulative — see incomeSumInRange's
+  // own comment and docs/specs/budget-income.md §5.
+  const monthIncome = incomeSumInRange(monthStartKey, monthEndKey, nonDeletedIncome);
+  const monthIncomeTotalEl = document.getElementById('budget-month-income-total');
+  if (monthIncomeTotalEl) {
+    monthIncomeTotalEl.innerHTML =
+      `${MONTH_NAMES[today.getMonth()]} income: <strong>${formatSignedCurrency(monthIncome)}</strong>`;
+  }
+
+  // Mixes a cumulative expense figure (monthTotal, "everything unpaid as of
+  // month end") with a period-scoped income figure (monthIncome, "only what
+  // was entered this month") — a deliberate, reasoned tradeoff, not an
+  // oversight. See docs/specs/budget-income.md §6.
+  const monthNet = monthIncome - monthTotal;
+  const monthNetTotalEl = document.getElementById('budget-month-net-total');
+  if (monthNetTotalEl) {
+    monthNetTotalEl.innerHTML = `${MONTH_NAMES[today.getMonth()]} net: <strong>${formatSignedCurrency(monthNet)}</strong>`;
+    monthNetTotalEl.title =
+      'Income entered this month minus every bill unpaid as of the end of this month ' +
+      '(includes unpaid amounts carried over from past months)';
   }
 
   // 90-day forecast: a third, longer time horizon alongside the week totals
@@ -3040,21 +3189,10 @@ function renderBudgetCalendar(nonDeletedBills, focusedManualInput) {
       manualInput.step = 'any';
       manualInput.className = 'budget-day-manual-input';
       manualInput.dataset.dateKey = dateKey;
-      manualInput.setAttribute('aria-label', `Note for ${MONTH_NAMES[m]} ${d}`);
-      manualInput.value = (dateKey in budgetDailyNumbers) ? String(budgetDailyNumbers[dateKey]) : '';
-      manualInput.addEventListener('change', (e) => {
-        const value = e.target.value;
-        if (value === '') {
-          delete budgetDailyNumbers[dateKey];
-        } else {
-          budgetDailyNumbers[dateKey] = Number(value);
-        }
-        saveBudgetDailyNumbers(budgetDailyNumbers);
-        // Deliberately no renderBudget() call here — nothing else on screen
-        // depends on this value, and re-rendering on every change would risk
-        // the exact cross-cell focus-loss bug this preservation logic guards
-        // against. See docs/specs/budget-tab.md §7.
-      });
+      manualInput.setAttribute('aria-label', `Income for ${MONTH_NAMES[m]} ${d}`);
+      const incomeRecord = nonDeletedIncome.find((r) => r.dateKey === dateKey);
+      manualInput.value = incomeRecord ? String(incomeRecord.amount) : '';
+      manualInput.addEventListener('change', (e) => setIncomeForDate(dateKey, e.target.value));
       footerEl.appendChild(manualInput);
       cellEl.appendChild(footerEl);
 
@@ -3067,6 +3205,23 @@ function renderBudgetCalendar(nonDeletedBills, focusedManualInput) {
     totalEl.className = 'budget-week-total';
     totalEl.innerHTML = `${BUDGET_WEEK_LABELS[weekIndex]}: <strong>$${weekTotal(weekEndKey, nonDeletedBills).toFixed(2)}</strong>`;
     weekEl.appendChild(totalEl);
+
+    const weekIncome = incomeSumInRange(weekDays[0], weekDays[6], nonDeletedIncome);
+    const incomeTotalEl = document.createElement('p');
+    incomeTotalEl.className = 'budget-week-income-total';
+    incomeTotalEl.innerHTML = `Income: <strong>${formatSignedCurrency(weekIncome)}</strong>`;
+    weekEl.appendChild(incomeTotalEl);
+
+    // See §6's numeric trace for why this mixes a cumulative expense figure
+    // with a period-scoped income figure, and the title tooltip below.
+    const weekNet = weekIncome - weekTotal(weekEndKey, nonDeletedBills);
+    const netTotalEl = document.createElement('p');
+    netTotalEl.className = 'budget-week-net-total';
+    netTotalEl.innerHTML = `Net: <strong>${formatSignedCurrency(weekNet)}</strong>`;
+    netTotalEl.title =
+      'Income entered this week minus every bill unpaid as of the end of this week ' +
+      '(includes unpaid amounts carried over from past weeks)';
+    weekEl.appendChild(netTotalEl);
 
     calendarEl.appendChild(weekEl);
   }
@@ -3195,6 +3350,7 @@ function renderBudgetList(nonDeletedBills, openEdit) {
 // docs/specs/budget-tab.md §6.1.
 function renderBudget() {
   const nonDeleted = bills.filter((b) => !b.deleted);
+  const nonDeletedIncome = income.filter((r) => !r.deleted);
 
   const activeEl = document.activeElement;
   const focusedManualInput = (activeEl && activeEl.classList && activeEl.classList.contains('budget-day-manual-input'))
@@ -3216,7 +3372,7 @@ function renderBudget() {
 
   renderBudgetStats(nonDeleted);
   renderBillCategoryFilters(nonDeleted);
-  renderBudgetCalendar(nonDeleted, focusedManualInput);
+  renderBudgetCalendar(nonDeleted, nonDeletedIncome, focusedManualInput);
   renderBudgetList(nonDeleted, openEdit);
 
   renderHome(); // Home aggregates books/todos/bills — keep this in sync
@@ -3467,6 +3623,7 @@ const SYNC_COLLECTIONS = [
   { name: 'links', label: 'Resume', key: LINKS_KEY, get: () => links, set: (v) => { links = v; }, render: renderLinks, delete: deleteLink, restore: restoreLink },
   { name: 'courses', label: 'Coursework', key: COURSES_KEY, get: () => courses, set: (v) => { courses = v; }, render: renderCourses, delete: deleteCourse, restore: restoreCourse },
   { name: 'bills', label: 'Bills', key: BILLS_KEY, get: () => bills, set: (v) => { bills = v; }, render: renderBudget, delete: deleteBill, restore: restoreBill },
+  { name: 'income', label: 'Income', key: INCOME_KEY, get: () => income, set: (v) => { income = v; }, render: renderBudget, delete: deleteIncome, restore: restoreIncome },
 ];
 
 // ---- Undo/redo application mechanics ----
@@ -3545,6 +3702,7 @@ function redo() {
 const RECORD_LABEL_FIELD = {
   books: 'title', recipes: 'title', medications: 'name', diagnoses: 'condition',
   todos: 'task', shoppingList: 'item', notes: 'title', links: 'label', courses: 'title', bills: 'name',
+  income: 'dateKey',
 };
 
 function describeEntry(entry) {
