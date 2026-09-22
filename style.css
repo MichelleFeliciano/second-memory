@@ -693,6 +693,7 @@ body::before {
 .link-card,
 .course-card,
 .bill-card,
+.recurring-income-card,
 .home-item {
   border: 1px solid var(--border-soft);
   border-radius: 18px;
@@ -712,6 +713,7 @@ body::before {
 .link-card:hover,
 .course-card:hover,
 .bill-card:hover,
+.recurring-income-card:hover,
 .home-item:hover {
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.055);
 }
@@ -1061,7 +1063,8 @@ body::before {
 .diagnosis-view, .diagnosis-edit-form,
 .link-view, .link-edit-form,
 .course-view, .course-edit-form,
-.bill-view, .bill-edit-form {
+.bill-view, .bill-edit-form,
+.recurring-income-view, .recurring-income-edit-form {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -1075,7 +1078,8 @@ body::before {
 .diagnosis-view[hidden], .diagnosis-edit-form[hidden],
 .link-view[hidden], .link-edit-form[hidden],
 .course-view[hidden], .course-edit-form[hidden],
-.bill-view[hidden], .bill-edit-form[hidden] {
+.bill-view[hidden], .bill-edit-form[hidden],
+.recurring-income-view[hidden], .recurring-income-edit-form[hidden] {
   display: none;
 }
 
@@ -1085,7 +1089,8 @@ body::before {
 .diagnosis-edit-form input, .diagnosis-edit-form textarea,
 .link-edit-form input, .link-edit-form textarea,
 .course-edit-form input, .course-edit-form textarea,
-.bill-edit-form input, .bill-edit-form select {
+.bill-edit-form input, .bill-edit-form select,
+.recurring-income-edit-form input, .recurring-income-edit-form select {
   width: 100%;
   padding: 9px 12px;
   border: 1px solid var(--border);
@@ -1103,7 +1108,7 @@ body::before {
 .book-edit-form button[type="submit"], .recipe-edit-form button[type="submit"],
 .med-edit-form button[type="submit"], .diagnosis-edit-form button[type="submit"],
 .link-edit-form button[type="submit"], .course-edit-form button[type="submit"],
-.bill-edit-form button[type="submit"] {
+.bill-edit-form button[type="submit"], .recurring-income-edit-form button[type="submit"] {
   padding: 5px 14px;
   border: none;
   border-radius: 13px;
@@ -1117,7 +1122,7 @@ body::before {
 .book-edit-form button[type="submit"]:hover, .recipe-edit-form button[type="submit"]:hover,
 .med-edit-form button[type="submit"]:hover, .diagnosis-edit-form button[type="submit"]:hover,
 .link-edit-form button[type="submit"]:hover, .course-edit-form button[type="submit"]:hover,
-.bill-edit-form button[type="submit"]:hover {
+.bill-edit-form button[type="submit"]:hover, .recurring-income-edit-form button[type="submit"]:hover {
   opacity: 0.9;
 }
 
@@ -1272,11 +1277,28 @@ body::before {
   color: var(--muted);
 }
 
-.bill-actions {
+.bill-actions,
+.recurring-income-actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 6px;
+}
+
+.recurring-income-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+
+.recurring-income-name { font-size: 0.95rem; }
+
+.recurring-income-amount,
+.recurring-income-start,
+.recurring-income-frequency {
+  font-size: 0.85rem;
+  color: var(--muted);
 }
 
 .mark-oldest-paid-btn {
@@ -1330,7 +1352,8 @@ body::before {
 
 .budget-month-total,
 .budget-month-income-total,
-.budget-month-net-total {
+.budget-month-net-total,
+.budget-lifetime-balance {
   margin: 0;
   color: var(--muted);
   font-size: 0.85rem;
@@ -1342,6 +1365,14 @@ body::before {
   font-size: 0.85rem;
   font-style: italic;
 }
+
+/* Net totals and the lifetime balance color-code their <strong> child via
+   signedAmountClass() — income totals stay plain/uncolored (see
+   docs/specs/budget-income-followups.md §10.3). Reuses the same
+   amount-positive/amount-negative class pair the income-day dot below uses —
+   one shared semantic vocabulary across the tab. */
+.amount-positive { color: var(--accent); }
+.amount-negative { color: var(--accent-rose); }
 
 .budget-week-cells {
   display: grid;
@@ -1421,6 +1452,15 @@ body::before {
   cursor: pointer;
 }
 
+/* Recurring income rows have no checkbox (nothing to toggle), so they're a
+   plain <li> instead of a <label>-wrapped row — this mirrors the label's
+   flex layout directly on the <li> itself. */
+.budget-occurrence.income-occurrence {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .budget-occurrence-dot {
   flex: 0 0 auto;
   width: 8px;
@@ -1448,11 +1488,15 @@ body::before {
 
 .budget-day-footer {
   margin-top: auto;
-  text-align: right;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
 }
 
 .budget-day-manual-input {
   width: 100%;
+  min-width: 0;
   padding: 4px 6px;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -1462,6 +1506,20 @@ body::before {
   font-size: 0.78rem;
   text-align: right;
 }
+
+/* Indicates a manual `income` entry exists for this day — sign-aware, reuses
+   the amount-positive/amount-negative pair above (never --accent-2, reserved
+   for error/overdue/destructive semantics). Reflects only the manual entry's
+   sign, not the day's combined manual + recurring total — see §9/§12. */
+.budget-income-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.budget-income-dot.amount-positive { background: var(--accent); }
+.budget-income-dot.amount-negative { background: var(--accent-rose); }
 
 .budget-week-total,
 .budget-week-income-total,

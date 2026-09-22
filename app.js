@@ -2867,6 +2867,16 @@ function formatSignedCurrency(amount) {
   return (amount < 0 && abs !== '0.00') ? `-$${abs}` : `$${abs}`;
 }
 
+// Pairs with formatSignedCurrency's string output but is a separate concern
+// (CSS class vs. text) — kept as its own function rather than teaching
+// formatSignedCurrency to touch the DOM, which would also affect its
+// income-total callers that this feature does not ask to color-code (see
+// docs/specs/budget-income-followups.md §10.3 — net totals and the lifetime
+// balance only, not income totals).
+function signedAmountClass(amount) {
+  return amount < 0 ? 'amount-negative' : 'amount-positive';
+}
+
 // ---- Bill CRUD ----
 
 function validateBillFields(fields) {
@@ -2966,6 +2976,179 @@ function toggleBillPaid(billId, dateKey, paid) {
   renderBudget();
 }
 
+// ---- Recurring Income (scheduled income sources, e.g. a paycheck) ----
+// Storage key: secondMemory.recurringIncome.v1. A structural mirror of Bills
+// (fresh-UUID id, dueDate + frequency), not a mutation of `income` — see
+// docs/specs/budget-income-followups.md §1. `dueDate` here means "first
+// occurrence," not "money owed" — reused literally so occursOnDate()/
+// occurrenceCountThrough() work unmodified (§3 of that spec). No `paidDates`
+// equivalent: occurrences are purely computed/projected, never individually
+// toggled (§4).
+
+const RECURRING_INCOME_KEY = 'secondMemory.recurringIncome.v1';
+const RECURRING_INCOME_FREQUENCIES = ['weekly', 'biweekly', 'monthly', 'yearly'];
+const RECURRING_INCOME_FREQUENCY_LABELS = {
+  weekly: 'Weekly', biweekly: 'Biweekly', monthly: 'Monthly', yearly: 'Yearly',
+};
+
+let recurringIncome = migrateSyncFields(loadCollection(RECURRING_INCOME_KEY), RECURRING_INCOME_KEY, getDeviceId());
+
+function validateRecurringIncomeFields(fields) {
+  const trimmedName = fields.name.trim();
+  if (!trimmedName) return { ok: false, error: 'Income source name is required.' };
+  const amount = Number(fields.amount);
+  // > 0 required — a deliberate divergence from `income`'s unconstrained
+  // amount. A recurring source describes an ongoing schedule, not a single
+  // historical fact, so a $0/negative one is meaningless and would propagate
+  // into every future total forever. See §2.1.
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return { ok: false, error: 'Amount must be a number greater than $0.' };
+  }
+  const dueDate = fields.dueDate; // "First occurrence" in the UI — see §3
+  if (!dueDate) return { ok: false, error: 'First occurrence date is required.' };
+  const frequency = RECURRING_INCOME_FREQUENCIES.includes(fields.frequency) ? fields.frequency : 'biweekly';
+  return { ok: true, name: trimmedName, amount, dueDate, frequency, category: fields.category.trim() };
+}
+
+function addRecurringIncome(fields) {
+  const result = validateRecurringIncomeFields(fields);
+  if (!result.ok) return result;
+  const now = new Date().toISOString();
+  const source = {
+    id: makeId(),
+    name: result.name,
+    amount: result.amount,
+    dueDate: result.dueDate,
+    frequency: result.frequency,
+    category: result.category,
+    dateAdded: now,
+    updatedAt: now,
+    deviceId: getDeviceId(),
+    deleted: false,
+    version: 0,
+  };
+  recurringIncome.push(source);
+  saveCollection(RECURRING_INCOME_KEY, recurringIncome);
+  recordUndo('recurringIncome', source.id, null, structuredClone(source));
+  renderBudget();
+  return { ok: true };
+}
+
+function updateRecurringIncome(id, fields) {
+  const source = recurringIncome.find((r) => r.id === id);
+  if (!source) return { ok: false, error: 'Recurring income source not found.' };
+  const result = validateRecurringIncomeFields(fields);
+  if (!result.ok) return result;
+  const before = structuredClone(source);
+  source.name = result.name;
+  source.amount = result.amount;
+  source.dueDate = result.dueDate;
+  source.frequency = result.frequency;
+  source.category = result.category;
+  stampSync(source);
+  saveCollection(RECURRING_INCOME_KEY, recurringIncome);
+  recordUndo('recurringIncome', id, before, structuredClone(source));
+  renderBudget();
+  return { ok: true };
+}
+
+function deleteRecurringIncome(id) {
+  const source = recurringIncome.find((r) => r.id === id);
+  if (!source) return;
+  const before = structuredClone(source);
+  source.deleted = true;
+  stampSync(source);
+  saveCollection(RECURRING_INCOME_KEY, recurringIncome);
+  recordUndo('recurringIncome', id, before, structuredClone(source));
+  renderBudget();
+}
+
+function restoreRecurringIncome(id) {
+  const source = recurringIncome.find((r) => r.id === id);
+  if (!source || !source.deleted) return;
+  const before = structuredClone(source);
+  source.deleted = false;
+  stampSync(source);
+  saveCollection(RECURRING_INCOME_KEY, recurringIncome);
+  recordUndo('recurringIncome', id, before, structuredClone(source));
+  renderBudget();
+}
+
+// Range-sum for a single recurring income source — the recurring-income
+// analog of incomeSumInRange, but built on occurrenceCountThrough's
+// closed-form counting (the count primitive), NOT unpaidAmountThrough (which
+// bakes in paid-filtering income has no equivalent of — see §3/§4). A plain
+// range-difference, no day-by-day loop.
+function recurringIncomeSumInRange(startKey, endKey, source) {
+  if (endKey < startKey) return 0;
+  const throughEnd = occurrenceCountThrough(source, endKey);
+  const throughBeforeStart = occurrenceCountThrough(source, shiftDateKey(startKey, -1));
+  return Math.max(0, throughEnd - throughBeforeStart) * source.amount;
+}
+
+// The single source of truth for "how much income does the calendar show for
+// this period" from this point forward — every income-derived total (week,
+// month, and the 90-day forecast) MUST call this, not the bare
+// incomeSumInRange, or the total will silently omit recurring occurrences the
+// calendar visibly displays. incomeSumInRange itself stays unchanged and
+// still exists as a standalone "manual entries only" helper — this is an
+// additive wrapper around it, not a rewrite. See §7.
+function totalIncomeInRange(startKey, endKey, nonDeletedIncome, nonDeletedRecurringIncome) {
+  const manual = incomeSumInRange(startKey, endKey, nonDeletedIncome);
+  const recurring = nonDeletedRecurringIncome.reduce(
+    (sum, src) => sum + recurringIncomeSumInRange(startKey, endKey, src), 0
+  );
+  return manual + recurring;
+}
+
+// ---- Lifetime balance ----
+// lifetimeBalance = totalIncomeEver - totalPaidEver. `recurringIncome` is
+// deliberately excluded entirely — its occurrences are purely projected
+// (§4), with no per-occurrence ledger to anchor a "trustworthy, historical"
+// figure against; editing a source's amount/frequency retroactively
+// rewrites its entire implied history via occurrenceCountThrough. See
+// docs/specs/budget-income-followups.md §11.3 (Architect-approved).
+
+// Sums every real, non-retracted income fact ever entered, up through today
+// — deliberately excludes any future-dated pre-entered income and deleted
+// records (a deleted `income` record means "that fact was wrong/retracted,"
+// not "stop tracking an ongoing thing," unlike bills/recurringIncome below).
+function totalIncomeEver(allIncome) {
+  const todayK = todayKey();
+  return allIncome
+    .filter((r) => !r.deleted && r.dateKey <= todayK)
+    .reduce((sum, r) => sum + r.amount, 0);
+}
+
+// Sums every bill occurrence actually marked paid, ever, up through today —
+// including bills that have SINCE been deleted (deleting a bill stops future
+// tracking, it does not un-spend money that was genuinely paid while the
+// bill was active), but excluding any paidDates entry dated in the future
+// and any paidDates entry that no longer matches the bill's CURRENT
+// recurrence rule (the same staleness filter unpaidAmountThrough already
+// applies, reused here for consistency). See §11.2.
+function totalPaidEver(allBills) {
+  const todayK = todayKey();
+  return allBills.reduce((sum, b) =>
+    sum + (b.paidDates || []).filter((d) => d <= todayK && occursOnDate(b, d)).length * b.amount, 0);
+}
+
+function lifetimeBalance(allIncome, allBills) {
+  return totalIncomeEver(allIncome) - totalPaidEver(allBills);
+}
+
+// Display-only anchor label ("Since March 3, 2026: ...") — not a filter;
+// a record can't exist before it was created, so summing everything that
+// exists already satisfies "since tracking started" with no computed anchor
+// needed. Earliest dateAdded across `income`/`bills`, unfiltered by
+// `deleted` (a later-deleted record's creation timestamp still marks when
+// tracking genuinely began). `recurringIncome` excluded, consistent with its
+// exclusion from the sum itself. See §11.4.
+function earliestTrackedDateAdded(allIncome, allBills) {
+  const timestamps = [...allIncome, ...allBills].map((r) => r.dateAdded);
+  return timestamps.length ? timestamps.reduce((min, t) => (t < min ? t : min)) : null;
+}
+
 function matchesBillSearch(bill, term) {
   if (!term) return true;
   const haystack = `${bill.name} ${bill.category}`.toLowerCase();
@@ -3036,7 +3219,7 @@ function renderBudgetStats(nonDeletedBills) {
 // list's search filter below — but the category chip filter DOES apply here
 // too (occurrence rendering only; every total stays unfiltered, see the
 // matchesBillCategory comment inside the render loop below).
-function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, focusedManualInput) {
+function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, nonDeletedRecurringIncome, focusedManualInput) {
   const today = new Date();
   const todayK = todayKey();
   const dueSoonEndK = shiftDateKey(todayK, 2);
@@ -3058,8 +3241,11 @@ function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, focusedManualIn
   }
 
   // Plain range-sum, deliberately not cumulative — see incomeSumInRange's
-  // own comment and docs/specs/budget-income.md §5.
-  const monthIncome = incomeSumInRange(monthStartKey, monthEndKey, nonDeletedIncome);
+  // own comment and docs/specs/budget-income.md §5. Uses totalIncomeInRange
+  // (manual `income` entries plus recurring projections), not the bare
+  // incomeSumInRange — see docs/specs/budget-income-followups.md §7, the
+  // mandatory fix keeping this total in sync with what the calendar shows.
+  const monthIncome = totalIncomeInRange(monthStartKey, monthEndKey, nonDeletedIncome, nonDeletedRecurringIncome);
   const monthIncomeTotalEl = document.getElementById('budget-month-income-total');
   if (monthIncomeTotalEl) {
     monthIncomeTotalEl.innerHTML =
@@ -3073,10 +3259,33 @@ function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, focusedManualIn
   const monthNet = monthIncome - monthTotal;
   const monthNetTotalEl = document.getElementById('budget-month-net-total');
   if (monthNetTotalEl) {
-    monthNetTotalEl.innerHTML = `${MONTH_NAMES[today.getMonth()]} net: <strong>${formatSignedCurrency(monthNet)}</strong>`;
+    monthNetTotalEl.innerHTML =
+      `${MONTH_NAMES[today.getMonth()]} net: <strong class="${signedAmountClass(monthNet)}">${formatSignedCurrency(monthNet)}</strong>`;
     monthNetTotalEl.title =
-      'Income entered this month minus every bill unpaid as of the end of this month ' +
+      'Income entered or expected this month minus every bill unpaid as of the end of this month ' +
       '(includes unpaid amounts carried over from past months)';
+  }
+
+  // Lifetime balance — see docs/specs/budget-income-followups.md §11. Passed
+  // the FULL (not nonDeleted-filtered) `income`/`bills` arrays deliberately —
+  // totalIncomeEver/earliestTrackedDateAdded filter `income` by `!deleted`
+  // internally, and totalPaidEver intentionally includes deleted bills'
+  // still-valid paidDates entries (§11.2). `recurringIncome` is excluded
+  // entirely (§11.3), by construction (not passed in at all).
+  const lifetimeAnchor = earliestTrackedDateAdded(income, bills);
+  const lifetimeBalanceAmount = lifetimeBalance(nonDeletedIncome, bills);
+  const lifetimeEl = document.getElementById('budget-lifetime-balance');
+  if (lifetimeEl) {
+    let label = 'Lifetime balance';
+    if (lifetimeAnchor) {
+      const { y, m, d } = parseDateKey(lifetimeAnchor.slice(0, 10));
+      label = `Since ${MONTH_NAMES[m]} ${d}, ${y}`;
+    }
+    lifetimeEl.innerHTML =
+      `${label}: <strong class="${signedAmountClass(lifetimeBalanceAmount)}">${formatSignedCurrency(lifetimeBalanceAmount)}</strong>`;
+    lifetimeEl.title = 'Total income entered (one-time/manual only — recurring income ' +
+      'projections aren’t a historical record) minus total confirmed-paid across ' +
+      'all bills, ever, including bills since deleted.';
   }
 
   // 90-day forecast: a third, longer time horizon alongside the week totals
@@ -3093,6 +3302,39 @@ function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, focusedManualIn
     forecastEl.innerHTML =
       `By ${MONTH_NAMES[forecastMonth]} ${forecastDay}, ${forecastYear}: ` +
       `<strong>~$${forecastTotal.toFixed(2)}</strong> in recurring bills`;
+  }
+
+  // Income forecast: incomeSumInRange + recurringIncomeSumInRange (NOT
+  // unpaidAmountThrough — structurally wrong for income, see §8.1). Includes
+  // pre-entered future one-off `income` entries deliberately (§8.2) — once
+  // that date rolls into the visible calendar window it's already counted by
+  // totalIncomeInRange above, so excluding it here would make the forecast
+  // lag behind what the calendar will eventually show. Labeled "expected
+  // income," not "recurring income," because it mixes manual and recurring
+  // sources (§8.2).
+  const forecastIncomeManual = incomeSumInRange(todayK, forecastEndKey, nonDeletedIncome);
+  const forecastIncomeRecurring = nonDeletedRecurringIncome.reduce(
+    (sum, src) => sum + recurringIncomeSumInRange(todayK, forecastEndKey, src), 0
+  );
+  const forecastIncomeTotal = forecastIncomeManual + forecastIncomeRecurring;
+  const forecastIncomeEl = document.getElementById('budget-forecast-income-total');
+  if (forecastIncomeEl) {
+    const { y: forecastYear, m: forecastMonth, d: forecastDay } = parseDateKey(forecastEndKey);
+    forecastIncomeEl.innerHTML =
+      `By ${MONTH_NAMES[forecastMonth]} ${forecastDay}, ${forecastYear}: ` +
+      `<strong>~${formatSignedCurrency(forecastIncomeTotal)}</strong> expected income`;
+  }
+
+  const forecastNet = forecastIncomeTotal - forecastTotal;
+  const forecastNetEl = document.getElementById('budget-forecast-net-total');
+  if (forecastNetEl) {
+    const { y: forecastYear, m: forecastMonth, d: forecastDay } = parseDateKey(forecastEndKey);
+    forecastNetEl.innerHTML =
+      `By ${MONTH_NAMES[forecastMonth]} ${forecastDay}, ${forecastYear}: ` +
+      `<strong class="${signedAmountClass(forecastNet)}">${formatSignedCurrency(forecastNet)}</strong> net`;
+    forecastNetEl.title =
+      'Income entered or expected through this date (manual entries plus recurring projections) ' +
+      'minus every bill unpaid as of this date.';
   }
 
   const windowDays = getCalendarWindowDays(today);
@@ -3129,6 +3371,33 @@ function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, focusedManualIn
 
       const occurrencesEl = document.createElement('ul');
       occurrencesEl.className = 'budget-day-occurrences scroll-block';
+
+      // Recurring income occurrences render first, in the SAME list bills
+      // use (not a separate section — see docs/specs/budget-income-followups.md
+      // §6.1), unconditionally (never filtered by selectedBillCategory —
+      // §2.3/§6.2), with no checkbox (nothing to toggle — §4), a literal
+      // "+ " name prefix, a fixed --accent dot (never hashed), and never the
+      // .overdue/.due-soon classes (those semantics don't exist for income).
+      nonDeletedRecurringIncome
+        .filter((source) => occursOnDate(source, dateKey))
+        .forEach((source) => {
+          const itemEl = document.createElement('li');
+          itemEl.className = 'budget-occurrence income-occurrence';
+
+          const dotSpan = document.createElement('span');
+          dotSpan.className = 'budget-occurrence-dot';
+          dotSpan.style.backgroundColor = 'var(--accent)';
+
+          const nameSpan = document.createElement('span');
+          nameSpan.className = 'budget-occurrence-name';
+          nameSpan.textContent = `+ ${source.name}`;
+
+          itemEl.title = `${source.name} — $${source.amount.toFixed(2)}`;
+          itemEl.appendChild(dotSpan);
+          itemEl.appendChild(nameSpan);
+          occurrencesEl.appendChild(itemEl);
+        });
+
       nonDeletedBills
         .filter((bill) => occursOnDate(bill, dateKey))
         // Calendar-only category filter — the same chip selection filters the
@@ -3193,6 +3462,17 @@ function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, focusedManualIn
       const incomeRecord = nonDeletedIncome.find((r) => r.dateKey === dateKey);
       manualInput.value = incomeRecord ? String(incomeRecord.amount) : '';
       manualInput.addEventListener('change', (e) => setIncomeForDate(dateKey, e.target.value));
+      // Sign-aware, not flat "always green" — a negative manually-entered
+      // income amount (income's amount is unconstrained, §1.2 of the income
+      // spec) must not be shown with a color that implies "good news." Never
+      // --accent-2, reserved for error/overdue/destructive semantics. This
+      // reflects only the manual `income` entry's sign — it is NOT a summary
+      // of the day's combined manual + recurring total. See §9/§12.
+      if (incomeRecord) {
+        const dotSpan = document.createElement('span');
+        dotSpan.className = `budget-income-dot ${signedAmountClass(incomeRecord.amount)}`;
+        footerEl.appendChild(dotSpan);
+      }
       footerEl.appendChild(manualInput);
       cellEl.appendChild(footerEl);
 
@@ -3206,7 +3486,11 @@ function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, focusedManualIn
     totalEl.innerHTML = `${BUDGET_WEEK_LABELS[weekIndex]}: <strong>$${weekTotal(weekEndKey, nonDeletedBills).toFixed(2)}</strong>`;
     weekEl.appendChild(totalEl);
 
-    const weekIncome = incomeSumInRange(weekDays[0], weekDays[6], nonDeletedIncome);
+    // totalIncomeInRange (manual `income` entries plus recurring
+    // projections), not the bare incomeSumInRange — see
+    // docs/specs/budget-income-followups.md §7, the mandatory fix keeping
+    // this total in sync with what the calendar visibly shows.
+    const weekIncome = totalIncomeInRange(weekDays[0], weekDays[6], nonDeletedIncome, nonDeletedRecurringIncome);
     const incomeTotalEl = document.createElement('p');
     incomeTotalEl.className = 'budget-week-income-total';
     incomeTotalEl.innerHTML = `Income: <strong>${formatSignedCurrency(weekIncome)}</strong>`;
@@ -3217,9 +3501,9 @@ function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, focusedManualIn
     const weekNet = weekIncome - weekTotal(weekEndKey, nonDeletedBills);
     const netTotalEl = document.createElement('p');
     netTotalEl.className = 'budget-week-net-total';
-    netTotalEl.innerHTML = `Net: <strong>${formatSignedCurrency(weekNet)}</strong>`;
+    netTotalEl.innerHTML = `Net: <strong class="${signedAmountClass(weekNet)}">${formatSignedCurrency(weekNet)}</strong>`;
     netTotalEl.title =
-      'Income entered this week minus every bill unpaid as of the end of this week ' +
+      'Income entered or expected this week minus every bill unpaid as of the end of this week ' +
       '(includes unpaid amounts carried over from past weeks)';
     weekEl.appendChild(netTotalEl);
 
@@ -3340,17 +3624,115 @@ function renderBudgetList(nonDeletedBills, openEdit) {
   document.getElementById('budget-empty-state').hidden = nonDeletedBills.length !== 0;
 }
 
+// Direct structural mirror of renderBudgetList, minus the "mark oldest
+// unpaid" wiring (no paid concept — see §4) and any search/sort/category
+// filter (deliberately not built this cycle — see §2.3/§5.3, realistic scale
+// is a handful of sources).
+function renderRecurringIncomeList(nonDeletedRecurringIncome, openEdit) {
+  const list = document.getElementById('recurring-income-list');
+  const template = document.getElementById('recurring-income-card-template');
+
+  list.innerHTML = '';
+
+  nonDeletedRecurringIncome.forEach((source) => {
+    const node = template.content.cloneNode(true);
+    const card = node.querySelector('.recurring-income-card');
+    card.dataset.recurringIncomeId = source.id;
+    const viewSection = node.querySelector('.recurring-income-view');
+    const editForm = node.querySelector('.recurring-income-edit-form');
+
+    node.querySelector('.recurring-income-name').textContent = source.name;
+    node.querySelector('.recurring-income-amount').textContent = `$${source.amount.toFixed(2)}`;
+    node.querySelector('.recurring-income-start').textContent = `Starts: ${source.dueDate}`;
+    node.querySelector('.recurring-income-frequency').textContent =
+      RECURRING_INCOME_FREQUENCY_LABELS[source.frequency] || source.frequency;
+
+    const categoryEl = node.querySelector('.recurring-income-category');
+    if (source.category) {
+      categoryEl.textContent = source.category;
+      categoryEl.hidden = false;
+    }
+
+    const editNameInput = node.querySelector('.recurring-income-edit-name');
+    const editAmountInput = node.querySelector('.recurring-income-edit-amount');
+    const editStartDateInput = node.querySelector('.recurring-income-edit-startdate');
+    const editFrequencyInput = node.querySelector('.recurring-income-edit-frequency');
+    const editCategoryInput = node.querySelector('.recurring-income-edit-category');
+    const editError = node.querySelector('.recurring-income-edit-error');
+
+    node.querySelector('.edit-btn').addEventListener('click', () => {
+      // Only one recurring income source can be in edit mode at a time —
+      // this is a separate invariant from the Bills list's own open-edit-form
+      // state, not a shared one (per-collection edit-form exclusivity — see
+      // docs/specs/budget-income-followups.md §5.5).
+      const otherOpenForm = list.querySelector('.recurring-income-edit-form:not([hidden])');
+      if (otherOpenForm && otherOpenForm !== editForm) {
+        otherOpenForm.hidden = true;
+        otherOpenForm.closest('.recurring-income-card').querySelector('.recurring-income-view').hidden = false;
+      }
+      editNameInput.value = source.name;
+      editAmountInput.value = String(source.amount);
+      editStartDateInput.value = source.dueDate;
+      editFrequencyInput.value = source.frequency;
+      editCategoryInput.value = source.category;
+      editError.hidden = true;
+      viewSection.hidden = true;
+      editForm.hidden = false;
+    });
+
+    node.querySelector('.cancel-btn').addEventListener('click', () => {
+      editForm.hidden = true;
+      viewSection.hidden = false;
+    });
+
+    editForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const result = updateRecurringIncome(source.id, {
+        name: editNameInput.value,
+        amount: editAmountInput.value,
+        dueDate: editStartDateInput.value,
+        frequency: editFrequencyInput.value,
+        category: editCategoryInput.value,
+      });
+      if (!result.ok) {
+        editError.textContent = result.error;
+        editError.hidden = false;
+      }
+    });
+
+    node.querySelector('.delete-btn').addEventListener('click', () => deleteRecurringIncome(source.id));
+
+    if (openEdit && openEdit.id === source.id) {
+      editNameInput.value = openEdit.name;
+      editAmountInput.value = openEdit.amount;
+      editStartDateInput.value = openEdit.dueDate;
+      editFrequencyInput.value = openEdit.frequency;
+      editCategoryInput.value = openEdit.category;
+      viewSection.hidden = true;
+      editForm.hidden = false;
+    }
+
+    list.appendChild(node);
+  });
+
+  document.getElementById('recurring-income-empty-state').hidden = nonDeletedRecurringIncome.length !== 0;
+}
+
 // Generalizes the "preserve in-progress unsaved input across a re-render"
-// pattern to the two kinds of in-progress state specific to this tab: the
-// Bills list's open edit form (identical to every other collection) AND a
-// currently-focused .budget-day-manual-input (a real, non-obvious risk
-// unique to this tab — toggling any single paid-checkbox anywhere calls
-// renderBudget(), which wipes and rebuilds all 35 day cells including
-// whichever one the user might be mid-typing into). See
-// docs/specs/budget-tab.md §6.1.
+// pattern to the THREE kinds of in-progress state specific to this tab: the
+// Bills list's open edit form (identical to every other collection), the
+// Recurring Income list's own open edit form (a separate, independent
+// invariant — per-collection edit-form exclusivity, not app-wide; a user CAN
+// have one Bill card and one Recurring Income card open simultaneously — see
+// docs/specs/budget-income-followups.md §5.5), AND a currently-focused
+// .budget-day-manual-input (a real, non-obvious risk unique to this tab —
+// toggling any single paid-checkbox anywhere calls renderBudget(), which
+// wipes and rebuilds all 35 day cells including whichever one the user might
+// be mid-typing into). See docs/specs/budget-tab.md §6.1.
 function renderBudget() {
   const nonDeleted = bills.filter((b) => !b.deleted);
   const nonDeletedIncome = income.filter((r) => !r.deleted);
+  const nonDeletedRecurringIncome = recurringIncome.filter((r) => !r.deleted);
 
   const activeEl = document.activeElement;
   const focusedManualInput = (activeEl && activeEl.classList && activeEl.classList.contains('budget-day-manual-input'))
@@ -3370,10 +3752,24 @@ function renderBudget() {
       }
     : null;
 
+  const recurringIncomeList = document.getElementById('recurring-income-list');
+  const openRecurringIncomeForm = recurringIncomeList.querySelector('.recurring-income-edit-form:not([hidden])');
+  const openRecurringIncomeEdit = openRecurringIncomeForm
+    ? {
+        id: openRecurringIncomeForm.closest('.recurring-income-card').dataset.recurringIncomeId,
+        name: openRecurringIncomeForm.querySelector('.recurring-income-edit-name').value,
+        amount: openRecurringIncomeForm.querySelector('.recurring-income-edit-amount').value,
+        dueDate: openRecurringIncomeForm.querySelector('.recurring-income-edit-startdate').value,
+        frequency: openRecurringIncomeForm.querySelector('.recurring-income-edit-frequency').value,
+        category: openRecurringIncomeForm.querySelector('.recurring-income-edit-category').value,
+      }
+    : null;
+
   renderBudgetStats(nonDeleted);
   renderBillCategoryFilters(nonDeleted);
-  renderBudgetCalendar(nonDeleted, nonDeletedIncome, focusedManualInput);
+  renderBudgetCalendar(nonDeleted, nonDeletedIncome, nonDeletedRecurringIncome, focusedManualInput);
   renderBudgetList(nonDeleted, openEdit);
+  renderRecurringIncomeList(nonDeletedRecurringIncome, openRecurringIncomeEdit);
 
   renderHome(); // Home aggregates books/todos/bills — keep this in sync
 }
@@ -3415,6 +3811,38 @@ document.getElementById('budget-search-input').addEventListener('input', renderB
 document.getElementById('budget-sort-input').addEventListener('change', (e) => {
   selectedBillsSort = e.target.value;
   renderBudget();
+});
+
+document.getElementById('recurring-income-add-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const nameInput = document.getElementById('recurring-income-name-input');
+  const amountInput = document.getElementById('recurring-income-amount-input');
+  const startDateInput = document.getElementById('recurring-income-startdate-input');
+  const frequencyInput = document.getElementById('recurring-income-frequency-input');
+  const categoryInput = document.getElementById('recurring-income-category-input');
+  const errorEl = document.getElementById('recurring-income-form-error');
+
+  const result = addRecurringIncome({
+    name: nameInput.value,
+    amount: amountInput.value,
+    dueDate: startDateInput.value,
+    frequency: frequencyInput.value,
+    category: categoryInput.value,
+  });
+
+  if (!result.ok) {
+    errorEl.textContent = result.error;
+    errorEl.hidden = false;
+    return;
+  }
+
+  errorEl.hidden = true;
+  nameInput.value = '';
+  amountInput.value = '';
+  startDateInput.value = '';
+  frequencyInput.value = 'biweekly';
+  categoryInput.value = '';
+  nameInput.focus();
 });
 
 // ---- Home ----
@@ -3624,6 +4052,7 @@ const SYNC_COLLECTIONS = [
   { name: 'courses', label: 'Coursework', key: COURSES_KEY, get: () => courses, set: (v) => { courses = v; }, render: renderCourses, delete: deleteCourse, restore: restoreCourse },
   { name: 'bills', label: 'Bills', key: BILLS_KEY, get: () => bills, set: (v) => { bills = v; }, render: renderBudget, delete: deleteBill, restore: restoreBill },
   { name: 'income', label: 'Income', key: INCOME_KEY, get: () => income, set: (v) => { income = v; }, render: renderBudget, delete: deleteIncome, restore: restoreIncome },
+  { name: 'recurringIncome', label: 'Recurring Income', key: RECURRING_INCOME_KEY, get: () => recurringIncome, set: (v) => { recurringIncome = v; }, render: renderBudget, delete: deleteRecurringIncome, restore: restoreRecurringIncome },
 ];
 
 // ---- Undo/redo application mechanics ----
@@ -3702,7 +4131,7 @@ function redo() {
 const RECORD_LABEL_FIELD = {
   books: 'title', recipes: 'title', medications: 'name', diagnoses: 'condition',
   todos: 'task', shoppingList: 'item', notes: 'title', links: 'label', courses: 'title', bills: 'name',
-  income: 'dateKey',
+  income: 'dateKey', recurringIncome: 'name',
 };
 
 function describeEntry(entry) {

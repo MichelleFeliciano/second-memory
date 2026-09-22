@@ -3,7 +3,7 @@
 // The browser only detects a Service Worker update when sw.js's bytes change —
 // if this string is left unchanged, sw.js is byte-identical after a deploy, the
 // browser never notices, and users silently stay on old code forever.
-const CACHE_NAME = 'second-memory-v5';
+const CACHE_NAME = 'second-memory-v6';
 
 const APP_SHELL = [
   './',

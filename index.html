@@ -467,6 +467,7 @@
         <p class="budget-month-total" id="budget-month-total"></p>
         <p class="budget-month-income-total" id="budget-month-income-total"></p>
         <p class="budget-month-net-total" id="budget-month-net-total"></p>
+        <p class="budget-lifetime-balance" id="budget-lifetime-balance"></p>
       </div>
 
       <div class="budget-calendar" id="budget-calendar">
@@ -477,6 +478,8 @@
       </div>
 
       <p class="budget-forecast-total" id="budget-forecast-total"></p>
+      <p class="budget-forecast-total" id="budget-forecast-income-total"></p>
+      <p class="budget-forecast-total" id="budget-forecast-net-total"></p>
 
       <p class="stats-line" id="budget-stats"></p>
 
@@ -515,6 +518,28 @@
       <ul class="card-list flat-list" id="budget-list"></ul>
 
       <p class="empty-state" id="budget-empty-state" hidden>No bills yet — add your first one above.</p>
+
+      <div class="collection-toolbar">
+        <h2>Recurring Income</h2>
+      </div>
+      <form id="recurring-income-add-form" class="add-form add-form-stacked">
+        <input type="text" id="recurring-income-name-input" placeholder="Source name (e.g. Paycheck)" required aria-label="Income source name">
+        <input type="number" id="recurring-income-amount-input" placeholder="Amount" min="0.01" step="0.01" required aria-label="Income amount">
+        <label class="date-field">First occurrence
+          <input type="date" id="recurring-income-startdate-input" required aria-label="First occurrence date">
+        </label>
+        <select id="recurring-income-frequency-input" aria-label="Frequency">
+          <option value="biweekly">Biweekly</option>
+          <option value="weekly">Weekly</option>
+          <option value="monthly">Monthly</option>
+          <option value="yearly">Yearly</option>
+        </select>
+        <input type="text" id="recurring-income-category-input" placeholder="Category (optional)" aria-label="Income category">
+        <p class="form-error" id="recurring-income-form-error" hidden></p>
+        <button type="submit">Add recurring income</button>
+      </form>
+      <ul class="card-list flat-list" id="recurring-income-list"></ul>
+      <p class="empty-state" id="recurring-income-empty-state" hidden>No recurring income sources yet.</p>
     </section>
 
     <section class="collection" id="resume-collection" hidden>
@@ -847,6 +872,43 @@
       <input type="text" class="bill-edit-category" placeholder="Category (optional)" aria-label="Edit bill category">
       <p class="form-error bill-edit-error" hidden></p>
       <div class="bill-actions">
+        <button type="submit">Save</button>
+        <button type="button" class="cancel-btn">Cancel</button>
+      </div>
+    </form>
+  </li>
+</template>
+
+<template id="recurring-income-card-template">
+  <li class="recurring-income-card">
+    <div class="recurring-income-view">
+      <div class="recurring-income-info">
+        <strong class="recurring-income-name"></strong>
+        <span class="recurring-income-amount"></span>
+        <span class="recurring-income-start"></span>
+        <span class="recurring-income-frequency"></span>
+        <span class="recurring-income-category badge" hidden></span>
+      </div>
+      <div class="recurring-income-actions">
+        <button type="button" class="edit-btn">Edit</button>
+        <button type="button" class="delete-btn" aria-label="Delete recurring income source">Delete</button>
+      </div>
+    </div>
+    <form class="recurring-income-edit-form" hidden>
+      <input type="text" class="recurring-income-edit-name" placeholder="Source name" required aria-label="Edit income source name">
+      <input type="number" class="recurring-income-edit-amount" placeholder="Amount" min="0.01" step="0.01" required aria-label="Edit income amount">
+      <label class="date-field">First occurrence
+        <input type="date" class="recurring-income-edit-startdate" required aria-label="Edit first occurrence date">
+      </label>
+      <select class="recurring-income-edit-frequency" aria-label="Edit frequency">
+        <option value="biweekly">Biweekly</option>
+        <option value="weekly">Weekly</option>
+        <option value="monthly">Monthly</option>
+        <option value="yearly">Yearly</option>
+      </select>
+      <input type="text" class="recurring-income-edit-category" placeholder="Category (optional)" aria-label="Edit income category">
+      <p class="form-error recurring-income-edit-error" hidden></p>
+      <div class="recurring-income-actions">
         <button type="submit">Save</button>
         <button type="button" class="cancel-btn">Cancel</button>
       </div>
