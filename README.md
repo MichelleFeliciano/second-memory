@@ -7,8 +7,8 @@ lives in the `TABS` constant in `app.js`.)
 
 ## Use it now
 
-The app is already live at **https://sagebrushsites.com/second-memory/** — that's the
-normal way to use it day to day. Nothing to install; it works in any modern browser, on
+The app is already live at **https://michellefeliciano.github.io/second-memory/** — that's
+the normal way to use it day to day. Nothing to install; it works in any modern browser, on
 any device, and can be added to your phone's home screen like an app (it's a PWA).
 
 All of your data is stored in that browser's `localStorage`, on that device only.
