@@ -1023,7 +1023,9 @@ body::before {
 }
 
 .edit-btn,
-.cancel-btn {
+.cancel-btn,
+.mark-former-btn,
+.resume-taking-btn {
   padding: 5px 12px;
   border: 1px solid var(--border);
   border-radius: 13px;
@@ -1034,7 +1036,9 @@ body::before {
 }
 
 .edit-btn:hover,
-.cancel-btn:hover {
+.cancel-btn:hover,
+.mark-former-btn:hover,
+.resume-taking-btn:hover {
   color: var(--accent);
   border-color: var(--accent);
 }
@@ -1389,16 +1393,33 @@ body::before {
    rules above — same specificity, so source order decides the cascade tie,
    and a media query earlier in the file than the rule it overrides loses. */
 @media (max-width: 900px) {
-  .budget-week-cells {
-    grid-template-columns: 1fr;
+  /* Keep the calendar's 7-day grid layout on narrow screens instead of
+     collapsing into a vertical single-column stack — scroll it horizontally
+     instead. #budget-calendar is the one shared ancestor of BOTH the
+     weekday header row and every week's day-cell grid — they are not
+     siblings of each other (.budget-week-cells is nested one level deeper,
+     inside each .budget-week "card"), so overflow-x lives on #budget-calendar
+     itself, not on .budget-week-cells alone, which would give every week its
+     own independent scroll position instead of one shared one. Each
+     .budget-week/.budget-week-cells/.budget-weekday-row is sized to
+     width: max-content (floored at min-width: 100% so a week that happens to
+     fit still spans the full visible width, matching the desktop look)
+     so the card's border/background actually encloses the grid instead of
+     letting it visually spill out past a box that stayed pinned to the
+     viewport's width. */
+  #budget-calendar {
+    overflow-x: auto;
   }
 
-  /* A separate, unlinked 7-column grid above the .budget-week rows — once
-     .budget-week-cells collapses to one column, keeping this at 7 columns
-     would visually misalign it against the stack beneath. Each day cell's
-     own date number is enough for orientation once collapsed. */
+  .budget-week-cells,
   .budget-weekday-row {
-    display: none;
+    grid-template-columns: repeat(7, minmax(72px, 1fr));
+    width: max-content;
+  }
+
+  .budget-week {
+    width: max-content;
+    min-width: 100%;
   }
 }
 

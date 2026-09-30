@@ -485,6 +485,24 @@
       <p class="stats-line" id="budget-stats"></p>
 
       <div class="collection-toolbar">
+        <h2>Current Pay Period</h2>
+      </div>
+      <form id="payday-settings-form" class="add-form">
+        <label class="date-field">A recent payday
+          <input type="date" id="payday-date-input" aria-label="A recent payday">
+        </label>
+        <select id="payday-frequency-input" aria-label="Pay frequency">
+          <option value="weekly">Weekly</option>
+          <option value="biweekly" selected>Biweekly</option>
+          <option value="monthly">Monthly</option>
+        </select>
+        <button type="submit">Save</button>
+      </form>
+      <p class="stats-line" id="pay-period-summary"></p>
+      <ul class="card-list flat-list" id="pay-period-bills-list"></ul>
+      <p class="empty-state" id="pay-period-empty-state" hidden>No bills due in this pay period.</p>
+
+      <div class="collection-toolbar">
         <h2>Bills</h2>
         <input type="search" id="budget-search-input" placeholder="Search bills…" aria-label="Search bills">
         <select id="budget-sort-input" aria-label="Sort bills">
@@ -721,6 +739,8 @@
       </div>
       <p class="med-notes" hidden></p>
       <div class="med-actions">
+        <button type="button" class="mark-former-btn" hidden>Mark as no longer taking</button>
+        <button type="button" class="resume-taking-btn" hidden>Resume taking</button>
         <button type="button" class="edit-btn">Edit</button>
         <button type="button" class="delete-btn" aria-label="Delete medication">Delete</button>
       </div>

@@ -440,6 +440,15 @@ function renderBooks() {
 
       editForm.addEventListener('submit', (e) => {
         e.preventDefault();
+        // Hide the form BEFORE calling updateBook — if the save succeeds,
+        // updateBook's internal re-render captures "is there an open edit
+        // form" from live DOM state, and must see this one as already
+        // closed, or it reopens the very form that just successfully saved
+        // (confirmed bug: the data saved correctly but the form stayed
+        // open, indistinguishable from the button doing nothing). This same
+        // fix is applied at every collection's edit-form submit handler.
+        editForm.hidden = true;
+        viewSection.hidden = false;
         updateBook(book.id, { title: editTitleInput.value, author: editAuthorInput.value });
       });
 
@@ -692,6 +701,12 @@ function renderRecipes() {
 
     editForm.addEventListener('submit', (e) => {
       e.preventDefault();
+      // Hide before calling updateRecipe — see the identical comment on
+      // Books' edit-form submit handler: a successful save's internal
+      // render must see this form as already closed, or it reopens the
+      // form that just saved.
+      editForm.hidden = true;
+      viewSection.hidden = false;
       updateRecipe(recipe.id, {
         title: editTitleInput.value,
         category: editCategoryInput.value,
@@ -917,6 +932,20 @@ function renderMedicationGroup(groupKey, items, template, openEdit) {
       notesEl.hidden = false;
     }
 
+    // Single-button, no-confirmation quick actions — mirrors Bills' "Mark
+    // oldest unpaid as paid" button. Which one shows is purely a function of
+    // which group this card is being rendered into (current vs. former),
+    // not a separate status field — see the endDate-derived grouping above.
+    const markFormerBtn = node.querySelector('.mark-former-btn');
+    const resumeTakingBtn = node.querySelector('.resume-taking-btn');
+    if (groupKey === 'current') {
+      markFormerBtn.hidden = false;
+      markFormerBtn.addEventListener('click', () => updateMedicationDate(med.id, 'endDate', todayKey()));
+    } else {
+      resumeTakingBtn.hidden = false;
+      resumeTakingBtn.addEventListener('click', () => updateMedicationDate(med.id, 'endDate', ''));
+    }
+
     const editNameInput = node.querySelector('.med-edit-name');
     const editDosageInput = node.querySelector('.med-edit-dosage');
     const editFrequencyInput = node.querySelector('.med-edit-frequency');
@@ -952,6 +981,15 @@ function renderMedicationGroup(groupKey, items, template, openEdit) {
 
     editForm.addEventListener('submit', (e) => {
       e.preventDefault();
+      // Hide the form BEFORE calling updateMedication — if the save
+      // succeeds, updateMedication's internal re-render captures "is there
+      // an open edit form" from live DOM state, and must see this one as
+      // already closed, or it reopens the very form that just successfully
+      // saved. If the save FAILS, updateMedication returns early before any
+      // render happens at all, so these exact DOM nodes are still live/
+      // attached and safe to simply re-show.
+      editForm.hidden = true;
+      viewSection.hidden = false;
       const result = updateMedication(med.id, {
         name: editNameInput.value,
         dosage: editDosageInput.value,
@@ -960,6 +998,8 @@ function renderMedicationGroup(groupKey, items, template, openEdit) {
         notes: editNotesInput.value,
       });
       if (!result.ok) {
+        viewSection.hidden = true;
+        editForm.hidden = false;
         editError.textContent = result.error;
         editError.hidden = false;
       }
@@ -1235,6 +1275,10 @@ function renderDiagnoses() {
 
       editForm.addEventListener('submit', (e) => {
         e.preventDefault();
+        // Hide before calling updateDiagnosis — see the identical comment
+        // on Books' edit-form submit handler.
+        editForm.hidden = true;
+        viewSection.hidden = false;
         updateDiagnosis(diagnosis.id, {
           condition: editConditionInput.value,
           dateDiagnosed: editDateInput.value,
@@ -1470,6 +1514,10 @@ function renderTodos() {
 
     editForm.addEventListener('submit', (e) => {
       e.preventDefault();
+      // Hide before calling updateTodo — see the identical comment on
+      // Books' edit-form submit handler.
+      editForm.hidden = true;
+      viewSection.hidden = false;
       updateTodo(todo.id, { task: editTaskInput.value, dueDate: editDueInput.value });
     });
 
@@ -1717,6 +1765,10 @@ function renderShoppingList() {
 
     editForm.addEventListener('submit', (e) => {
       e.preventDefault();
+      // Hide before calling updateShoppingItem — see the identical comment
+      // on Books' edit-form submit handler.
+      editForm.hidden = true;
+      viewSection.hidden = false;
       updateShoppingItem(item.id, {
         item: editItemInput.value,
         quantity: editQuantityInput.value,
@@ -1924,8 +1976,15 @@ function renderNotes() {
 
     editForm.addEventListener('submit', (e) => {
       e.preventDefault();
+      // Hide the form BEFORE calling updateNote — see the full comment on
+      // Medications' edit-form submit handler for why this ordering
+      // matters on both the success and failure paths.
+      editForm.hidden = true;
+      viewSection.hidden = false;
       const result = updateNote(note.id, editTitleInput.value, editBodyInput.value);
       if (!result.ok) {
+        viewSection.hidden = true;
+        editForm.hidden = false;
         editError.textContent = result.error;
         editError.hidden = false;
       }
@@ -2127,12 +2186,19 @@ function renderLinks() {
 
     editForm.addEventListener('submit', (e) => {
       e.preventDefault();
+      // Hide the form BEFORE calling updateLink — see the full comment on
+      // Medications' edit-form submit handler for why this ordering
+      // matters on both the success and failure paths.
+      editForm.hidden = true;
+      viewSection.hidden = false;
       const result = updateLink(link.id, {
         label: editLabelInput.value,
         url: editUrlInput.value,
         notes: editNotesInput.value,
       });
       if (!result.ok) {
+        viewSection.hidden = true;
+        editForm.hidden = false;
         editError.textContent = result.error;
         editError.hidden = false;
       }
@@ -2464,6 +2530,11 @@ function renderCourses() {
 
       editForm.addEventListener('submit', (e) => {
         e.preventDefault();
+        // Hide the form BEFORE calling updateCourse — see the full comment
+        // on Medications' edit-form submit handler for why this ordering
+        // matters on both the success and failure paths.
+        editForm.hidden = true;
+        viewSection.hidden = false;
         const result = updateCourse(course.id, {
           title: editTitleInput.value,
           code: editCodeInput.value,
@@ -2472,6 +2543,8 @@ function renderCourses() {
           notes: editNotesInput.value,
         });
         if (!result.ok) {
+          viewSection.hidden = true;
+          editForm.hidden = false;
           editError.textContent = result.error;
           editError.hidden = false;
         }
@@ -3213,6 +3286,161 @@ function renderBudgetStats(nonDeletedBills) {
   el.textContent = `$${overallUnpaid.toFixed(2)} unpaid across ${count} bill${count === 1 ? '' : 's'}.`;
 }
 
+// ---- Current Pay Period ----
+// Storage key: secondMemory.paydaySettings.v1. Deliberately a flat,
+// local-only settings object, NOT a synced collection — this is a personal
+// display preference (which pay-cycle window to show), not financial
+// transaction data, matching the precedent set by the original pre-Income
+// manual-number decision. Loaded/saved via plain localStorage.getItem/
+// setItem + JSON.parse/stringify, the same lightweight pattern
+// UI_STORAGE_KEY/loadUiState/saveUiState already use — NOT loadCollection/
+// saveCollection, which assume an array of sync-tracked records. Flagging
+// for the Architect: if this ever needs to follow a user across devices, it
+// would need to be promoted to a real synced collection (its own id/
+// updatedAt/deviceId/deleted/version, wired into SYNC_COLLECTIONS) instead
+// of living in this flat, device-local key.
+
+const PAYDAY_SETTINGS_KEY = 'secondMemory.paydaySettings.v1';
+const PAY_PERIOD_FREQUENCIES = ['weekly', 'biweekly', 'monthly'];
+
+function loadPaydaySettings() {
+  try {
+    const raw = localStorage.getItem(PAYDAY_SETTINGS_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (parsed && typeof parsed === 'object' && typeof parsed.payDateKey === 'string') {
+      return {
+        payDateKey: parsed.payDateKey,
+        frequency: PAY_PERIOD_FREQUENCIES.includes(parsed.frequency) ? parsed.frequency : 'biweekly',
+      };
+    }
+  } catch {
+    // fall through
+  }
+  return { payDateKey: null, frequency: 'biweekly' };
+}
+
+function savePaydaySettings(settings) {
+  localStorage.setItem(PAYDAY_SETTINGS_KEY, JSON.stringify(settings));
+}
+
+// Bounded backward/forward scan (at most 31 days each way — long enough to
+// cover every supported frequency) using the existing, already-verified
+// occursOnDate() to find the current pay period's boundaries. This is safe
+// as a bounded loop (unlike an unbounded day-by-day scan across arbitrary
+// history, which this app avoids elsewhere) because the scan range here is
+// small and constant, anchored at today.
+function computeCurrentPayPeriod(payDateKey, frequency) {
+  const todayK = todayKey();
+  const payBill = { dueDate: payDateKey, frequency };
+  let periodStart = null;
+  for (let i = 0; i <= 31; i++) {
+    const candidate = shiftDateKey(todayK, -i);
+    if (candidate < payDateKey) break;
+    if (occursOnDate(payBill, candidate)) { periodStart = candidate; break; }
+  }
+  if (!periodStart) return null;
+  let periodEnd = null;
+  for (let i = 1; i <= 31; i++) {
+    const candidate = shiftDateKey(periodStart, i);
+    if (occursOnDate(payBill, candidate)) { periodEnd = candidate; break; }
+  }
+  return { periodStart, periodEnd };
+}
+
+function formatDateKeyLong(dateKey) {
+  const { y, m, d } = parseDateKey(dateKey);
+  return `${MONTH_NAMES[m]} ${d}, ${y}`;
+}
+
+// Reads the live, non-deleted bills array directly (same convention as
+// renderBudgetStats/renderBillCategoryFilters) rather than taking it as a
+// parameter, since it's called from renderBudget() alongside those.
+function renderPayPeriod() {
+  const summaryEl = document.getElementById('pay-period-summary');
+  const listEl = document.getElementById('pay-period-bills-list');
+  const emptyEl = document.getElementById('pay-period-empty-state');
+  if (!summaryEl || !listEl || !emptyEl) return;
+
+  listEl.innerHTML = '';
+
+  const settings = loadPaydaySettings();
+  // No settings configured yet, or a (defensively handled, shouldn't happen
+  // for weekly/biweekly/monthly within the 31-day scan bound) undetermined
+  // period — treated identically: empty state, no summary, no crash.
+  const period = settings.payDateKey ? computeCurrentPayPeriod(settings.payDateKey, settings.frequency) : null;
+  if (!period) {
+    summaryEl.textContent = '';
+    emptyEl.hidden = false;
+    return;
+  }
+
+  const { periodStart, periodEnd } = period;
+  const nonDeletedBills = bills.filter((b) => !b.deleted);
+
+  // Bounded loop — at most ~31 days (periodEnd is within 31 days of
+  // periodStart, see computeCurrentPayPeriod) times every bill. A plain sum
+  // of `amount` per matching occurrence, not cumulative unpaid-through-date
+  // math like weekTotal()/monthTotal — "what's due in this specific short
+  // window" is a simpler question than "everything ever owed as of a date".
+  const matches = [];
+  nonDeletedBills.forEach((bill) => {
+    const occurrenceDates = [];
+    let total = 0;
+    let dateKey = periodStart;
+    while (dateKey < periodEnd) {
+      if (occursOnDate(bill, dateKey)) {
+        occurrenceDates.push(dateKey);
+        total += bill.amount;
+      }
+      dateKey = shiftDateKey(dateKey, 1);
+    }
+    if (occurrenceDates.length) matches.push({ bill, total, occurrenceDates });
+  });
+
+  matches.sort((a, b) => b.total - a.total);
+  const grandTotal = matches.reduce((sum, m) => sum + m.total, 0);
+
+  summaryEl.textContent =
+    `Payday ${formatDateKeyLong(periodStart)} to ${formatDateKeyLong(periodEnd)}: ` +
+    `$${grandTotal.toFixed(2)} due across ${matches.length} bill${matches.length === 1 ? '' : 's'}`;
+  emptyEl.hidden = matches.length !== 0;
+
+  matches.forEach(({ bill, total, occurrenceDates }) => {
+    const li = document.createElement('li');
+    li.className = 'bill-card';
+
+    const info = document.createElement('div');
+    info.className = 'bill-info';
+
+    const name = document.createElement('strong');
+    name.className = 'bill-name';
+    name.textContent = bill.name;
+    info.appendChild(name);
+
+    const amount = document.createElement('span');
+    amount.className = 'bill-amount';
+    amount.textContent = occurrenceDates.length > 1
+      ? `$${total.toFixed(2)} (${occurrenceDates.length} occurrences)`
+      : `$${total.toFixed(2)}`;
+    info.appendChild(amount);
+
+    const due = document.createElement('span');
+    due.className = 'bill-due';
+    due.textContent = `Due: ${occurrenceDates.join(', ')}`;
+    info.appendChild(due);
+
+    if (bill.category) {
+      const category = document.createElement('span');
+      category.className = 'bill-category badge';
+      category.textContent = bill.category;
+      info.appendChild(category);
+    }
+
+    li.appendChild(info);
+    listEl.appendChild(li);
+  });
+}
+
 // Renders the 35-day rolling calendar into #budget-calendar (everything
 // after the static .budget-weekday-row) and the month/year header. Always
 // runs against the full live `bills` array, and unaffected by the Bills
@@ -3593,6 +3821,17 @@ function renderBudgetList(nonDeletedBills, openEdit) {
 
     editForm.addEventListener('submit', (e) => {
       e.preventDefault();
+      // Hide the form BEFORE calling updateBill — if the save succeeds,
+      // updateBill's internal re-render (renderBudget -> renderBudgetList)
+      // captures "is there an open edit form" from live DOM state, and must
+      // see this one as already closed, or it reopens the very form that
+      // just successfully saved (this was a real, confirmed bug: the data
+      // saved correctly but the form stayed open, indistinguishable from
+      // the button doing nothing). If the save FAILS, updateBill returns
+      // early before any render happens at all, so these exact DOM nodes
+      // are still live/attached and safe to simply re-show.
+      editForm.hidden = true;
+      viewSection.hidden = false;
       const result = updateBill(bill.id, {
         name: editNameInput.value,
         amount: editAmountInput.value,
@@ -3601,6 +3840,8 @@ function renderBudgetList(nonDeletedBills, openEdit) {
         category: editCategoryInput.value,
       });
       if (!result.ok) {
+        viewSection.hidden = true;
+        editForm.hidden = false;
         editError.textContent = result.error;
         editError.hidden = false;
       }
@@ -3687,6 +3928,11 @@ function renderRecurringIncomeList(nonDeletedRecurringIncome, openEdit) {
 
     editForm.addEventListener('submit', (e) => {
       e.preventDefault();
+      // Hide the form BEFORE calling updateRecurringIncome — see the full
+      // comment on Medications'/Bills' edit-form submit handlers for why
+      // this ordering matters on both the success and failure paths.
+      editForm.hidden = true;
+      viewSection.hidden = false;
       const result = updateRecurringIncome(source.id, {
         name: editNameInput.value,
         amount: editAmountInput.value,
@@ -3695,6 +3941,8 @@ function renderRecurringIncomeList(nonDeletedRecurringIncome, openEdit) {
         category: editCategoryInput.value,
       });
       if (!result.ok) {
+        viewSection.hidden = true;
+        editForm.hidden = false;
         editError.textContent = result.error;
         editError.hidden = false;
       }
@@ -3768,11 +4016,40 @@ function renderBudget() {
   renderBudgetStats(nonDeleted);
   renderBillCategoryFilters(nonDeleted);
   renderBudgetCalendar(nonDeleted, nonDeletedIncome, nonDeletedRecurringIncome, focusedManualInput);
+  renderPayPeriod();
   renderBudgetList(nonDeleted, openEdit);
   renderRecurringIncomeList(nonDeletedRecurringIncome, openRecurringIncomeEdit);
 
   renderHome(); // Home aggregates books/todos/bills — keep this in sync
 }
+
+// The settings form itself is populated once here, at setup time, and never
+// re-populated on every renderBudget() re-render — unlike the edit forms
+// fixed elsewhere in this file, this form has no "open/cancel" concept to
+// fight with; it's a persistent, always-visible settings form, not a
+// per-record edit form a render pass could reopen. Re-touching its inputs
+// on every render (renderBudget() runs on nearly every Budget-tab mutation)
+// would risk overwriting whatever the user is mid-typing for no benefit, so
+// renderPayPeriod() above only ever touches the summary/list, never these
+// inputs.
+(function initPaydaySettingsForm() {
+  const form = document.getElementById('payday-settings-form');
+  if (!form) return;
+  const dateInput = document.getElementById('payday-date-input');
+  const frequencyInput = document.getElementById('payday-frequency-input');
+  const settings = loadPaydaySettings();
+  if (settings.payDateKey) dateInput.value = settings.payDateKey;
+  frequencyInput.value = settings.frequency;
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    savePaydaySettings({
+      payDateKey: dateInput.value || null,
+      frequency: PAY_PERIOD_FREQUENCIES.includes(frequencyInput.value) ? frequencyInput.value : 'biweekly',
+    });
+    renderPayPeriod();
+  });
+})();
 
 document.getElementById('budget-add-form').addEventListener('submit', (e) => {
   e.preventDefault();
