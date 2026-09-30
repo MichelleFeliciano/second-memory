@@ -76,20 +76,31 @@ def save_dataset(data):
 # meaningful data, not bookkeeping (see §2.2).
 _BOOKKEEPING_FIELDS = {"version", "updatedAt", "deviceId"}
 
+# Per-collection extra bookkeeping fields, beyond the universal set above.
+# `income` uses id = dateKey (not a fresh UUID like every other collection)
+# specifically so two devices independently entering the same date's income
+# converge onto one record instead of duplicating — dateAdded differing
+# between two independently-created same-dateKey records is the expected
+# normal case here, not an anomaly, unlike every other collection where a
+# dateAdded mismatch on a shared id is a real red flag worth surfacing. See
+# docs/research/sync-version-inflation-bug.md.
+_EXTRA_BOOKKEEPING_FIELDS_BY_COLLECTION = {"income": {"dateAdded"}}
 
-def _content_matches(a, b):
+
+def _content_matches(a, b, collection_name):
     """True if two records describe the same real-world data — i.e. this is
     a harmless resend/no-op (an already-applied edit retried, or a sync
     cycle where nothing changed), not a genuine conflicting change. Ignores
     `version` (the mechanism's own counter) and the audit-only bookkeeping
     fields `updatedAt`/`deviceId`; every domain field, plus `dateAdded` and
-    `deleted`, are compared."""
+    `deleted`, are compared — except for `income`, where `dateAdded` is also
+    excluded (see `_EXTRA_BOOKKEEPING_FIELDS_BY_COLLECTION` above)."""
     keys = set(a.keys()) | set(b.keys())
-    keys -= _BOOKKEEPING_FIELDS
+    keys -= _BOOKKEEPING_FIELDS | _EXTRA_BOOKKEEPING_FIELDS_BY_COLLECTION.get(collection_name, set())
     return all(a.get(k) == b.get(k) for k in keys)
 
 
-def merge_collection(server_items, client_items):
+def merge_collection(server_items, client_items, collection_name):
     """Applies one collection's client-submitted records onto the server's
     stored records, per the server-owned-version optimistic-concurrency
     algorithm. Mutates `server_items` and returns the list of genuine
@@ -123,7 +134,7 @@ def merge_collection(server_items, client_items):
             # diverged. If the content is identical to what's already stored
             # (ignoring version), treat it as a no-op replay instead of
             # manufacturing a duplicate.
-            if _content_matches(existing, incoming):
+            if _content_matches(existing, incoming, collection_name):
                 continue
 
             # Genuine conflict: someone else's write already landed on this
@@ -153,7 +164,7 @@ def merge_collection(server_items, client_items):
         # window for the conflict-fork path above to misfire (see the root
         # cause writeup above this section). A content-identical resend is a
         # true no-op: don't touch `existing` at all.
-        if _content_matches(existing, incoming):
+        if _content_matches(existing, incoming, collection_name):
             continue
 
         new_record = dict(incoming)
@@ -239,7 +250,7 @@ class SyncHandler(BaseHTTPRequestHandler):
             for name in COLLECTION_NAMES:
                 incoming = client_collections.get(name)
                 if isinstance(incoming, list):
-                    for conflict in merge_collection(dataset[name], incoming):
+                    for conflict in merge_collection(dataset[name], incoming, name):
                         all_conflicts.append({"collection": name, **conflict})
             save_dataset(dataset)
             response_collections = {name: dataset[name] for name in COLLECTION_NAMES}

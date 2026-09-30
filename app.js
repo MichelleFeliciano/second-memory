@@ -4314,6 +4314,7 @@ function extractImportCollections(parsed) {
 
 function deepEqual(a, b) {
   if (a === b) return true;
+  if (a == null && b == null) return true; // null and undefined both mean "no value" — treat as equal, matching Python's dict.get() semantics where a missing key and an explicit JSON null both deserialize to None
   if (Array.isArray(a) && Array.isArray(b)) {
     return a.length === b.length && a.every((v, i) => deepEqual(v, b[i]));
   }
@@ -4331,6 +4332,16 @@ function deepEqual(a, b) {
 // data, not bookkeeping.
 const BOOKKEEPING_FIELDS = new Set(['version', 'updatedAt', 'deviceId']);
 
+// Per-collection extra bookkeeping fields, beyond the universal set above.
+// `income` uses id = dateKey (not a fresh UUID like every other collection)
+// specifically so two devices independently entering the same date's income
+// converge onto one record instead of duplicating — dateAdded differing
+// between two independently-created same-dateKey records is the expected
+// normal case here, not an anomaly, unlike every other collection where a
+// dateAdded mismatch on a shared id is a real red flag worth surfacing. See
+// docs/research/sync-version-inflation-bug.md.
+const EXTRA_BOOKKEEPING_FIELDS_BY_COLLECTION = { income: new Set(['dateAdded']) };
+
 // Port of sync_server.py's _content_matches(): true if two records
 // describe the same real-world data — i.e. this import record is a
 // re-import of something already merged in (or a no-op resend), not a
@@ -4338,9 +4349,11 @@ const BOOKKEEPING_FIELDS = new Set(['version', 'updatedAt', 'deviceId']);
 // array-valued fields like `paidDates` are compared correctly (JS's own
 // ===/== do NOT deep-compare arrays — confirmed this function already
 // avoids that footgun, see §3).
-function contentMatchesIgnoringVersion(a, b) {
+function contentMatchesIgnoringVersion(a, b, collectionName) {
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
   BOOKKEEPING_FIELDS.forEach((k) => keys.delete(k));
+  const extra = EXTRA_BOOKKEEPING_FIELDS_BY_COLLECTION[collectionName];
+  if (extra) extra.forEach((k) => keys.delete(k));
   return [...keys].every((k) => deepEqual(a[k], b[k]));
 }
 
@@ -4359,7 +4372,7 @@ function contentMatchesIgnoringVersion(a, b) {
 // genuinely differs -> kept as a new record under a freshly generated id,
 // local record left untouched, so nothing is ever silently discarded.
 // Mutates `localItems` in place and returns counts for the summary message.
-function mergeCollectionFromImport(localItems, importedItems) {
+function mergeCollectionFromImport(localItems, importedItems, collectionName) {
   const byId = new Map(localItems.map((item) => [item.id, item]));
   let added = 0;
   let updated = 0;
@@ -4387,7 +4400,7 @@ function mergeCollectionFromImport(localItems, importedItems) {
       // updatedAt/deviceId with the import file's — possibly stale —
       // values) and don't count it as "updated" in the summary shown to
       // the user.
-      if (contentMatchesIgnoringVersion(existing, incoming)) {
+      if (contentMatchesIgnoringVersion(existing, incoming, collectionName)) {
         unchanged += 1;
         return;
       }
@@ -4399,7 +4412,7 @@ function mergeCollectionFromImport(localItems, importedItems) {
       return;
     }
 
-    if (contentMatchesIgnoringVersion(existing, incoming)) {
+    if (contentMatchesIgnoringVersion(existing, incoming, collectionName)) {
       unchanged += 1;
       return;
     }
@@ -4436,7 +4449,7 @@ function importData(parsed) {
     const incoming = importedCollections[c.name];
     if (!Array.isArray(incoming) || incoming.length === 0) return;
     const localItems = c.get();
-    const result = mergeCollectionFromImport(localItems, incoming);
+    const result = mergeCollectionFromImport(localItems, incoming, c.name);
     if (!result.added && !result.updated && !result.duplicated) return;
 
     anyChanged = true;
