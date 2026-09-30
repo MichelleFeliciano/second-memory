@@ -66,12 +66,26 @@ def save_dataset(data):
     os.replace(tmp_path, DATA_PATH)
 
 
+# Fields that describe *who/when touched a record* rather than the record's
+# actual real-world data. Excluded from the no-op/content-equality check
+# below — see docs/research/sync-version-inflation-bug.md §2 for the full
+# reasoning (in short: per DECISIONS.md, conflict/no-op detection is
+# content-based, `updatedAt` is display/audit only; `deviceId` is the same
+# kind of field and was never meant to gate conflict detection either).
+# `dateAdded` and `deleted` are deliberately NOT in this set — they're
+# meaningful data, not bookkeeping (see §2.2).
+_BOOKKEEPING_FIELDS = {"version", "updatedAt", "deviceId"}
+
+
 def _content_matches(a, b):
-    """True if two records are identical in every field except `version` —
-    i.e. this is a retried resend of an already-applied edit, not a genuine
-    conflicting change."""
+    """True if two records describe the same real-world data — i.e. this is
+    a harmless resend/no-op (an already-applied edit retried, or a sync
+    cycle where nothing changed), not a genuine conflicting change. Ignores
+    `version` (the mechanism's own counter) and the audit-only bookkeeping
+    fields `updatedAt`/`deviceId`; every domain field, plus `dateAdded` and
+    `deleted`, are compared."""
     keys = set(a.keys()) | set(b.keys())
-    keys.discard("version")
+    keys -= _BOOKKEEPING_FIELDS
     return all(a.get(k) == b.get(k) for k in keys)
 
 
@@ -129,6 +143,19 @@ def merge_collection(server_items, client_items):
         # operation (the server is the sole version authority) but is
         # accepted the same defensive way — e.g. if the datastore file was
         # ever reset — so a client is never left permanently stuck.
+        #
+        # THE FIX: check content-equality before deciding this is a real
+        # update. Every sync resends every record (runSync() has no delta
+        # logic), so this branch fires for every unchanged record on every
+        # 60-second tick from every open device — without this check, that
+        # unconditionally bumped `version` and rewrote every record,
+        # inflating version numbers into the hundreds and widening the
+        # window for the conflict-fork path above to misfire (see the root
+        # cause writeup above this section). A content-identical resend is a
+        # true no-op: don't touch `existing` at all.
+        if _content_matches(existing, incoming):
+            continue
+
         new_record = dict(incoming)
         new_record["version"] = max(server_version, client_version) + 1
         by_id[record_id] = new_record

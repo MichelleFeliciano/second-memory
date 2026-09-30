@@ -4324,29 +4324,47 @@ function deepEqual(a, b) {
   return false;
 }
 
-// Port of sync_server.py's _content_matches(): true if two records are
-// identical in every field except `version` — i.e. this import record is a
-// re-import of something already merged in, not a genuine conflicting edit.
+// Fields that describe who/when touched a record rather than its actual
+// data. Mirrors sync_server.py's _BOOKKEEPING_FIELDS — see
+// docs/research/sync-version-inflation-bug.md §2 for the full reasoning.
+// `dateAdded` and `deleted` are deliberately NOT here — they're meaningful
+// data, not bookkeeping.
+const BOOKKEEPING_FIELDS = new Set(['version', 'updatedAt', 'deviceId']);
+
+// Port of sync_server.py's _content_matches(): true if two records
+// describe the same real-world data — i.e. this import record is a
+// re-import of something already merged in (or a no-op resend), not a
+// genuine conflicting edit. Already uses deepEqual() (not ===/==), so
+// array-valued fields like `paidDates` are compared correctly (JS's own
+// ===/== do NOT deep-compare arrays — confirmed this function already
+// avoids that footgun, see §3).
 function contentMatchesIgnoringVersion(a, b) {
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
-  keys.delete('version');
+  BOOKKEEPING_FIELDS.forEach((k) => keys.delete(k));
   return [...keys].every((k) => deepEqual(a[k], b[k]));
 }
 
 // Port of sync_server.py's merge_collection(), adapted to merge an imported
 // file's records onto the in-memory client collection instead of the
-// server's onto a client's. Same three cases: (a) new id -> add as a new
-// record, (b) known id with an equal-or-newer incoming version -> replace
-// the local record with the imported one, (c) known id with an older
-// incoming version -> a no-op if the content is otherwise identical,
-// otherwise kept as a new record under a freshly generated id (the local
-// record is left untouched) so nothing is ever silently discarded. Mutates
-// `localItems` in place and returns counts for the summary message.
+// server's onto a client's. Four cases now (previously three — see
+// docs/research/sync-version-inflation-bug.md §5.2): (a) new id -> add as a
+// new record; (b) known id, incoming version equal-or-newer, content
+// IDENTICAL -> true no-op, don't touch the local record at all (THE FIX:
+// previously this unconditionally overwrote, silently replacing
+// updatedAt/deviceId with the import file's stale values and misreporting
+// it as "updated"); (c) known id, incoming version equal-or-newer, content
+// genuinely differs -> replace the local record with the imported one;
+// (d) known id, incoming version older, content identical -> no-op
+// (already existed); (e) known id, incoming version older, content
+// genuinely differs -> kept as a new record under a freshly generated id,
+// local record left untouched, so nothing is ever silently discarded.
+// Mutates `localItems` in place and returns counts for the summary message.
 function mergeCollectionFromImport(localItems, importedItems) {
   const byId = new Map(localItems.map((item) => [item.id, item]));
   let added = 0;
   let updated = 0;
   let duplicated = 0;
+  let unchanged = 0;
 
   importedItems.forEach((incoming) => {
     if (!incoming || typeof incoming !== 'object' || !incoming.id) return;
@@ -4364,6 +4382,15 @@ function mergeCollectionFromImport(localItems, importedItems) {
     const existingVersion = existing.version || 0;
 
     if (incomingVersion >= existingVersion) {
+      // THE FIX: a content-identical import is a true no-op. Don't
+      // overwrite the local record (which would silently replace its
+      // updatedAt/deviceId with the import file's — possibly stale —
+      // values) and don't count it as "updated" in the summary shown to
+      // the user.
+      if (contentMatchesIgnoringVersion(existing, incoming)) {
+        unchanged += 1;
+        return;
+      }
       const record = { ...incoming };
       const index = localItems.findIndex((item) => item.id === incoming.id);
       localItems[index] = record;
@@ -4372,7 +4399,10 @@ function mergeCollectionFromImport(localItems, importedItems) {
       return;
     }
 
-    if (contentMatchesIgnoringVersion(existing, incoming)) return;
+    if (contentMatchesIgnoringVersion(existing, incoming)) {
+      unchanged += 1;
+      return;
+    }
 
     const record = { ...incoming, id: makeId() };
     localItems.push(record);
@@ -4380,7 +4410,7 @@ function mergeCollectionFromImport(localItems, importedItems) {
     duplicated += 1;
   });
 
-  return { added, updated, duplicated };
+  return { added, updated, duplicated, unchanged };
 }
 
 function setDataIoStatus(text, tone) {
