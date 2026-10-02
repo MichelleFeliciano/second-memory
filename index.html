@@ -323,24 +323,15 @@
         <label class="date-field">Start date
           <input type="date" id="medications-start-input" aria-label="Start date">
         </label>
-        <label class="date-field">End date
-          <input type="date" id="medications-end-input" aria-label="End date">
+        <label class="date-field">Next refill date
+          <input type="date" id="medications-refill-input" aria-label="Next refill date">
         </label>
         <textarea id="medications-notes-input" placeholder="Notes (optional)" aria-label="Medication notes" rows="2"></textarea>
         <p class="form-error" id="medications-form-error" hidden></p>
         <button type="submit">Add medication</button>
       </form>
 
-      <div class="columns med-columns">
-        <div class="column" data-med-group="current">
-          <h3>Currently Taking <span class="count" data-med-count="current">0</span></h3>
-          <ul class="card-list" data-med-list="current"></ul>
-        </div>
-        <div class="column" data-med-group="former">
-          <h3>No Longer Taking <span class="count" data-med-count="former">0</span></h3>
-          <ul class="card-list" data-med-list="former"></ul>
-        </div>
-      </div>
+      <ul class="card-list flat-list" id="medications-list"></ul>
 
       <p class="empty-state" id="medications-empty-state" hidden>No medications yet — add your first one above.</p>
     </section>
@@ -732,15 +723,14 @@
           <input type="date" class="med-start-date" aria-label="Start date">
           <small class="unknown-hint" hidden>unknown</small>
         </label>
-        <label class="date-field">End date
-          <input type="date" class="med-end-date" aria-label="End date">
+        <label class="date-field">Next refill date
+          <input type="date" class="med-refill-date" aria-label="Next refill date">
+          <small class="refill-hint" hidden></small>
         </label>
         <p class="form-error med-date-error" hidden></p>
       </div>
       <p class="med-notes" hidden></p>
       <div class="med-actions">
-        <button type="button" class="mark-former-btn" hidden>Mark as no longer taking</button>
-        <button type="button" class="resume-taking-btn" hidden>Resume taking</button>
         <button type="button" class="edit-btn">Edit</button>
         <button type="button" class="delete-btn" aria-label="Delete medication">Delete</button>
       </div>

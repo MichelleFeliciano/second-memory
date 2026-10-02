@@ -536,10 +536,6 @@ body::before {
   gap: 20px;
 }
 
-.med-columns {
-  grid-template-columns: repeat(2, 1fr);
-}
-
 .book-columns {
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
 }
@@ -915,6 +911,10 @@ body::before {
   margin-bottom: 8px;
 }
 
+.refill-hint { font-weight: 600; }
+.refill-hint.overdue { color: var(--accent-2); }
+.refill-hint.soon { color: var(--accent-rose); }
+
 /* Diagnoses */
 
 .diagnosis-info {
@@ -1025,9 +1025,7 @@ body::before {
 }
 
 .edit-btn,
-.cancel-btn,
-.mark-former-btn,
-.resume-taking-btn {
+.cancel-btn {
   padding: 5px 12px;
   border: 1px solid var(--border);
   border-radius: 13px;
@@ -1038,9 +1036,7 @@ body::before {
 }
 
 .edit-btn:hover,
-.cancel-btn:hover,
-.mark-former-btn:hover,
-.resume-taking-btn:hover {
+.cancel-btn:hover {
   color: var(--accent);
   border-color: var(--accent);
 }

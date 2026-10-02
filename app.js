@@ -763,19 +763,11 @@ const MEDICATIONS_KEY = 'secondMemory.medications.v1';
 
 let medications = migrateSyncFields(loadCollection(MEDICATIONS_KEY), MEDICATIONS_KEY, getDeviceId());
 
-function isValidDateRange(startDate, endDate) {
-  if (!startDate || !endDate) return true;
-  return endDate >= startDate;
-}
-
 function addMedication(fields) {
   const trimmedName = fields.name.trim();
   if (!trimmedName) return { ok: false, error: 'Name is required.' };
   const startDate = fields.startDate || null;
-  const endDate = fields.endDate || null;
-  if (!isValidDateRange(startDate, endDate)) {
-    return { ok: false, error: 'End date cannot be before start date.' };
-  }
+  const refillDate = fields.refillDate || null;
   const now = new Date().toISOString();
   const med = {
     id: makeId(),
@@ -784,7 +776,8 @@ function addMedication(fields) {
     frequency: fields.frequency.trim(),
     prescribingDoctor: fields.prescribingDoctor.trim(),
     startDate,
-    endDate,
+    endDate: null,
+    refillDate,
     notes: fields.notes.trim(),
     dateAdded: now,
     updatedAt: now,
@@ -802,14 +795,9 @@ function addMedication(fields) {
 function updateMedicationDate(id, field, value) {
   const med = medications.find((m) => m.id === id);
   if (!med) return { ok: false, error: 'Medication not found.' };
-  const newStart = field === 'startDate' ? (value || null) : med.startDate;
-  const newEnd = field === 'endDate' ? (value || null) : med.endDate;
-  if (!isValidDateRange(newStart, newEnd)) {
-    return { ok: false, error: 'End date cannot be before start date.' };
-  }
   const before = structuredClone(med);
-  med.startDate = newStart;
-  med.endDate = newEnd;
+  if (field === 'startDate') med.startDate = value || null;
+  else if (field === 'refillDate') med.refillDate = value || null;
   stampSync(med);
   saveCollection(MEDICATIONS_KEY, medications);
   recordUndo('medications', id, before, structuredClone(med));
@@ -875,10 +863,13 @@ const MEDICATION_SORTS = {
   start_date_asc: compareByField((m) => m.startDate, 1, { text: false }),
 };
 
-function renderMedicationGroup(groupKey, items, template, openEdit) {
-  const list = document.querySelector(`[data-med-list="${groupKey}"]`);
+function daysUntilDateKey(dateKey) {
+  return Math.round((new Date(dateKey + 'T00:00:00') - new Date(todayKey() + 'T00:00:00')) / 86400000);
+}
+
+function renderMedicationList(items, template, openEdit) {
+  const list = document.getElementById('medications-list');
   list.innerHTML = '';
-  document.querySelector(`[data-med-count="${groupKey}"]`).textContent = items.length;
 
   items.forEach((med) => {
     const node = template.content.cloneNode(true);
@@ -901,12 +892,25 @@ function renderMedicationGroup(groupKey, items, template, openEdit) {
     setField('med-doctor', 'med-doctor-field', med.prescribingDoctor);
 
     const startInput = node.querySelector('.med-start-date');
-    const endInput = node.querySelector('.med-end-date');
+    const refillInput = node.querySelector('.med-refill-date');
+    const refillHint = node.querySelector('.refill-hint');
     const unknownHint = node.querySelector('.unknown-hint');
     const dateError = node.querySelector('.med-date-error');
 
     startInput.value = med.startDate || '';
-    endInput.value = med.endDate || '';
+    refillInput.value = med.refillDate || '';
+    if (med.refillDate) {
+      const days = daysUntilDateKey(med.refillDate);
+      if (days < 0) {
+        refillHint.textContent = 'overdue';
+        refillHint.className = 'refill-hint overdue';
+        refillHint.hidden = false;
+      } else if (days <= 7) {
+        refillHint.textContent = days === 0 ? 'due today' : `due in ${days} day${days === 1 ? '' : 's'}`;
+        refillHint.className = 'refill-hint soon';
+        refillHint.hidden = false;
+      }
+    }
     unknownHint.hidden = med.startDate !== null;
 
     startInput.addEventListener('change', () => {
@@ -917,12 +921,12 @@ function renderMedicationGroup(groupKey, items, template, openEdit) {
         startInput.value = med.startDate || '';
       }
     });
-    endInput.addEventListener('change', () => {
-      const result = updateMedicationDate(med.id, 'endDate', endInput.value);
+    refillInput.addEventListener('change', () => {
+      const result = updateMedicationDate(med.id, 'refillDate', refillInput.value);
       if (!result.ok) {
         dateError.textContent = result.error;
         dateError.hidden = false;
-        endInput.value = med.endDate || '';
+        refillInput.value = med.refillDate || '';
       }
     });
 
@@ -930,20 +934,6 @@ function renderMedicationGroup(groupKey, items, template, openEdit) {
     if (med.notes) {
       notesEl.textContent = med.notes;
       notesEl.hidden = false;
-    }
-
-    // Single-button, no-confirmation quick actions — mirrors Bills' "Mark
-    // oldest unpaid as paid" button. Which one shows is purely a function of
-    // which group this card is being rendered into (current vs. former),
-    // not a separate status field — see the endDate-derived grouping above.
-    const markFormerBtn = node.querySelector('.mark-former-btn');
-    const resumeTakingBtn = node.querySelector('.resume-taking-btn');
-    if (groupKey === 'current') {
-      markFormerBtn.hidden = false;
-      markFormerBtn.addEventListener('click', () => updateMedicationDate(med.id, 'endDate', todayKey()));
-    } else {
-      resumeTakingBtn.hidden = false;
-      resumeTakingBtn.addEventListener('click', () => updateMedicationDate(med.id, 'endDate', ''));
     }
 
     const editNameInput = node.querySelector('.med-edit-name');
@@ -954,16 +944,12 @@ function renderMedicationGroup(groupKey, items, template, openEdit) {
     const editError = node.querySelector('.med-edit-error');
 
     node.querySelector('.edit-btn').addEventListener('click', () => {
-      // Only one medication (across both the "current" and "former" groups)
-      // can be in edit mode at a time.
-      ['current', 'former'].forEach((otherGroupKey) => {
-        const otherList = document.querySelector(`[data-med-list="${otherGroupKey}"]`);
-        const otherOpenForm = otherList.querySelector('.med-edit-form:not([hidden])');
-        if (otherOpenForm && otherOpenForm !== editForm) {
-          otherOpenForm.hidden = true;
-          otherOpenForm.closest('.med-card').querySelector('.med-view').hidden = false;
-        }
-      });
+      // Only one medication can be in edit mode at a time.
+      const otherOpenForm = list.querySelector('.med-edit-form:not([hidden])');
+      if (otherOpenForm && otherOpenForm !== editForm) {
+        otherOpenForm.hidden = true;
+        otherOpenForm.closest('.med-card').querySelector('.med-view').hidden = false;
+      }
       editNameInput.value = med.name;
       editDosageInput.value = med.dosage;
       editFrequencyInput.value = med.frequency;
@@ -1027,28 +1013,23 @@ function renderMedications() {
   const template = document.getElementById('medications-card-template');
   const comparator = MEDICATION_SORTS[selectedMedicationsSort] || MEDICATION_SORTS.name_asc;
 
-  const current = visible.filter((m) => m.endDate === null).sort(comparator);
-  const former = visible.filter((m) => m.endDate !== null).sort(comparator);
+  const sorted = visible.sort(comparator);
 
-  const lists = ['current', 'former'].map((groupKey) => document.querySelector(`[data-med-list="${groupKey}"]`));
+  const list = document.getElementById('medications-list');
   let openEdit = null;
-  for (const list of lists) {
-    const openForm = list.querySelector('.med-edit-form:not([hidden])');
-    if (openForm) {
-      openEdit = {
-        id: openForm.closest('.med-card').dataset.medId,
-        name: openForm.querySelector('.med-edit-name').value,
-        dosage: openForm.querySelector('.med-edit-dosage').value,
-        frequency: openForm.querySelector('.med-edit-frequency').value,
-        prescribingDoctor: openForm.querySelector('.med-edit-doctor').value,
-        notes: openForm.querySelector('.med-edit-notes').value,
-      };
-      break;
-    }
+  const openForm = list.querySelector('.med-edit-form:not([hidden])');
+  if (openForm) {
+    openEdit = {
+      id: openForm.closest('.med-card').dataset.medId,
+      name: openForm.querySelector('.med-edit-name').value,
+      dosage: openForm.querySelector('.med-edit-dosage').value,
+      frequency: openForm.querySelector('.med-edit-frequency').value,
+      prescribingDoctor: openForm.querySelector('.med-edit-doctor').value,
+      notes: openForm.querySelector('.med-edit-notes').value,
+    };
   }
 
-  renderMedicationGroup('current', current, template, openEdit);
-  renderMedicationGroup('former', former, template, openEdit);
+  renderMedicationList(sorted, template, openEdit);
 
   document.getElementById('medications-empty-state').hidden = medications.filter((m) => !m.deleted).length !== 0;
 }
@@ -1060,7 +1041,7 @@ document.getElementById('medications-add-form').addEventListener('submit', (e) =
   const frequencyInput = document.getElementById('medications-frequency-input');
   const doctorInput = document.getElementById('medications-doctor-input');
   const startInput = document.getElementById('medications-start-input');
-  const endInput = document.getElementById('medications-end-input');
+  const refillInput = document.getElementById('medications-refill-input');
   const notesInput = document.getElementById('medications-notes-input');
   const errorEl = document.getElementById('medications-form-error');
 
@@ -1070,7 +1051,7 @@ document.getElementById('medications-add-form').addEventListener('submit', (e) =
     frequency: frequencyInput.value,
     prescribingDoctor: doctorInput.value,
     startDate: startInput.value,
-    endDate: endInput.value,
+    refillDate: refillInput.value,
     notes: notesInput.value,
   });
 
@@ -1086,7 +1067,7 @@ document.getElementById('medications-add-form').addEventListener('submit', (e) =
   frequencyInput.value = '';
   doctorInput.value = '';
   startInput.value = '';
-  endInput.value = '';
+  refillInput.value = '';
   notesInput.value = '';
   nameInput.focus();
 });
