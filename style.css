@@ -1392,36 +1392,8 @@ body::before {
    Part 2.1/2.2. Must come AFTER the base .budget-week-cells/.budget-weekday-row
    rules above — same specificity, so source order decides the cascade tie,
    and a media query earlier in the file than the rule it overrides loses. */
-@media (max-width: 900px) {
-  /* Keep the calendar's 7-day grid layout on narrow screens instead of
-     collapsing into a vertical single-column stack — scroll it horizontally
-     instead. #budget-calendar is the one shared ancestor of BOTH the
-     weekday header row and every week's day-cell grid — they are not
-     siblings of each other (.budget-week-cells is nested one level deeper,
-     inside each .budget-week "card"), so overflow-x lives on #budget-calendar
-     itself, not on .budget-week-cells alone, which would give every week its
-     own independent scroll position instead of one shared one. Each
-     .budget-week/.budget-week-cells/.budget-weekday-row is sized to
-     width: max-content (floored at min-width: 100% so a week that happens to
-     fit still spans the full visible width, matching the desktop look)
-     so the card's border/background actually encloses the grid instead of
-     letting it visually spill out past a box that stayed pinned to the
-     viewport's width. */
-  #budget-calendar {
-    overflow-x: auto;
-  }
-
-  .budget-week-cells,
-  .budget-weekday-row {
-    grid-template-columns: repeat(7, minmax(72px, 1fr));
-    width: max-content;
-  }
-
-  .budget-week {
-    width: max-content;
-    min-width: 100%;
-  }
-}
+.budget-day-body { display: contents; }
+.budget-day-close { display: none; }
 
 .budget-day-cell {
   display: flex;
@@ -1549,6 +1521,155 @@ body::before {
   text-align: right;
   color: var(--muted);
   font-size: 0.85rem;
+}
+
+@media (max-width: 900px) {
+  /* Compact phone/tablet calendar: all 7 columns always fit the screen (no
+     sideways scrolling). Each day shows only its date plus one dot per bill/
+     income item; tapping a day lifts that live cell into a bottom sheet
+     (.budget-day-open) showing names, paid checkboxes and the income input. */
+  .budget-week-cells,
+  .budget-weekday-row {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 4px;
+  }
+
+  .budget-weekday-row {
+    text-align: center;
+    padding-right: 0;
+  }
+
+  .budget-week {
+    padding: 8px;
+  }
+
+  .budget-day-cell {
+    min-height: 52px;
+    padding: 4px 2px;
+    cursor: pointer;
+  }
+
+  .budget-day-header { text-align: center; }
+
+  .budget-day-occurrences {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 3px;
+    max-height: none;
+    margin: 3px 0 0;
+  }
+
+  .budget-day-occurrences .budget-occurrence {
+    margin: 0;
+    font-size: 0;
+  }
+
+  .budget-occurrence-name,
+  .budget-occurrence-checkbox,
+  .budget-day-manual-input,
+  .budget-day-close {
+    display: none;
+  }
+
+  .budget-occurrence:not(:has(.budget-occurrence-dot)) label::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--muted);
+  }
+
+  .budget-occurrence.overdue .budget-occurrence-dot,
+  .budget-occurrence.overdue:not(:has(.budget-occurrence-dot)) label::before {
+    outline: 2px solid var(--accent-2);
+  }
+
+  .budget-occurrence.due-soon .budget-occurrence-dot,
+  .budget-occurrence.due-soon:not(:has(.budget-occurrence-dot)) label::before {
+    outline: 2px solid var(--accent-rose);
+  }
+
+  .budget-day-footer {
+    justify-content: center;
+    min-height: 8px;
+  }
+
+  .budget-day-cell.budget-day-open {
+    border-color: var(--accent);
+  }
+
+  .budget-day-open .budget-day-body {
+    display: block;
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    z-index: 60;
+    min-height: 0;
+    max-height: 70vh;
+    overflow-y: auto;
+    padding: 16px;
+    border-radius: 18px;
+    cursor: default;
+    border: 1px solid var(--border-soft);
+    background: var(--bg);
+    box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.5), 0 10px 30px rgba(0, 0, 0, 0.4);
+  }
+
+  .budget-day-open .budget-day-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    text-align: left;
+  }
+
+  .budget-day-open .budget-day-date {
+    font-size: 0;
+  }
+
+  .budget-day-open .budget-day-date::before {
+    content: attr(data-full);
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .budget-day-open .budget-day-close {
+    display: inline-block;
+    padding: 4px 12px;
+    border: 1px solid var(--border);
+    border-radius: 13px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+
+  .budget-day-open .budget-day-occurrences {
+    display: block;
+    margin: 12px 0;
+  }
+
+  .budget-day-open .budget-day-occurrences .budget-occurrence {
+    font-size: 0.95rem;
+    margin-bottom: 8px;
+  }
+
+  .budget-day-open .budget-occurrence-name,
+  .budget-day-open .budget-occurrence-checkbox {
+    display: inline-block;
+  }
+
+  .budget-day-open .budget-occurrence-name {
+    display: block;
+    white-space: normal;
+  }
+
+  .budget-day-open .budget-day-manual-input {
+    display: block;
+    padding: 8px 10px;
+    font-size: 1rem;
+  }
 }
 
 /* Appointments */

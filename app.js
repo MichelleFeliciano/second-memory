@@ -3729,6 +3729,31 @@ function renderPayPeriod() {
 // list's search filter below — but the category chip filter DOES apply here
 // too (occurrence rendering only; every total stays unfiltered, see the
 // matchesBillCategory comment inside the render loop below).
+let openCalendarDayKey = null;
+
+function isCompactCalendar() {
+  return window.matchMedia('(max-width: 900px)').matches;
+}
+
+function closeCalendarDay() {
+  openCalendarDayKey = null;
+  document.querySelectorAll('.budget-day-cell.budget-day-open').forEach((el) => el.classList.remove('budget-day-open'));
+}
+
+// Capture phase so a tap outside the open day sheet only closes it, rather
+// than also opening whichever other day cell happened to be underneath.
+document.addEventListener('click', (e) => {
+  if (!openCalendarDayKey) return;
+  const openCell = document.querySelector('.budget-day-cell.budget-day-open');
+  if (openCell && !openCell.contains(e.target)) {
+    closeCalendarDay();
+    if (e.target.closest && e.target.closest('.budget-day-cell')) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+  }
+}, true);
+
 function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, nonDeletedRecurringIncome, focusedManualInput) {
   const today = new Date();
   const todayK = todayKey();
@@ -3870,14 +3895,35 @@ function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, nonDeletedRecur
       cellEl.className = 'budget-day-cell';
       cellEl.dataset.dateKey = dateKey;
       cellEl.classList.toggle('budget-day-today', dateKey === todayK);
+      cellEl.classList.toggle('budget-day-open', isCompactCalendar() && dateKey === openCalendarDayKey);
+      cellEl.addEventListener('click', () => {
+        if (!isCompactCalendar() || openCalendarDayKey === dateKey) return;
+        closeCalendarDay();
+        openCalendarDayKey = dateKey;
+        cellEl.classList.add('budget-day-open');
+      });
+
+      // All cell content lives in one wrapper so the compact calendar can lift
+      // just the wrapper into a bottom sheet while the (now empty) cell keeps
+      // its slot in the week grid. display: contents on desktop = no change.
+      const bodyEl = document.createElement('div');
+      bodyEl.className = 'budget-day-body';
+      cellEl.appendChild(bodyEl);
 
       const headerEl = document.createElement('div');
       headerEl.className = 'budget-day-header';
       const dateSpan = document.createElement('span');
       dateSpan.className = 'budget-day-date';
       dateSpan.textContent = String(d);
+      dateSpan.dataset.full = `${MONTH_NAMES[m]} ${d}`;
       headerEl.appendChild(dateSpan);
-      cellEl.appendChild(headerEl);
+      const closeBtn = document.createElement('button');
+      closeBtn.type = 'button';
+      closeBtn.className = 'budget-day-close';
+      closeBtn.textContent = 'Close';
+      closeBtn.addEventListener('click', (e) => { e.stopPropagation(); closeCalendarDay(); });
+      headerEl.appendChild(closeBtn);
+      bodyEl.appendChild(headerEl);
 
       const occurrencesEl = document.createElement('ul');
       occurrencesEl.className = 'budget-day-occurrences scroll-block';
@@ -3959,7 +4005,7 @@ function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, nonDeletedRecur
           itemEl.appendChild(label);
           occurrencesEl.appendChild(itemEl);
         });
-      cellEl.appendChild(occurrencesEl);
+      bodyEl.appendChild(occurrencesEl);
 
       const footerEl = document.createElement('div');
       footerEl.className = 'budget-day-footer';
@@ -3984,7 +4030,7 @@ function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, nonDeletedRecur
         footerEl.appendChild(dotSpan);
       }
       footerEl.appendChild(manualInput);
-      cellEl.appendChild(footerEl);
+      bodyEl.appendChild(footerEl);
 
       cellsEl.appendChild(cellEl);
     });
