@@ -186,7 +186,7 @@ function recordUndo(collectionName, id, before, after) {
 // ---- UI state (active tab) ----
 
 const UI_STORAGE_KEY = 'secondMemory.ui.v1';
-const TABS = ['home', 'books', 'recipes', 'medications', 'diagnoses', 'todo', 'shopping', 'notes', 'budget', 'resume', 'coursework'];
+const TABS = ['home', 'books', 'recipes', 'medications', 'diagnoses', 'appointments', 'todo', 'shopping', 'notes', 'budget', 'resume', 'coursework'];
 
 function loadUiState() {
   try {
@@ -1032,6 +1032,8 @@ function renderMedications() {
   renderMedicationList(sorted, template, openEdit);
 
   document.getElementById('medications-empty-state').hidden = medications.filter((m) => !m.deleted).length !== 0;
+
+  renderHome(); // Home shows upcoming refills -- keep this in sync
 }
 
 document.getElementById('medications-add-form').addEventListener('submit', (e) => {
@@ -1077,6 +1079,251 @@ document.getElementById('medications-search-input').addEventListener('input', re
 document.getElementById('medications-sort-input').addEventListener('change', (e) => {
   selectedMedicationsSort = e.target.value;
   renderMedications();
+});
+
+// ---- Appointments ----
+
+const APPOINTMENTS_KEY = 'secondMemory.appointments.v1';
+const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_RE = /^\d{2}:\d{2}$/;
+
+let appointments = migrateSyncFields(loadCollection(APPOINTMENTS_KEY), APPOINTMENTS_KEY, getDeviceId());
+
+function validateAppointmentFields(fields) {
+  const title = fields.title.trim();
+  if (!title) return { ok: false, error: 'Title is required.' };
+  const date = (fields.date || '').trim();
+  if (!DATE_KEY_RE.test(date)) return { ok: false, error: 'Date is required.' };
+  const time = (fields.time || '').trim();
+  if (time && !TIME_RE.test(time)) return { ok: false, error: 'Time is not valid.' };
+  return {
+    ok: true,
+    title,
+    date,
+    time,
+    provider: fields.provider.trim(),
+    location: fields.location.trim(),
+    notes: fields.notes.trim(),
+  };
+}
+
+function addAppointment(fields) {
+  const result = validateAppointmentFields(fields);
+  if (!result.ok) return result;
+  const now = new Date().toISOString();
+  const appt = {
+    id: makeId(),
+    title: result.title,
+    date: result.date,
+    time: result.time,
+    provider: result.provider,
+    location: result.location,
+    notes: result.notes,
+    dateAdded: now,
+    updatedAt: now,
+    deviceId: getDeviceId(),
+    deleted: false,
+    version: 0,
+  };
+  appointments.push(appt);
+  saveCollection(APPOINTMENTS_KEY, appointments);
+  recordUndo('appointments', appt.id, null, structuredClone(appt));
+  renderAppointments();
+  return { ok: true };
+}
+
+function updateAppointment(id, fields) {
+  const appt = appointments.find((a) => a.id === id);
+  if (!appt) return { ok: false, error: 'Appointment not found.' };
+  const result = validateAppointmentFields(fields);
+  if (!result.ok) return result;
+  const before = structuredClone(appt);
+  appt.title = result.title;
+  appt.date = result.date;
+  appt.time = result.time;
+  appt.provider = result.provider;
+  appt.location = result.location;
+  appt.notes = result.notes;
+  stampSync(appt);
+  saveCollection(APPOINTMENTS_KEY, appointments);
+  recordUndo('appointments', id, before, structuredClone(appt));
+  renderAppointments();
+  return { ok: true };
+}
+
+function deleteAppointment(id) {
+  const appt = appointments.find((a) => a.id === id);
+  if (!appt) return;
+  const before = structuredClone(appt);
+  appt.deleted = true;
+  stampSync(appt);
+  saveCollection(APPOINTMENTS_KEY, appointments);
+  recordUndo('appointments', id, before, structuredClone(appt));
+  renderAppointments();
+}
+
+function restoreAppointment(id) {
+  const appt = appointments.find((a) => a.id === id);
+  if (!appt || !appt.deleted) return;
+  const before = structuredClone(appt);
+  appt.deleted = false;
+  stampSync(appt);
+  saveCollection(APPOINTMENTS_KEY, appointments);
+  recordUndo('appointments', id, before, structuredClone(appt));
+  renderAppointments();
+}
+
+function formatTime12h(time) {
+  if (!TIME_RE.test(time || '')) return '';
+  const [h, m] = time.split(':').map(Number);
+  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+}
+
+function formatAppointmentWhen(appt) {
+  const time = formatTime12h(appt.time);
+  return time ? `${formatDateKeyLong(appt.date)} at ${time}` : formatDateKeyLong(appt.date);
+}
+
+function compareAppointments(a, b) {
+  const ka = `${a.date} ${a.time || ''}`;
+  const kb = `${b.date} ${b.time || ''}`;
+  return ka < kb ? -1 : ka > kb ? 1 : 0;
+}
+
+function renderAppointmentCards(list, items, openEdit) {
+  const template = document.getElementById('appointments-card-template');
+  list.innerHTML = '';
+
+  items.forEach((appt) => {
+    const node = template.content.cloneNode(true);
+    node.querySelector('.appt-card').dataset.apptId = appt.id;
+    const viewSection = node.querySelector('.appt-view');
+    const editForm = node.querySelector('.appt-edit-form');
+
+    node.querySelector('.appt-title').textContent = appt.title;
+    node.querySelector('.appt-when').textContent = formatAppointmentWhen(appt);
+    const providerEl = node.querySelector('.appt-provider');
+    if (appt.provider) { providerEl.textContent = appt.provider; providerEl.hidden = false; }
+    const locationEl = node.querySelector('.appt-location');
+    if (appt.location) { locationEl.textContent = appt.location; locationEl.hidden = false; }
+    const notesEl = node.querySelector('.appt-notes');
+    if (appt.notes) { notesEl.textContent = appt.notes; notesEl.hidden = false; }
+
+    const editTitle = node.querySelector('.appt-edit-title');
+    const editDate = node.querySelector('.appt-edit-date');
+    const editTime = node.querySelector('.appt-edit-time');
+    const editProvider = node.querySelector('.appt-edit-provider');
+    const editLocation = node.querySelector('.appt-edit-location');
+    const editNotes = node.querySelector('.appt-edit-notes');
+    const editError = node.querySelector('.appt-edit-error');
+
+    node.querySelector('.edit-btn').addEventListener('click', () => {
+      const otherOpenForm = document.querySelector('#appointments-collection .appt-edit-form:not([hidden])');
+      if (otherOpenForm && otherOpenForm !== editForm) {
+        otherOpenForm.hidden = true;
+        otherOpenForm.closest('.appt-card').querySelector('.appt-view').hidden = false;
+      }
+      editTitle.value = appt.title;
+      editDate.value = appt.date;
+      editTime.value = appt.time || '';
+      editProvider.value = appt.provider;
+      editLocation.value = appt.location;
+      editNotes.value = appt.notes;
+      editError.hidden = true;
+      viewSection.hidden = true;
+      editForm.hidden = false;
+    });
+
+    node.querySelector('.cancel-btn').addEventListener('click', () => {
+      editForm.hidden = true;
+      viewSection.hidden = false;
+    });
+
+    editForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      // Hide first -- see Medications' edit-form submit handler for why.
+      editForm.hidden = true;
+      viewSection.hidden = false;
+      const result = updateAppointment(appt.id, {
+        title: editTitle.value,
+        date: editDate.value,
+        time: editTime.value,
+        provider: editProvider.value,
+        location: editLocation.value,
+        notes: editNotes.value,
+      });
+      if (!result.ok) {
+        viewSection.hidden = true;
+        editForm.hidden = false;
+        editError.textContent = result.error;
+        editError.hidden = false;
+      }
+    });
+
+    node.querySelector('.delete-btn').addEventListener('click', () => deleteAppointment(appt.id));
+
+    if (openEdit && openEdit.id === appt.id) {
+      editTitle.value = openEdit.title;
+      editDate.value = openEdit.date;
+      editTime.value = openEdit.time;
+      editProvider.value = openEdit.provider;
+      editLocation.value = openEdit.location;
+      editNotes.value = openEdit.notes;
+      viewSection.hidden = true;
+      editForm.hidden = false;
+    }
+
+    list.appendChild(node);
+  });
+}
+
+function renderAppointments() {
+  const openForm = document.querySelector('#appointments-collection .appt-edit-form:not([hidden])');
+  const openEdit = openForm
+    ? {
+        id: openForm.closest('.appt-card').dataset.apptId,
+        title: openForm.querySelector('.appt-edit-title').value,
+        date: openForm.querySelector('.appt-edit-date').value,
+        time: openForm.querySelector('.appt-edit-time').value,
+        provider: openForm.querySelector('.appt-edit-provider').value,
+        location: openForm.querySelector('.appt-edit-location').value,
+        notes: openForm.querySelector('.appt-edit-notes').value,
+      }
+    : null;
+
+  const todayK = todayKey();
+  const visible = appointments.filter((a) => !a.deleted);
+  const upcoming = visible.filter((a) => a.date >= todayK).sort(compareAppointments);
+  const past = visible.filter((a) => a.date < todayK).sort((a, b) => compareAppointments(b, a));
+
+  renderAppointmentCards(document.getElementById('appointments-upcoming-list'), upcoming, openEdit);
+  renderAppointmentCards(document.getElementById('appointments-past-list'), past, openEdit);
+  document.getElementById('appointments-empty-state').hidden = upcoming.length !== 0;
+
+  renderHome();
+}
+
+document.getElementById('appointments-add-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const ids = ['title', 'date', 'time', 'provider', 'location', 'notes'];
+  const inputs = Object.fromEntries(ids.map((k) => [k, document.getElementById(`appointments-${k}-input`)]));
+  const errorEl = document.getElementById('appointments-form-error');
+  const result = addAppointment({
+    title: inputs.title.value,
+    date: inputs.date.value,
+    time: inputs.time.value,
+    provider: inputs.provider.value,
+    location: inputs.location.value,
+    notes: inputs.notes.value,
+  });
+  if (!result.ok) {
+    errorEl.textContent = result.error;
+    errorEl.hidden = false;
+    return;
+  }
+  errorEl.hidden = true;
+  ids.forEach((k) => { inputs[k].value = ''; });
+  inputs.title.focus();
 });
 
 // ---- Diagnoses ----
@@ -3203,6 +3450,60 @@ function earliestTrackedDateAdded(allIncome, allBills) {
   return timestamps.length ? timestamps.reduce((min, t) => (t < min ? t : min)) : null;
 }
 
+// ---- Paid history ----
+// Per-category totals of bill occurrences marked paid in one calendar month.
+// Reads ALL bills including deleted ones (deleting a bill doesn't un-spend
+// money already paid), filtered through occursOnDate like totalPaidEver.
+
+let paidHistoryMonth = (() => { const { y, m } = parseDateKey(todayKey()); return { y, m }; })();
+
+function computePaidByCategory(allBills, y, m) {
+  const prefix = `${y}-${String(m + 1).padStart(2, '0')}-`;
+  const byKey = new Map();
+  allBills.forEach((bill) => {
+    const count = (bill.paidDates || []).filter((d) => d.startsWith(prefix) && occursOnDate(bill, d)).length;
+    if (count === 0) return;
+    const raw = (bill.category || '').trim();
+    const key = normalizeChipKey(raw);
+    const entry = byKey.get(key) || { label: raw || 'Uncategorized', total: 0 };
+    entry.total += count * bill.amount;
+    byKey.set(key, entry);
+  });
+  return [...byKey.values()].sort((a, b) => b.total - a.total);
+}
+
+function renderPaidHistory() {
+  const { y, m } = paidHistoryMonth;
+  document.getElementById('paid-history-label').textContent = `${MONTH_NAMES[m]} ${y}`;
+  const rows = computePaidByCategory(bills, y, m);
+  const list = document.getElementById('paid-history-list');
+  list.innerHTML = '';
+  document.getElementById('paid-history-empty').hidden = rows.length !== 0;
+  if (rows.length === 0) return;
+
+  const addRow = (label, total, extraClass) => {
+    const li = document.createElement('li');
+    li.className = `paid-history-row${extraClass ? ` ${extraClass}` : ''}`;
+    const name = document.createElement('span');
+    name.textContent = label;
+    const amount = document.createElement('span');
+    amount.textContent = `$${total.toFixed(2)}`;
+    li.append(name, amount);
+    list.appendChild(li);
+  };
+  rows.forEach((r) => addRow(r.label, r.total));
+  addRow('Total paid', rows.reduce((sum, r) => sum + r.total, 0), 'paid-history-total');
+}
+
+function shiftPaidHistoryMonth(delta) {
+  const d = new Date(paidHistoryMonth.y, paidHistoryMonth.m + delta, 1);
+  paidHistoryMonth = { y: d.getFullYear(), m: d.getMonth() };
+  renderPaidHistory();
+}
+
+document.getElementById('paid-history-prev').addEventListener('click', () => shiftPaidHistoryMonth(-1));
+document.getElementById('paid-history-next').addEventListener('click', () => shiftPaidHistoryMonth(1));
+
 function matchesBillSearch(bill, term) {
   if (!term) return true;
   const haystack = `${bill.name} ${bill.category}`.toLowerCase();
@@ -3998,6 +4299,7 @@ function renderBudget() {
   renderBillCategoryFilters(nonDeleted);
   renderBudgetCalendar(nonDeleted, nonDeletedIncome, nonDeletedRecurringIncome, focusedManualInput);
   renderPayPeriod();
+  renderPaidHistory();
   renderBudgetList(nonDeleted, openEdit);
   renderRecurringIncomeList(nonDeletedRecurringIncome, openRecurringIncomeEdit);
 
@@ -4161,6 +4463,55 @@ function computeHomeTodos(nonDeletedTodos) {
   return { overdue, dueSoon };
 }
 
+function whenLabel(days) {
+  if (days < 0) return `${-days} day${days === -1 ? '' : 's'} ago`;
+  if (days === 0) return 'today';
+  if (days === 1) return 'tomorrow';
+  return `in ${days} days`;
+}
+
+function computeHomeRefills(nonDeletedMeds) {
+  return nonDeletedMeds
+    .filter((m) => m.refillDate && daysUntilDateKey(m.refillDate) <= HOME_DUE_SOON_DAYS)
+    .sort(compareByField((m) => m.refillDate, 1, { text: false }));
+}
+
+function computeHomeAppointments(nonDeletedAppointments) {
+  return nonDeletedAppointments
+    .filter((a) => {
+      const days = daysUntilDateKey(a.date);
+      return days >= 0 && days <= HOME_DUE_SOON_DAYS;
+    })
+    .sort(compareAppointments);
+}
+
+const REMINDER_BANNER_DAYS = 3;
+let reminderBannerDismissed = false;
+
+function renderReminderBanner(overdueBills, dueSoonBills) {
+  const banner = document.getElementById('reminder-banner');
+  const cutoff = shiftDateKey(todayKey(), REMINDER_BANNER_DAYS);
+  const soon = dueSoonBills.filter((x) => x.dateKey <= cutoff);
+  if (reminderBannerDismissed || (soon.length === 0 && overdueBills.length === 0)) {
+    banner.hidden = true;
+    return;
+  }
+  const parts = soon.map(({ bill, dateKey }) =>
+    `${bill.name} $${bill.amount.toFixed(2)} ${whenLabel(daysUntilDateKey(dateKey))}`);
+  if (overdueBills.length > 0) {
+    const total = overdueBills.reduce((sum, x) => sum + x.amount, 0);
+    parts.push(`${overdueBills.length} overdue ($${total.toFixed(2)})`);
+  }
+  document.getElementById('reminder-banner-text').textContent = `Bills: ${parts.join(' · ')}`;
+  banner.hidden = false;
+}
+
+document.getElementById('reminder-banner-view').addEventListener('click', () => setActiveTab('budget'));
+document.getElementById('reminder-banner-dismiss').addEventListener('click', () => {
+  reminderBannerDismissed = true;
+  document.getElementById('reminder-banner').hidden = true;
+});
+
 function computeCurrentlyReading(nonDeletedBooks) {
   return nonDeletedBooks.filter((b) => b.status === 'currently_reading').sort(BOOK_SORTS.author_asc);
 }
@@ -4173,8 +4524,13 @@ function renderHome() {
   const { overdue: overdueBills, dueSoon: dueSoonBills } = computeHomeBills(nonDeletedBills);
   const { overdue: overdueTodos, dueSoon: dueSoonTodos } = computeHomeTodos(nonDeletedTodos);
   const currentlyReading = computeCurrentlyReading(nonDeletedBooks);
+  const homeRefills = computeHomeRefills(medications.filter((m) => !m.deleted));
+  const homeAppointments = computeHomeAppointments(appointments.filter((a) => !a.deleted));
 
-  const actionableCount = overdueBills.length + dueSoonBills.length + overdueTodos.length + dueSoonTodos.length;
+  renderReminderBanner(overdueBills, dueSoonBills);
+
+  const actionableCount = overdueBills.length + dueSoonBills.length + overdueTodos.length + dueSoonTodos.length
+    + homeRefills.length + homeAppointments.length;
 
   const statsEl = document.getElementById('home-stats');
   const emptyEl = document.getElementById('home-empty-state');
@@ -4185,9 +4541,16 @@ function renderHome() {
   const todoList = document.getElementById('home-todo-list');
   const readingList = document.getElementById('home-reading-list');
 
+  const refillsPanel = document.getElementById('home-refills-panel');
+  const appointmentsPanel = document.getElementById('home-appointments-panel');
+  const refillsList = document.getElementById('home-refills-list');
+  const appointmentsList = document.getElementById('home-appointments-list');
+
   billsList.innerHTML = '';
   todoList.innerHTML = '';
   readingList.innerHTML = '';
+  refillsList.innerHTML = '';
+  appointmentsList.innerHTML = '';
 
   function makeHomeRow(onClick, buildContent) {
     const li = document.createElement('li');
@@ -4252,6 +4615,34 @@ function renderHome() {
     todoPanel.hidden = true;
   }
 
+  refillsPanel.hidden = homeRefills.length === 0;
+  homeRefills.forEach((med) => {
+    refillsList.appendChild(makeHomeRow(() => setActiveTab('medications'), (btn) => {
+      const name = document.createElement('strong');
+      name.className = 'med-name';
+      name.textContent = med.name;
+      const due = document.createElement('span');
+      const days = daysUntilDateKey(med.refillDate);
+      due.className = days < 0 ? 'bill-due overdue' : 'bill-due';
+      due.textContent = days < 0 ? `refill overdue (${med.refillDate})` : `refill ${whenLabel(days)}`;
+      btn.append(name, due);
+    }));
+  });
+
+  appointmentsPanel.hidden = homeAppointments.length === 0;
+  homeAppointments.forEach((appt) => {
+    appointmentsList.appendChild(makeHomeRow(() => setActiveTab('appointments'), (btn) => {
+      const title = document.createElement('strong');
+      title.className = 'appt-title';
+      title.textContent = appt.title;
+      const when = document.createElement('span');
+      when.className = 'bill-due';
+      const time = formatTime12h(appt.time);
+      when.textContent = `${whenLabel(daysUntilDateKey(appt.date))}${time ? ` at ${time}` : ''}`;
+      btn.append(title, when);
+    }));
+  });
+
   if (currentlyReading.length > 0) {
     readingPanel.hidden = false;
     currentlyReading.forEach((book) => {
@@ -4302,6 +4693,7 @@ const SYNC_COLLECTIONS = [
   { name: 'books', label: 'Books', key: BOOKS_KEY, get: () => books, set: (v) => { books = v; }, render: renderBooks, delete: deleteBook, restore: restoreBook },
   { name: 'recipes', label: 'Recipes', key: RECIPES_KEY, get: () => recipes, set: (v) => { recipes = v; }, render: renderRecipes, delete: deleteRecipe, restore: restoreRecipe },
   { name: 'medications', label: 'Medications', key: MEDICATIONS_KEY, get: () => medications, set: (v) => { medications = v; }, render: renderMedications, delete: deleteMedication, restore: restoreMedication },
+  { name: 'appointments', label: 'Appointments', key: APPOINTMENTS_KEY, get: () => appointments, set: (v) => { appointments = v; }, render: renderAppointments, delete: deleteAppointment, restore: restoreAppointment },
   { name: 'diagnoses', label: 'Diagnoses', key: DIAGNOSES_KEY, get: () => diagnoses, set: (v) => { diagnoses = v; }, render: renderDiagnoses, delete: deleteDiagnosis, restore: restoreDiagnosis },
   { name: 'todos', label: 'To-Do', key: TODOS_KEY, get: () => todos, set: (v) => { todos = v; }, render: renderTodos, delete: deleteTodo, restore: restoreTodo },
   { name: 'shoppingList', label: 'Shopping List', key: SHOPPING_KEY, get: () => shoppingItems, set: (v) => { shoppingItems = v; }, render: renderShoppingList, delete: deleteShoppingItem, restore: restoreShoppingItem },
@@ -4762,6 +5154,7 @@ renderBooks();
 renderRecipes();
 renderMedications();
 renderDiagnoses();
+renderAppointments();
 renderTodos();
 renderShoppingList();
 renderNotes();

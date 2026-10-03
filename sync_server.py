@@ -24,7 +24,7 @@ DATA_PATH = DATA_DIR / "sync_data.json"
 COLLECTION_NAMES = [
     "books", "recipes", "medications", "diagnoses", "todos",
     "shoppingList", "notes", "links", "courses", "bills", "income",
-    "recurringIncome",
+    "recurringIncome", "appointments",
 ]
 
 # The app's HTML/JS is now hosted separately from this server (GitHub Pages,

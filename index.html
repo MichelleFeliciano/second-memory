@@ -131,6 +131,15 @@
               Diagnoses
             </button>
           </li>
+          <li>
+            <button type="button" class="nav-item" data-tab="appointments">
+              <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+                <path d="M12 2C7 2 3 6 3 11c0 5 4 9 9 11 5-2 9-6 9-11 0-5-4-9-9-9z" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                <path d="M12 4v16" stroke="currentColor" stroke-width="1.4"/>
+              </svg>
+              Appointments
+            </button>
+          </li>
         </ul>
       </li>
       <li class="nav-divider"><div class="leaf-divider" aria-hidden="true"></div></li>
@@ -183,6 +192,12 @@
   </nav>
 
   <main class="content">
+    <div class="reminder-banner" id="reminder-banner" role="status" hidden>
+      <span class="reminder-banner-text" id="reminder-banner-text"></span>
+      <button type="button" id="reminder-banner-view" class="reminder-banner-btn">View</button>
+      <button type="button" id="reminder-banner-dismiss" class="reminder-banner-btn" aria-label="Dismiss reminder">&times;</button>
+    </div>
+
     <section class="collection" id="home-collection" hidden>
       <div class="collection-toolbar">
         <h2>Home</h2>
@@ -201,6 +216,14 @@
         <div class="column" id="home-todo-panel" hidden>
           <h3>To-Do</h3>
           <ul class="card-list" id="home-todo-list"></ul>
+        </div>
+        <div class="column" id="home-refills-panel" hidden>
+          <h3>Medication Refills</h3>
+          <ul class="card-list" id="home-refills-list"></ul>
+        </div>
+        <div class="column" id="home-appointments-panel" hidden>
+          <h3>Appointments</h3>
+          <ul class="card-list" id="home-appointments-list"></ul>
         </div>
         <div class="column" id="home-reading-panel" hidden>
           <h3>Currently Reading</h3>
@@ -334,6 +357,34 @@
       <ul class="card-list flat-list" id="medications-list"></ul>
 
       <p class="empty-state" id="medications-empty-state" hidden>No medications yet — add your first one above.</p>
+    </section>
+
+    <section class="collection" id="appointments-collection" hidden>
+      <div class="collection-toolbar">
+        <h2>Appointments</h2>
+      </div>
+
+      <form id="appointments-add-form" class="add-form add-form-stacked">
+        <input type="text" id="appointments-title-input" placeholder="What (e.g. Dentist, Dr. Lee follow-up)" required aria-label="Appointment title">
+        <label class="date-field">Date
+          <input type="date" id="appointments-date-input" required aria-label="Appointment date">
+        </label>
+        <label class="date-field">Time (optional)
+          <input type="time" id="appointments-time-input" aria-label="Appointment time">
+        </label>
+        <input type="text" id="appointments-provider-input" placeholder="Doctor / provider (optional)" aria-label="Provider">
+        <input type="text" id="appointments-location-input" placeholder="Location (optional)" aria-label="Location">
+        <textarea id="appointments-notes-input" placeholder="Notes (optional)" aria-label="Appointment notes" rows="2"></textarea>
+        <p class="form-error" id="appointments-form-error" hidden></p>
+        <button type="submit">Add appointment</button>
+      </form>
+
+      <h3 class="subsection-heading">Upcoming</h3>
+      <ul class="card-list flat-list" id="appointments-upcoming-list"></ul>
+      <p class="empty-state" id="appointments-empty-state" hidden>No upcoming appointments.</p>
+
+      <h3 class="subsection-heading">Past</h3>
+      <ul class="card-list flat-list" id="appointments-past-list"></ul>
     </section>
 
     <section class="collection" id="diagnoses-collection" hidden>
@@ -492,6 +543,15 @@
       <p class="stats-line" id="pay-period-summary"></p>
       <ul class="card-list flat-list" id="pay-period-bills-list"></ul>
       <p class="empty-state" id="pay-period-empty-state" hidden>No bills due in this pay period.</p>
+
+      <div class="collection-toolbar">
+        <h2>Paid History</h2>
+        <button type="button" class="paid-history-nav" id="paid-history-prev" aria-label="Previous month">&lsaquo;</button>
+        <span class="paid-history-label" id="paid-history-label"></span>
+        <button type="button" class="paid-history-nav" id="paid-history-next" aria-label="Next month">&rsaquo;</button>
+      </div>
+      <ul class="card-list flat-list" id="paid-history-list"></ul>
+      <p class="empty-state" id="paid-history-empty" hidden>No bills marked paid this month.</p>
 
       <div class="collection-toolbar">
         <h2>Bills</h2>
@@ -743,6 +803,37 @@
       <textarea class="med-edit-notes" placeholder="Notes (optional)" aria-label="Edit medication notes" rows="2"></textarea>
       <p class="form-error med-edit-error" hidden></p>
       <div class="med-actions">
+        <button type="submit">Save</button>
+        <button type="button" class="cancel-btn">Cancel</button>
+      </div>
+    </form>
+  </li>
+</template>
+
+<template id="appointments-card-template">
+  <li class="appt-card">
+    <div class="appt-view">
+      <div class="appt-info">
+        <strong class="appt-title"></strong>
+        <span class="appt-when"></span>
+        <span class="appt-field appt-provider" hidden></span>
+        <span class="appt-field appt-location" hidden></span>
+      </div>
+      <p class="appt-notes" hidden></p>
+      <div class="appt-actions">
+        <button type="button" class="edit-btn">Edit</button>
+        <button type="button" class="delete-btn" aria-label="Delete appointment">Delete</button>
+      </div>
+    </div>
+    <form class="appt-edit-form" hidden>
+      <input type="text" class="appt-edit-title" placeholder="What" required aria-label="Edit appointment title">
+      <input type="date" class="appt-edit-date" required aria-label="Edit appointment date">
+      <input type="time" class="appt-edit-time" aria-label="Edit appointment time">
+      <input type="text" class="appt-edit-provider" placeholder="Doctor / provider (optional)" aria-label="Edit provider">
+      <input type="text" class="appt-edit-location" placeholder="Location (optional)" aria-label="Edit location">
+      <textarea class="appt-edit-notes" placeholder="Notes (optional)" aria-label="Edit appointment notes" rows="2"></textarea>
+      <p class="form-error appt-edit-error" hidden></p>
+      <div class="appt-actions">
         <button type="submit">Save</button>
         <button type="button" class="cancel-btn">Cancel</button>
       </div>
