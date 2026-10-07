@@ -137,6 +137,26 @@ def merge_collection(server_items, client_items, collection_name):
             if _content_matches(existing, incoming, collection_name):
                 continue
 
+            # Deletes always win over a stale copy. A stale device that still
+            # shows an item live (it hasn't pulled the delete yet) must never
+            # bring it back as a fork, and a delete made on a stale device
+            # must not be undone by someone's newer edit to a record the user
+            # chose to remove. This is what made deleted items "come back".
+            if existing.get("deleted") and not incoming.get("deleted"):
+                continue
+            if incoming.get("deleted") and not existing.get("deleted"):
+                tombstone = dict(existing)
+                tombstone["deleted"] = True
+                tombstone["updatedAt"] = incoming.get("updatedAt", existing.get("updatedAt"))
+                tombstone["deviceId"] = incoming.get("deviceId", existing.get("deviceId"))
+                tombstone["version"] = server_version + 1
+                by_id[record_id] = tombstone
+                for i, item in enumerate(server_items):
+                    if item.get("id") == record_id:
+                        server_items[i] = tombstone
+                        break
+                continue
+
             # Genuine conflict: someone else's write already landed on this
             # id since this client last synced. Keep the server's record
             # untouched and save the client's content as a brand-new record

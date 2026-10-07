@@ -5233,38 +5233,154 @@ function setSyncStatus(text, tone) {
   el.classList.toggle('sync-failed', tone === 'failed');
 }
 
+// Per-device record of what the server last told us, so each sync can send
+// only records this device actually changed. Re-sending every record on every
+// tick let a stale device overwrite or "fork" other devices' newer edits and
+// deletes into duplicates. Never synced; purely local bookkeeping.
+const SYNC_SNAPSHOT_KEY = 'secondMemory.syncSnapshot.v1';
+
+function loadSyncSnapshot() {
+  try {
+    const raw = localStorage.getItem(SYNC_SNAPSHOT_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveSyncSnapshot(snapshot) {
+  try {
+    localStorage.setItem(SYNC_SNAPSHOT_KEY, JSON.stringify(snapshot));
+  } catch {
+    // Storage full: next sync just falls back to re-bootstrapping safely.
+  }
+}
+
+function snapshotOfItems(items) {
+  const map = {};
+  items.forEach((item) => { map[item.id] = JSON.stringify(item); });
+  return map;
+}
+
+async function postSync(config, collections) {
+  const response = await fetch(`${SYNC_SERVER_URL}/api/sync`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Sync-Token': config.token },
+    body: JSON.stringify({ deviceId: getDeviceId(), collections }),
+  });
+  if (response.status === 401) return { kind: 'unauthorized' };
+  if (!response.ok) return { kind: 'error' };
+  return { kind: 'ok', data: await response.json() };
+}
+
+// First sync on a device with no snapshot: pull the server's state, then
+// reconcile record by record WITHOUT sending anything. A local record is only
+// kept as "changed here" if the server has never seen it or this device's
+// copy was edited more recently than the server's; otherwise the server's
+// copy wins, so a long-stale device can't resurrect or overwrite anything.
+function bootstrapSyncSnapshot(serverData) {
+  const snapshot = {};
+  SYNC_COLLECTIONS.forEach((c) => {
+    const serverItems = serverData.collections && Array.isArray(serverData.collections[c.name])
+      ? serverData.collections[c.name]
+      : [];
+    const serverById = new Map(serverItems.map((item) => [item.id, item]));
+    const merged = [];
+    const known = {};
+    const seen = new Set();
+
+    c.get().forEach((local) => {
+      seen.add(local.id);
+      const server = serverById.get(local.id);
+      if (!server) {
+        merged.push(local);
+        return;
+      }
+      const sameContent = contentMatchesIgnoringVersion(local, server, c.name);
+      if (!sameContent && (local.updatedAt || '') > (server.updatedAt || '')) {
+        merged.push(local);
+        return;
+      }
+      merged.push(server);
+      known[server.id] = JSON.stringify(server);
+    });
+    serverItems.forEach((server) => {
+      if (seen.has(server.id)) return;
+      merged.push(server);
+      known[server.id] = JSON.stringify(server);
+    });
+
+    c.set(merged);
+    saveCollection(c.key, merged);
+    c.render();
+    snapshot[c.name] = known;
+  });
+  saveSyncSnapshot(snapshot);
+  return snapshot;
+}
+
 async function runSync() {
   const config = loadSyncConfig();
   if (!config || syncInFlight) return;
   syncInFlight = true;
   setSyncStatus('Syncing…', null);
-
-  const payload = { deviceId: getDeviceId(), collections: {} };
-  SYNC_COLLECTIONS.forEach((c) => { payload.collections[c.name] = c.get(); });
+  let resyncSoon = false;
 
   try {
-    const response = await fetch(`${SYNC_SERVER_URL}/api/sync`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Sync-Token': config.token },
-      body: JSON.stringify(payload),
+    let snapshot = loadSyncSnapshot();
+    if (!snapshot) {
+      const boot = await postSync(config, {});
+      if (boot.kind === 'unauthorized') {
+        setSyncStatus('Sync failed — check passphrase', 'failed');
+        return;
+      }
+      if (boot.kind !== 'ok') {
+        setSyncStatus('Sync failed — retrying', 'failed');
+        return;
+      }
+      snapshot = bootstrapSyncSnapshot(boot.data);
+    }
+
+    const outgoing = {};
+    const preFlight = {};
+    SYNC_COLLECTIONS.forEach((c) => {
+      const items = c.get();
+      const known = snapshot[c.name] || {};
+      outgoing[c.name] = items.filter((item) => known[item.id] !== JSON.stringify(item));
+      preFlight[c.name] = JSON.stringify(items);
     });
 
-    if (response.status === 401) {
+    const result = await postSync(config, outgoing);
+    if (result.kind === 'unauthorized') {
       setSyncStatus('Sync failed — check passphrase', 'failed');
       return;
     }
-    if (!response.ok) {
+    if (result.kind !== 'ok') {
       setSyncStatus('Sync failed — retrying', 'failed');
       return;
     }
+    const data = result.data;
 
-    const data = await response.json();
+    const nextSnapshot = { ...snapshot };
     SYNC_COLLECTIONS.forEach((c) => {
-      const incoming = data.collections && Array.isArray(data.collections[c.name]) ? data.collections[c.name] : c.get();
+      // If this collection changed while the request was in flight, applying
+      // the server's reply would wipe the new local change (e.g. a delete the
+      // user made a moment ago). Keep local as-is; the changed records are
+      // still "dirty" and go out on the quick follow-up sync.
+      if (JSON.stringify(c.get()) !== preFlight[c.name]) {
+        resyncSoon = true;
+        return;
+      }
+      const incoming = data.collections && Array.isArray(data.collections[c.name]) ? data.collections[c.name] : null;
+      if (!incoming) return;
+      nextSnapshot[c.name] = snapshotOfItems(incoming);
+      if (JSON.stringify(incoming) === preFlight[c.name]) return;
       c.set(incoming);
       saveCollection(c.key, incoming);
       c.render();
     });
+    saveSyncSnapshot(nextSnapshot);
 
     lastSyncedAt = new Date();
     const conflicts = Array.isArray(data.conflicts) ? data.conflicts : [];
@@ -5283,6 +5399,7 @@ async function runSync() {
     setSyncStatus('Sync failed — retrying', 'failed');
   } finally {
     syncInFlight = false;
+    if (resyncSoon) setTimeout(runSync, 1500);
   }
 }
 
@@ -5473,6 +5590,13 @@ function mergeCollectionFromImport(localItems, importedItems, collectionName) {
     }
 
     if (contentMatchesIgnoringVersion(existing, incoming, collectionName)) {
+      unchanged += 1;
+      return;
+    }
+
+    // Same rule as the sync server: a deleted record stays deleted rather than
+    // being brought back as a duplicate by an older backup file.
+    if (existing.deleted && !incoming.deleted) {
       unchanged += 1;
       return;
     }
