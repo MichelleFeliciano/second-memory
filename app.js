@@ -242,7 +242,7 @@ let books = migrateSyncFields(loadCollection(BOOKS_KEY), BOOKS_KEY, getDeviceId(
 
 function addBook(title, author, status) {
   const trimmedTitle = title.trim();
-  if (!trimmedTitle) return;
+  if (!trimmedTitle) return false;
   const now = new Date().toISOString();
   const book = {
     id: makeId(),
@@ -260,6 +260,7 @@ function addBook(title, author, status) {
   saveCollection(BOOKS_KEY, books);
   recordUndo('books', book.id, null, structuredClone(book));
   renderBooks();
+  return true;
 }
 
 function updateBookStatus(id, newStatus) {
@@ -310,7 +311,7 @@ function updateBook(id, fields) {
   const book = books.find((b) => b.id === id);
   if (!book) return;
   const trimmedTitle = fields.title.trim();
-  if (!trimmedTitle) return;
+  if (!trimmedTitle) return false;
   const before = structuredClone(book);
   book.title = trimmedTitle;
   book.author = fields.author.trim();
@@ -449,7 +450,10 @@ function renderBooks() {
         // fix is applied at every collection's edit-form submit handler.
         editForm.hidden = true;
         viewSection.hidden = false;
-        updateBook(book.id, { title: editTitleInput.value, author: editAuthorInput.value });
+        if (updateBook(book.id, { title: editTitleInput.value, author: editAuthorInput.value }) === false) {
+          viewSection.hidden = true;
+          editForm.hidden = false;
+        }
       });
 
       node.querySelector('.delete-btn').addEventListener('click', () => deleteBook(book.id));
@@ -475,9 +479,10 @@ document.getElementById('books-add-form').addEventListener('submit', (e) => {
   const titleInput = document.getElementById('books-title-input');
   const authorInput = document.getElementById('books-author-input');
   const statusInput = document.getElementById('books-status-input');
-  addBook(titleInput.value, authorInput.value, statusInput.value);
-  titleInput.value = '';
-  authorInput.value = '';
+  if (addBook(titleInput.value, authorInput.value, statusInput.value)) {
+    titleInput.value = '';
+    authorInput.value = '';
+  }
   titleInput.focus();
 });
 
@@ -500,7 +505,7 @@ function splitLines(text) {
 
 function addRecipe(title, category, ingredientsText, stepsText, notes) {
   const trimmedTitle = title.trim();
-  if (!trimmedTitle) return;
+  if (!trimmedTitle) return false;
   const now = new Date().toISOString();
   const recipe = {
     id: makeId(),
@@ -519,6 +524,7 @@ function addRecipe(title, category, ingredientsText, stepsText, notes) {
   saveCollection(RECIPES_KEY, recipes);
   recordUndo('recipes', recipe.id, null, structuredClone(recipe));
   renderRecipes();
+  return true;
 }
 
 function deleteRecipe(id) {
@@ -547,7 +553,7 @@ function updateRecipe(id, fields) {
   const recipe = recipes.find((r) => r.id === id);
   if (!recipe) return;
   const trimmedTitle = fields.title.trim();
-  if (!trimmedTitle) return;
+  if (!trimmedTitle) return false;
   const before = structuredClone(recipe);
   recipe.title = trimmedTitle;
   recipe.category = fields.category.trim();
@@ -707,13 +713,17 @@ function renderRecipes() {
       // form that just saved.
       editForm.hidden = true;
       viewSection.hidden = false;
-      updateRecipe(recipe.id, {
+      const saved = updateRecipe(recipe.id, {
         title: editTitleInput.value,
         category: editCategoryInput.value,
         ingredientsText: editIngredientsInput.value,
         stepsText: editStepsInput.value,
         notes: editNotesInput.value,
       });
+      if (saved === false) {
+        viewSection.hidden = true;
+        editForm.hidden = false;
+      }
     });
 
     node.querySelector('.delete-btn').addEventListener('click', () => deleteRecipe(recipe.id));
@@ -741,12 +751,13 @@ document.getElementById('recipes-add-form').addEventListener('submit', (e) => {
   const ingredientsInput = document.getElementById('recipes-ingredients-input');
   const stepsInput = document.getElementById('recipes-steps-input');
   const notesInput = document.getElementById('recipes-notes-input');
-  addRecipe(titleInput.value, categoryInput.value, ingredientsInput.value, stepsInput.value, notesInput.value);
-  titleInput.value = '';
-  categoryInput.value = '';
-  ingredientsInput.value = '';
-  stepsInput.value = '';
-  notesInput.value = '';
+  if (addRecipe(titleInput.value, categoryInput.value, ingredientsInput.value, stepsInput.value, notesInput.value)) {
+    titleInput.value = '';
+    categoryInput.value = '';
+    ingredientsInput.value = '';
+    stepsInput.value = '';
+    notesInput.value = '';
+  }
   titleInput.focus();
 });
 
@@ -911,7 +922,7 @@ function renderMedicationList(items, template, openEdit) {
         refillHint.hidden = false;
       }
     }
-    unknownHint.hidden = med.startDate !== null;
+    unknownHint.hidden = !!med.startDate;
 
     startInput.addEventListener('change', () => {
       const result = updateMedicationDate(med.id, 'startDate', startInput.value);
@@ -1635,8 +1646,7 @@ function matchesTodoSearch(todo, term) {
 
 function isTodoOverdue(todo) {
   if (todo.completed || !todo.dueDate) return false;
-  const today = new Date().toISOString().slice(0, 10);
-  return todo.dueDate < today;
+  return todo.dueDate < todayKey();
 }
 
 // 'all' is the default/initial state. Fixed 3-option set (not derived from
@@ -2260,7 +2270,6 @@ document.getElementById('notes-sort-input').addEventListener('change', (e) => {
 // ---- Resume & Portfolio ----
 
 const LINKS_KEY = 'secondMemory.links.v1';
-const URL_SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
 
 let links = migrateSyncFields(loadCollection(LINKS_KEY), LINKS_KEY, getDeviceId());
 
@@ -2335,7 +2344,11 @@ function matchesLinkSearch(link, term) {
 }
 
 function hrefFor(url) {
-  return URL_SCHEME_RE.test(url) ? url : `https://${url}`;
+  const trimmed = String(url).trim();
+  if (/^(https?:\/\/|mailto:|tel:)/i.test(trimmed)) return trimmed;
+  // Anything else (including javascript:/data: and host:port forms like
+  // localhost:3000) is treated as a plain web address, never as a script.
+  return `https://${trimmed.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '')}`;
 }
 
 // 'date_added_asc' is the default, matching current unsorted behavior.
@@ -2639,7 +2652,7 @@ function renderCoursesStats(nonDeletedCourses) {
       .filter((c) => c.status === status)
       .filter((c) => c.credits !== null && c.credits !== undefined);
     if (withCredits.length === 0) return null;
-    const sum = withCredits.reduce((total, c) => total + c.credits, 0);
+    const sum = Math.round(withCredits.reduce((total, c) => total + c.credits, 0) * 1000) / 1000;
     return `${sum} credit${sum === 1 ? '' : 's'} ${COURSE_STATUS_LABELS[status]}`;
   }).filter(Boolean);
 
@@ -3479,8 +3492,16 @@ let paidHistoryMonth = (() => { const { y, m } = parseDateKey(todayKey()); retur
 function computePaidByCategory(allBills, y, m) {
   const prefix = `${y}-${String(m + 1).padStart(2, '0')}-`;
   const byKey = new Map();
+  const counted = new Set(); // same payment recorded on duplicate bills counts once (matches totalPaidEver)
   allBills.forEach((bill) => {
-    const count = (bill.paidDates || []).filter((d) => d.startsWith(prefix) && occursOnDate(bill, d)).length;
+    const dates = (bill.paidDates || []).filter((d) => {
+      if (!d.startsWith(prefix) || !occursOnDate(bill, d)) return false;
+      const paymentKey = `${normalizeChipKey(bill.name)}|${bill.amount}|${d}`;
+      if (counted.has(paymentKey)) return false;
+      counted.add(paymentKey);
+      return true;
+    });
+    const count = dates.length;
     if (count === 0) return;
     const raw = (bill.category || '').trim();
     const key = normalizeChipKey(raw);
@@ -3765,11 +3786,11 @@ document.addEventListener('click', (e) => {
   if (!openCalendarDayKey) return;
   const openCell = document.querySelector('.budget-day-cell.budget-day-open');
   if (openCell && !openCell.contains(e.target)) {
+    // A tap outside the sheet only closes it; it must never also trigger
+    // whatever is underneath (Delete, a tab, a chip, another day).
     closeCalendarDay();
-    if (e.target.closest && e.target.closest('.budget-day-cell')) {
-      e.stopPropagation();
-      e.preventDefault();
-    }
+    e.stopPropagation();
+    e.preventDefault();
   }
 }, true);
 
@@ -3832,7 +3853,7 @@ function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, nonDeletedRecur
   if (lifetimeEl) {
     let label = 'Lifetime balance';
     if (lifetimeAnchor) {
-      const { y, m, d } = parseDateKey(lifetimeAnchor.slice(0, 10));
+      const { y, m, d } = parseDateKey(dateKeyFromLocalDate(new Date(lifetimeAnchor)));
       label = `Since ${MONTH_NAMES[m]} ${d}, ${y}`;
     }
     lifetimeEl.innerHTML =
@@ -3915,8 +3936,11 @@ function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, nonDeletedRecur
       cellEl.dataset.dateKey = dateKey;
       cellEl.classList.toggle('budget-day-today', dateKey === todayK);
       cellEl.classList.toggle('budget-day-open', isCompactCalendar() && dateKey === openCalendarDayKey);
-      cellEl.addEventListener('click', () => {
+      cellEl.addEventListener('click', (e) => {
         if (!isCompactCalendar() || openCalendarDayKey === dateKey) return;
+        // The dots are <label>s around hidden checkboxes: stop the tap that
+        // opens the sheet from also toggling that bill's paid state.
+        e.preventDefault();
         closeCalendarDay();
         openCalendarDayKey = dateKey;
         cellEl.classList.add('budget-day-open');
@@ -4632,6 +4656,7 @@ function finishJournalEntry() {
     return;
   }
   const now = new Date().toISOString();
+  const backup = JSON.stringify(journalEntries);
   if (editingId) {
     const entry = journalEntries.find((e) => e.id === editingId);
     if (entry) {
@@ -4642,7 +4667,15 @@ function finishJournalEntry() {
   } else {
     journalEntries.push({ id: makeId(), type, date, answers: cleaned, dateAdded: now, updatedAt: now });
   }
-  saveJournalEntries();
+  try {
+    saveJournalEntries();
+  } catch {
+    journalEntries = JSON.parse(backup);
+    const errorEl = document.getElementById('journal-error');
+    errorEl.textContent = 'Could not save: this browser is out of storage space. Back up and clear some data, then try again.';
+    errorEl.hidden = false;
+    return;
+  }
   closeJournalWizard();
   renderJournal();
 }
@@ -4715,6 +4748,7 @@ function renderJournal() {
     editBtn.className = 'edit-btn';
     editBtn.textContent = 'Edit';
     editBtn.addEventListener('click', () => {
+      if (journalDraft && !window.confirm('Discard the entry you are writing?')) return;
       openJournalWizard(entry.type, entry);
       document.getElementById('journal-wizard').scrollIntoView({ block: 'nearest' });
     });
@@ -4733,7 +4767,10 @@ function renderJournal() {
 }
 
 document.querySelectorAll('.journal-start-btn').forEach((btn) => {
-  btn.addEventListener('click', () => openJournalWizard(btn.dataset.journalType, null));
+  btn.addEventListener('click', () => {
+    if (journalDraft && !window.confirm('Discard the entry you are writing?')) return;
+    openJournalWizard(btn.dataset.journalType, null);
+  });
 });
 
 document.getElementById('journal-wizard').addEventListener('submit', (e) => {
@@ -4758,9 +4795,8 @@ document.getElementById('journal-back-btn').addEventListener('click', () => {
 
 document.getElementById('journal-skip-btn').addEventListener('click', () => {
   if (!journalDraft) return;
-  // Skipping discards whatever was typed on this question.
-  const question = JOURNAL_TEMPLATES[journalDraft.type].questions[journalDraft.step - 1];
-  if (question) delete journalDraft.answers[question.id];
+  // Skip leaves the question as it was (blank on a new entry, the saved
+  // answer when editing) and moves on.
   journalDraft.step += 1;
   renderJournalStep();
 });
@@ -4878,12 +4914,11 @@ function computeHomeTodos(nonDeletedTodos) {
     .filter((t) => !t.completed && isTodoOverdue(t))
     .sort(compareByField((t) => t.dueDate, 1, { text: false }));
 
-  // Deliberately the same UTC idiom isTodoOverdue() already uses internally
-  // (toISOString, not the corrected local-date todayKey()) so this widget's
-  // two buckets partition cleanly against isTodoOverdue()'s own boundary
-  // instead of drifting apart near local midnight. See
-  // docs/specs/home-dashboard.md §11.1 — not a bug, not to be "fixed" here.
-  const dueSoonThroughKey = new Date(Date.now() + HOME_DUE_SOON_DAYS * 86400000).toISOString().slice(0, 10);
+  // Local-date math on both sides (isTodoOverdue also uses todayKey()), so the
+  // overdue and due-soon buckets split on the same boundary. The old UTC
+  // idiom flagged a to-do due today as overdue for the evening hours in the
+  // US timezones.
+  const dueSoonThroughKey = shiftDateKey(todayKey(), HOME_DUE_SOON_DAYS);
 
   const dueSoon = nonDeletedTodos
     .filter((t) => !t.completed && t.dueDate && !isTodoOverdue(t) && t.dueDate <= dueSoonThroughKey)
@@ -5171,14 +5206,19 @@ function applyEntrySnapshot(entry, which) {
   // record and the entry still sitting in the opposite stack, so a later
   // in-place mutation could silently corrupt history.
   const snapshot = structuredClone(target);
-  Object.keys(snapshot).forEach((key) => {
-    // Never restore identity/version bookkeeping from history — id and
-    // dateAdded never change; version is server-assigned only; updatedAt/
-    // deviceId are always freshly stamped below, not replayed from the old
-    // snapshot, because this undo/redo action IS a new local mutation, not
-    // a replay of the old timestamp. `deleted` was already handled above.
-    if (['id', 'dateAdded', 'version', 'updatedAt', 'deviceId', 'deleted'].includes(key)) return;
-    record[key] = snapshot[key];
+  const other = entry[which === 'before' ? 'after' : 'before'];
+  const BOOKKEEPING = ['id', 'dateAdded', 'version', 'updatedAt', 'deviceId', 'deleted'];
+  // Only fields this history entry actually changed are applied, so undo can
+  // never revert fields changed elsewhere since (e.g. paid dates that arrived
+  // from another device). A field the snapshot lacks (set on a record that
+  // predates it) is removed again. Bookkeeping fields are never replayed:
+  // version is server-assigned, updatedAt/deviceId are freshly stamped below
+  // because this undo IS a new local mutation, `deleted` is handled above.
+  new Set([...Object.keys(snapshot), ...Object.keys(other || {})]).forEach((key) => {
+    if (BOOKKEEPING.includes(key)) return;
+    if (other && JSON.stringify(snapshot[key]) === JSON.stringify(other[key])) return;
+    if (key in snapshot) record[key] = snapshot[key];
+    else delete record[key];
   });
   stampSync(record);
   saveCollection(cfg.key, items);
@@ -5272,7 +5312,9 @@ function saveSyncSnapshot(snapshot) {
   try {
     localStorage.setItem(SYNC_SNAPSHOT_KEY, JSON.stringify(snapshot));
   } catch {
-    // Storage full: next sync just falls back to re-bootstrapping safely.
+    // Storage full: drop the stale snapshot so the next sync re-bootstraps
+    // safely instead of trusting out-of-date bookkeeping.
+    try { localStorage.removeItem(SYNC_SNAPSHOT_KEY); } catch { /* nothing more to do */ }
   }
 }
 
@@ -5451,7 +5493,7 @@ async function runSync() {
       if (JSON.stringify(result) !== before) {
         c.set(result);
         saveCollection(c.key, result);
-        c.render();
+        safeRender(() => c.render());
       }
       // Anything still different from what the server confirmed (an in-flight
       // change, or a record the server was missing) goes out on a quick retry.
@@ -5506,6 +5548,8 @@ function initSyncUI() {
     const tokenInput = document.getElementById('sync-token-input');
     const token = tokenInput.value.trim();
     if (!token) return;
+    const previousConfig = loadSyncConfig();
+    if (!previousConfig || previousConfig.token !== token) localStorage.removeItem(SYNC_SNAPSHOT_KEY);
     saveSyncConfig({ token });
     tokenInput.value = '';
     setupSection.hidden = true;
@@ -5658,6 +5702,18 @@ function mergeCollectionFromImport(localItems, importedItems, collectionName) {
         unchanged += 1;
         return;
       }
+      if (existing.deleted && !incoming.deleted) {
+        unchanged += 1; // a deleted record is never brought back by a backup
+        return;
+      }
+      // The version number only moves on a server round trip, so a record
+      // changed or deleted here since the backup was taken has the SAME
+      // version as the backup copy. Compare edit times instead of letting the
+      // older backup overwrite (or resurrect) newer local work.
+      if ((existing.updatedAt || '') > (incoming.updatedAt || '')) {
+        unchanged += 1;
+        return;
+      }
       const record = { ...incoming };
       const index = localItems.findIndex((item) => item.id === incoming.id);
       localItems[index] = record;
@@ -5696,6 +5752,29 @@ function setDataIoStatus(text, tone) {
   el.classList.toggle('sync-failed', tone === 'failed');
 }
 
+const IMPORT_FREQUENCIES = ['one_time', 'weekly', 'biweekly', 'monthly', 'yearly'];
+
+// Rejects records whose types would crash rendering later (e.g. a bill whose
+// amount is the string "1200" throws in toFixed on every page load).
+function isValidImportRecord(collectionName, rec) {
+  if (!rec || typeof rec !== 'object' || typeof rec.id !== 'string' || !rec.id) return false;
+  const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+  const isDate = (v) => typeof v === 'string' && DATE_KEY_RE.test(v);
+  if (collectionName === 'bills') return isNum(rec.amount) && isDate(rec.dueDate) && IMPORT_FREQUENCIES.includes(rec.frequency);
+  if (collectionName === 'recurringIncome') return isNum(rec.amount) && isDate(rec.dueDate) && IMPORT_FREQUENCIES.includes(rec.frequency) && rec.frequency !== 'one_time';
+  if (collectionName === 'income') return isNum(rec.amount) && isDate(rec.dateKey);
+  if (collectionName === 'appointments') return isDate(rec.date);
+  return true;
+}
+
+function safeRender(fn) {
+  try {
+    fn();
+  } catch (err) {
+    console.error('render failed:', err);
+  }
+}
+
 function importData(parsed) {
   const importedCollections = extractImportCollections(parsed);
   if (!importedCollections) {
@@ -5705,17 +5784,21 @@ function importData(parsed) {
 
   const summaries = [];
   let anyChanged = false;
+  let skippedInvalid = 0;
 
   SYNC_COLLECTIONS.forEach((c) => {
-    const incoming = importedCollections[c.name];
-    if (!Array.isArray(incoming) || incoming.length === 0) return;
+    const rawIncoming = importedCollections[c.name];
+    if (!Array.isArray(rawIncoming) || rawIncoming.length === 0) return;
+    const incoming = rawIncoming.filter((rec) => isValidImportRecord(c.name, rec));
+    skippedInvalid += rawIncoming.length - incoming.length;
+    if (incoming.length === 0) return;
     const localItems = c.get();
     const result = mergeCollectionFromImport(localItems, incoming, c.name);
     if (!result.added && !result.updated && !result.duplicated) return;
 
     anyChanged = true;
     saveCollection(c.key, localItems);
-    c.render();
+    safeRender(() => c.render());
     const parts = [];
     if (result.added) parts.push(`${result.added} new`);
     if (result.updated) parts.push(`${result.updated} updated`);
@@ -5723,12 +5806,13 @@ function importData(parsed) {
     summaries.push(`${parts.join(', ')} in ${c.label}`);
   });
 
+  const skippedNote = skippedInvalid ? ` ${skippedInvalid} unreadable record${skippedInvalid === 1 ? ' was' : 's were'} skipped.` : '';
   if (!anyChanged) {
-    setDataIoStatus('Import complete — nothing new to merge.', 'ok');
+    setDataIoStatus(`Import complete — nothing new to merge.${skippedNote}`, 'ok');
     return;
   }
 
-  setDataIoStatus(`Import complete — ${summaries.join('; ')}.`, 'ok');
+  setDataIoStatus(`Import complete — ${summaries.join('; ')}.${skippedNote}`, 'ok');
 }
 
 document.getElementById('export-data-btn').addEventListener('click', exportData);
@@ -5761,18 +5845,10 @@ document.getElementById('import-file-input').addEventListener('change', (e) => {
 
 // ---- Init ----
 
-renderBooks();
-renderRecipes();
-renderMedications();
-renderDiagnoses();
-renderAppointments();
-renderJournal();
-renderTodos();
-renderShoppingList();
-renderNotes();
-renderLinks();
-renderCourses();
-renderBudget();
+[
+  renderBooks, renderRecipes, renderMedications, renderDiagnoses, renderAppointments, renderJournal,
+  renderTodos, renderShoppingList, renderNotes, renderLinks, renderCourses, renderBudget,
+].forEach(safeRender);
 updateUndoRedoButtons();
 setActiveTab(loadUiState().activeTab || 'home');
 initSyncUI();

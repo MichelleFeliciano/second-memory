@@ -692,6 +692,7 @@ body::before {
 .bill-card,
 .recurring-income-card,
 .home-item {
+  overflow-wrap: break-word;
   border: 1px solid var(--border-soft);
   border-radius: 18px;
   padding: 16px;
@@ -1802,6 +1803,8 @@ body::before {
 /* Journal */
 
 .journal-privacy { margin-bottom: 14px; }
+
+.journal-start[hidden] { display: none; }
 
 .journal-start {
   display: flex;

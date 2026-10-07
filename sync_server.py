@@ -11,8 +11,10 @@ this server does not serve them. Stdlib only — no pip installs.
 import hmac
 import json
 import os
+import shutil
 import sys
 import threading
+import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -43,11 +45,26 @@ def empty_dataset():
 def load_dataset():
     if not DATA_PATH.exists():
         return empty_dataset()
+    # A transient OSError must NOT be treated as "no data": the next save would
+    # overwrite the real file with an empty one. Let it propagate (the request
+    # fails and the client just tries again later).
     try:
         with DATA_PATH.open("r", encoding="utf-8") as f:
             data = json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return empty_dataset()
+    except json.JSONDecodeError:
+        # Corrupt file: set it aside instead of overwriting it, and fall back
+        # to the last good backup if there is one.
+        quarantine = DATA_PATH.with_name(f"sync_data.corrupt-{int(time.time())}.json")
+        os.replace(DATA_PATH, quarantine)
+        backup = DATA_PATH.with_suffix(".bak")
+        if backup.exists():
+            try:
+                with backup.open("r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                return empty_dataset()
+        else:
+            return empty_dataset()
     if not isinstance(data, dict):
         return empty_dataset()
     for name in COLLECTION_NAMES:
@@ -63,6 +80,10 @@ def save_dataset(data):
     tmp_path = DATA_PATH.with_suffix(".tmp")
     with tmp_path.open("w", encoding="utf-8") as f:
         json.dump(data, f)
+        f.flush()
+        os.fsync(f.fileno())
+    if DATA_PATH.exists():
+        shutil.copyfile(DATA_PATH, DATA_PATH.with_suffix(".bak"))
     os.replace(tmp_path, DATA_PATH)
 
 
@@ -224,7 +245,8 @@ class SyncHandler(BaseHTTPRequestHandler):
     def _check_token(self):
         expected = self.server.sync_token
         got = self.headers.get("X-Sync-Token", "")
-        return hmac.compare_digest(got, expected)
+        # Compare bytes: str comparison raises TypeError on non-ASCII input.
+        return hmac.compare_digest(got.encode("utf-8"), expected.encode("utf-8"))
 
     def do_OPTIONS(self):
         if self.path != "/api/sync":
@@ -252,11 +274,21 @@ class SyncHandler(BaseHTTPRequestHandler):
             self._send_json(401, {"error": "invalid or missing X-Sync-Token"})
             return
 
-        length = int(self.headers.get("Content-Length", 0) or 0)
+        try:
+            length = int(self.headers.get("Content-Length", 0) or 0)
+        except ValueError:
+            self._send_json(400, {"error": "invalid Content-Length"})
+            return
+        if length < 0 or length > 50 * 1024 * 1024:
+            self._send_json(413, {"error": "payload too large"})
+            return
         try:
             body = json.loads(self.rfile.read(length) or b"{}")
-        except json.JSONDecodeError:
+        except ValueError:  # JSONDecodeError and UnicodeDecodeError
             self._send_json(400, {"error": "invalid JSON"})
+            return
+        if not isinstance(body, dict):
+            self._send_json(400, {"error": "invalid payload"})
             return
 
         # Only the manual-sync app (clientVersion 2+) may write. Older cached
