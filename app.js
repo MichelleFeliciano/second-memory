@@ -3430,8 +3430,21 @@ function totalIncomeEver(allIncome) {
 // applies, reused here for consistency). See §11.2.
 function totalPaidEver(allBills) {
   const todayK = todayKey();
-  return allBills.reduce((sum, b) =>
-    sum + (b.paidDates || []).filter((d) => d <= todayK && occursOnDate(b, d)).length * b.amount, 0);
+  // Each real payment counts once: sync conflicts used to leave several
+  // copies of the same bill (most now deleted), each carrying the same paid
+  // date, which inflated this total. Same name + amount + date = one payment.
+  const counted = new Set();
+  let sum = 0;
+  allBills.forEach((b) => {
+    (b.paidDates || []).forEach((d) => {
+      if (d > todayK || !occursOnDate(b, d)) return;
+      const key = `${normalizeChipKey(b.name)}|${b.amount}|${d}`;
+      if (counted.has(key)) return;
+      counted.add(key);
+      sum += b.amount;
+    });
+  });
+  return sum;
 }
 
 function lifetimeBalance(allIncome, allBills) {
@@ -3446,7 +3459,13 @@ function lifetimeBalance(allIncome, allBills) {
 // tracking genuinely began). `recurringIncome` excluded, consistent with its
 // exclusion from the sum itself. See §11.4.
 function earliestTrackedDateAdded(allIncome, allBills) {
-  const timestamps = [...allIncome, ...allBills].map((r) => r.dateAdded);
+  // Deleted income is a retracted fact (see totalIncomeEver), so it doesn't
+  // mark when tracking began; a deleted bill still does only if it recorded
+  // real payments (otherwise it's just a discarded or test entry).
+  const timestamps = [
+    ...allIncome.filter((r) => !r.deleted),
+    ...allBills.filter((b) => !b.deleted || (b.paidDates || []).length > 0),
+  ].map((r) => r.dateAdded);
   return timestamps.length ? timestamps.reduce((min, t) => (t < min ? t : min)) : null;
 }
 
