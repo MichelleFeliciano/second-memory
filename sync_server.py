@@ -259,6 +259,12 @@ class SyncHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "invalid JSON"})
             return
 
+        # Only the manual-sync app (clientVersion 2+) may write. Older cached
+        # copies re-sent every record on a timer and kept forking duplicates.
+        if not isinstance(body.get("clientVersion"), int) or body["clientVersion"] < 2:
+            self._send_json(426, {"error": "This copy of the app is out of date. Close and reopen it, then tap Sync now."})
+            return
+
         client_collections = body.get("collections")
         if not isinstance(client_collections, dict):
             self._send_json(400, {"error": "invalid payload: 'collections' must be an object"})

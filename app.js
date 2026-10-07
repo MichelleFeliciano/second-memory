@@ -5286,9 +5286,10 @@ async function postSync(config, collections) {
   const response = await fetch(`${SYNC_SERVER_URL}/api/sync`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Sync-Token': config.token },
-    body: JSON.stringify({ deviceId: getDeviceId(), collections }),
+    body: JSON.stringify({ deviceId: getDeviceId(), clientVersion: 2, collections }),
   });
   if (response.status === 401) return { kind: 'unauthorized' };
+  if (response.status === 426) return { kind: 'outdated' };
   if (!response.ok) return { kind: 'error' };
   return { kind: 'ok', data: await response.json() };
 }
@@ -5393,6 +5394,8 @@ async function runSync() {
   if (!config || syncInFlight) return;
   syncInFlight = true;
   setSyncStatus('Syncing…', null);
+  const syncNowBtn = document.getElementById('sync-now-btn');
+  if (syncNowBtn) syncNowBtn.disabled = true;
   let resyncSoon = false;
 
   try {
@@ -5403,8 +5406,12 @@ async function runSync() {
         setSyncStatus('Sync failed — check passphrase', 'failed');
         return;
       }
+      if (boot.kind === 'outdated') {
+        setSyncStatus('This copy is out of date — close and reopen the app, then tap Sync now', 'failed');
+        return;
+      }
       if (boot.kind !== 'ok') {
-        setSyncStatus('Sync failed — retrying', 'failed');
+        setSyncStatus('Sync failed — tap Sync now to try again', 'failed');
         return;
       }
       snapshot = bootstrapSyncSnapshot(boot.data);
@@ -5424,8 +5431,12 @@ async function runSync() {
       setSyncStatus('Sync failed — check passphrase', 'failed');
       return;
     }
+    if (result.kind === 'outdated') {
+      setSyncStatus('This copy is out of date — close and reopen the app, then tap Sync now', 'failed');
+      return;
+    }
     if (result.kind !== 'ok') {
-      setSyncStatus('Sync failed — retrying', 'failed');
+      setSyncStatus('Sync failed — tap Sync now to try again', 'failed');
       return;
     }
     const data = result.data;
@@ -5458,14 +5469,16 @@ async function runSync() {
         `Synced — ${conflicts.length} ${noun} merged as duplicates in ${collectionNames.join(', ')}. Review and remove any you don't need.`,
         'failed'
       );
+    } else if (resyncSoon) {
+      setSyncStatus('Synced — you changed something during the sync. Tap Sync now again to send it.', 'failed');
     } else {
       setSyncStatus('Synced just now', 'ok');
     }
   } catch {
-    setSyncStatus('Sync failed — retrying', 'failed');
+    setSyncStatus('Sync failed — tap Sync now to try again', 'failed');
   } finally {
     syncInFlight = false;
-    if (resyncSoon) setTimeout(runSync, 1500);
+    if (syncNowBtn) syncNowBtn.disabled = false;
   }
 }
 
@@ -5506,12 +5519,10 @@ function initSyncUI() {
     statusSection.hidden = true;
   });
 
-  runSync();
-  setInterval(runSync, 60000);
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') runSync();
-  });
-  window.addEventListener('online', runSync);
+  // Sync is manual only: nothing runs in the background, on a timer, on
+  // opening the app, or when the connection returns. Press Sync now.
+  document.getElementById('sync-now-btn').addEventListener('click', runSync);
+  if (config) setSyncStatus('Not synced yet — tap Sync now', null);
 }
 
 // ---- Data export / import ----
