@@ -142,7 +142,7 @@ def merge_collection(server_items, client_items, collection_name):
             # bring it back as a fork, and a delete made on a stale device
             # must not be undone by someone's newer edit to a record the user
             # chose to remove. This is what made deleted items "come back".
-            if existing.get("deleted") and not incoming.get("deleted"):
+            if existing.get("deleted"):
                 continue
             if incoming.get("deleted") and not existing.get("deleted"):
                 tombstone = dict(existing)

@@ -5339,6 +5339,55 @@ function bootstrapSyncSnapshot(serverData) {
   return snapshot;
 }
 
+// Applies the server's reply to one collection WITHOUT ever dropping or
+// clobbering local work. Returns { result, known }: the new local array and
+// the snapshot map of records now confirmed identical to the server's.
+//  - unchanged since the request was sent: adopt the server's copy;
+//  - edited/deleted/undeleted while the request was in flight: keep the local
+//    version, and if the server holds exactly what we sent, adopt its version
+//    number so the follow-up send is a clean update instead of a fork;
+//  - missing from the reply (created in flight, or the server lost it): keep it
+//    and leave it out of the snapshot so it is sent again;
+//  - the server's copy has a LOWER version than ours (server rolled back):
+//    keep ours and re-send it.
+function reconcileServerReply(c, incoming, preFlightMap) {
+  const incomingById = new Map(incoming.map((item) => [item.id, item]));
+  const result = [];
+  const known = {};
+  const seen = new Set();
+
+  c.get().forEach((local) => {
+    seen.add(local.id);
+    const server = incomingById.get(local.id);
+    if (!server) {
+      result.push(local);
+      return;
+    }
+    if ((server.version || 0) < (local.version || 0)) {
+      result.push(local);
+      return;
+    }
+    if (JSON.stringify(local) === preFlightMap[local.id]) {
+      result.push(server);
+      known[server.id] = JSON.stringify(server);
+      return;
+    }
+    const sent = preFlightMap[local.id] ? JSON.parse(preFlightMap[local.id]) : null;
+    if (sent && contentMatchesIgnoringVersion(sent, server, c.name)) {
+      local.version = server.version;
+    }
+    result.push(local);
+  });
+
+  incoming.forEach((server) => {
+    if (seen.has(server.id)) return;
+    result.push(server);
+    known[server.id] = JSON.stringify(server);
+  });
+
+  return { result, known };
+}
+
 async function runSync() {
   const config = loadSyncConfig();
   if (!config || syncInFlight) return;
@@ -5367,7 +5416,7 @@ async function runSync() {
       const items = c.get();
       const known = snapshot[c.name] || {};
       outgoing[c.name] = items.filter((item) => known[item.id] !== JSON.stringify(item));
-      preFlight[c.name] = JSON.stringify(items);
+      preFlight[c.name] = snapshotOfItems(items);
     });
 
     const result = await postSync(config, outgoing);
@@ -5383,21 +5432,19 @@ async function runSync() {
 
     const nextSnapshot = { ...snapshot };
     SYNC_COLLECTIONS.forEach((c) => {
-      // If this collection changed while the request was in flight, applying
-      // the server's reply would wipe the new local change (e.g. a delete the
-      // user made a moment ago). Keep local as-is; the changed records are
-      // still "dirty" and go out on the quick follow-up sync.
-      if (JSON.stringify(c.get()) !== preFlight[c.name]) {
-        resyncSoon = true;
-        return;
-      }
       const incoming = data.collections && Array.isArray(data.collections[c.name]) ? data.collections[c.name] : null;
       if (!incoming) return;
-      nextSnapshot[c.name] = snapshotOfItems(incoming);
-      if (JSON.stringify(incoming) === preFlight[c.name]) return;
-      c.set(incoming);
-      saveCollection(c.key, incoming);
-      c.render();
+      const before = JSON.stringify(c.get());
+      const { result, known } = reconcileServerReply(c, incoming, preFlight[c.name]);
+      nextSnapshot[c.name] = known;
+      if (JSON.stringify(result) !== before) {
+        c.set(result);
+        saveCollection(c.key, result);
+        c.render();
+      }
+      // Anything still different from what the server confirmed (an in-flight
+      // change, or a record the server was missing) goes out on a quick retry.
+      if (result.some((item) => known[item.id] !== JSON.stringify(item))) resyncSoon = true;
     });
     saveSyncSnapshot(nextSnapshot);
 
