@@ -186,7 +186,7 @@ function recordUndo(collectionName, id, before, after) {
 // ---- UI state (active tab) ----
 
 const UI_STORAGE_KEY = 'secondMemory.ui.v1';
-const TABS = ['home', 'books', 'recipes', 'medications', 'diagnoses', 'appointments', 'todo', 'shopping', 'notes', 'budget', 'resume', 'coursework'];
+const TABS = ['home', 'books', 'recipes', 'medications', 'diagnoses', 'appointments', 'journal', 'todo', 'shopping', 'notes', 'budget', 'resume', 'coursework'];
 
 function loadUiState() {
   try {
@@ -4451,6 +4451,370 @@ document.getElementById('recurring-income-add-form').addEventListener('submit', 
   nameInput.focus();
 });
 
+// ---- Journal (dreams + therapy sessions) ----
+// Deliberately NOT in SYNC_COLLECTIONS: therapy/dream entries are sensitive, so
+// they live only in this browser's localStorage and are never sent to the sync
+// server. Backup/restore is its own file (separate from the main export).
+
+const JOURNAL_KEY = 'secondMemory.journal.v1';
+
+let journalEntries = loadCollection(JOURNAL_KEY);
+
+const JOURNAL_TEMPLATES = {
+  dream: {
+    label: 'Dream',
+    questions: [
+      { id: 'story', type: 'text', q: 'What happened in the dream?', hint: 'Write it while it is fresh. Fragments are fine.' },
+      { id: 'stood_out', type: 'text', q: 'Which people, places, or objects stood out?' },
+      { id: 'felt_in', type: 'text', q: 'How did you feel during the dream?' },
+      { id: 'felt_waking', type: 'choice', q: 'How did you feel waking up?', options: ['Calm', 'Happy', 'Neutral', 'Anxious', 'Sad', 'Scared'] },
+      { id: 'vividness', type: 'scale', q: 'How vivid was it?', hint: '1 = hazy, 5 = like real life' },
+      { id: 'recurring', type: 'choice', q: 'Is this a recurring dream or theme?', options: ['No', 'Yes', 'Not sure'] },
+      { id: 'connection', type: 'text', q: 'Does anything connect to what is going on in your life right now?' },
+    ],
+  },
+  therapy: {
+    label: 'Therapy session',
+    questions: [
+      { id: 'topics', type: 'text', q: 'What did we mainly talk about?' },
+      { id: 'insight', type: 'text', q: 'What was the biggest insight or moment that stuck with me?' },
+      { id: 'hard', type: 'text', q: 'What felt hard or uncomfortable?' },
+      { id: 'mood_after', type: 'scale', q: 'How do I feel after the session?', hint: '1 = drained, 5 = lighter' },
+      { id: 'homework', type: 'text', q: 'Homework or things to try before next time?' },
+      { id: 'next', type: 'text', q: 'What do I want to bring up next session?' },
+    ],
+  },
+};
+
+let selectedJournalFilter = 'all';
+
+// Wizard state: step 0 is the date; steps 1..N are the template's questions.
+let journalDraft = null; // { type, editingId, date, answers, step }
+
+function hasJournalAnswer(value) {
+  return value !== undefined && value !== null && String(value).trim() !== '';
+}
+
+function saveJournalEntries() {
+  saveCollection(JOURNAL_KEY, journalEntries);
+}
+
+function openJournalWizard(type, existing) {
+  journalDraft = {
+    type,
+    editingId: existing ? existing.id : null,
+    date: existing ? existing.date : todayKey(),
+    answers: existing ? { ...existing.answers } : {},
+    step: 0,
+  };
+  document.getElementById('journal-start').hidden = true;
+  document.getElementById('journal-wizard').hidden = false;
+  renderJournalStep();
+}
+
+function closeJournalWizard() {
+  journalDraft = null;
+  document.getElementById('journal-wizard').hidden = true;
+  document.getElementById('journal-start').hidden = false;
+}
+
+function captureJournalAnswer() {
+  const { type, step } = journalDraft;
+  const container = document.getElementById('journal-answer');
+  if (step === 0) {
+    const dateInput = container.querySelector('input[type="date"]');
+    if (dateInput && DATE_KEY_RE.test(dateInput.value)) journalDraft.date = dateInput.value;
+    return;
+  }
+  const question = JOURNAL_TEMPLATES[type].questions[step - 1];
+  if (question.type === 'text') {
+    const textarea = container.querySelector('textarea');
+    if (textarea) journalDraft.answers[question.id] = textarea.value.trim();
+  }
+  // scale/choice answers are written to journalDraft.answers on click.
+}
+
+function renderJournalStep() {
+  const { type, step, answers } = journalDraft;
+  const template = JOURNAL_TEMPLATES[type];
+  const total = template.questions.length;
+  const container = document.getElementById('journal-answer');
+  const questionEl = document.getElementById('journal-question');
+  const hintEl = document.getElementById('journal-hint');
+  container.innerHTML = '';
+  document.getElementById('journal-error').hidden = true;
+
+  document.getElementById('journal-progress').textContent =
+    `${template.label} entry${journalDraft.editingId ? ' (editing)' : ''} \u00b7 ` +
+    (step === 0 ? 'Date' : `Question ${step} of ${total}`);
+
+  if (step === 0) {
+    questionEl.textContent = type === 'dream' ? 'Which night was this dream?' : 'When was the session?';
+    hintEl.hidden = true;
+    const dateInput = document.createElement('input');
+    dateInput.type = 'date';
+    dateInput.value = journalDraft.date;
+    dateInput.setAttribute('aria-label', 'Entry date');
+    container.appendChild(dateInput);
+  } else {
+    const question = template.questions[step - 1];
+    questionEl.textContent = question.q;
+    hintEl.textContent = question.hint || '';
+    hintEl.hidden = !question.hint;
+    const current = answers[question.id];
+
+    if (question.type === 'text') {
+      const textarea = document.createElement('textarea');
+      textarea.value = current || '';
+      textarea.setAttribute('aria-label', question.q);
+      container.appendChild(textarea);
+      textarea.focus();
+    } else {
+      const choices = question.type === 'scale' ? ['1', '2', '3', '4', '5'] : question.options;
+      const row = document.createElement('div');
+      row.className = 'journal-choices';
+      choices.forEach((choice) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'journal-choice';
+        btn.textContent = choice;
+        btn.classList.toggle('journal-choice-active', String(current) === choice);
+        btn.addEventListener('click', () => {
+          // Tapping the selected option again clears it.
+          if (String(journalDraft.answers[question.id]) === choice) delete journalDraft.answers[question.id];
+          else journalDraft.answers[question.id] = choice;
+          row.querySelectorAll('.journal-choice').forEach((b) => {
+            b.classList.toggle('journal-choice-active', String(journalDraft.answers[question.id]) === b.textContent);
+          });
+        });
+        row.appendChild(btn);
+      });
+      container.appendChild(row);
+    }
+  }
+
+  const isLast = step === total;
+  document.getElementById('journal-back-btn').hidden = step === 0;
+  document.getElementById('journal-skip-btn').hidden = step === 0 || isLast;
+  document.getElementById('journal-next-btn').textContent = isLast
+    ? (journalDraft.editingId ? 'Save changes' : 'Save entry')
+    : 'Next';
+}
+
+function finishJournalEntry() {
+  const { type, editingId, date, answers } = journalDraft;
+  const questionIds = JOURNAL_TEMPLATES[type].questions.map((q) => q.id);
+  const cleaned = {};
+  questionIds.forEach((id) => { if (hasJournalAnswer(answers[id])) cleaned[id] = String(answers[id]).trim(); });
+  if (Object.keys(cleaned).length === 0) {
+    const errorEl = document.getElementById('journal-error');
+    errorEl.textContent = 'Answer at least one question before saving.';
+    errorEl.hidden = false;
+    return;
+  }
+  const now = new Date().toISOString();
+  if (editingId) {
+    const entry = journalEntries.find((e) => e.id === editingId);
+    if (entry) {
+      entry.date = date;
+      entry.answers = cleaned;
+      entry.updatedAt = now;
+    }
+  } else {
+    journalEntries.push({ id: makeId(), type, date, answers: cleaned, dateAdded: now, updatedAt: now });
+  }
+  saveJournalEntries();
+  closeJournalWizard();
+  renderJournal();
+}
+
+function deleteJournalEntry(id) {
+  if (!window.confirm('Delete this journal entry? This cannot be undone.')) return;
+  journalEntries = journalEntries.filter((e) => e.id !== id);
+  saveJournalEntries();
+  renderJournal();
+}
+
+function renderJournal() {
+  const filterOptions = [
+    { key: 'all', label: 'All' },
+    { key: 'dream', label: 'Dreams' },
+    { key: 'therapy', label: 'Therapy' },
+  ];
+  renderChipFilter(
+    document.getElementById('journal-filters'),
+    filterOptions,
+    () => selectedJournalFilter,
+    (key) => { selectedJournalFilter = key; },
+    renderJournal
+  );
+
+  const list = document.getElementById('journal-list');
+  list.innerHTML = '';
+  const visible = journalEntries
+    .filter((e) => JOURNAL_TEMPLATES[e.type])
+    .filter((e) => selectedJournalFilter === 'all' || e.type === selectedJournalFilter)
+    .sort((a, b) => {
+      const ka = `${a.date} ${a.dateAdded}`;
+      const kb = `${b.date} ${b.dateAdded}`;
+      return ka < kb ? 1 : ka > kb ? -1 : 0;
+    });
+
+  visible.forEach((entry) => {
+    const template = JOURNAL_TEMPLATES[entry.type];
+    const li = document.createElement('li');
+    li.className = 'journal-card';
+
+    const header = document.createElement('div');
+    header.className = 'journal-card-header';
+    const badge = document.createElement('span');
+    badge.className = 'journal-type-badge';
+    badge.textContent = template.label;
+    const dateEl = document.createElement('span');
+    dateEl.className = 'journal-card-date';
+    dateEl.textContent = DATE_KEY_RE.test(entry.date) ? formatDateKeyLong(entry.date) : entry.date;
+    header.append(badge, dateEl);
+    li.appendChild(header);
+
+    const qa = document.createElement('dl');
+    qa.className = 'journal-qa';
+    template.questions.forEach((question) => {
+      const answer = entry.answers && entry.answers[question.id];
+      if (!hasJournalAnswer(answer)) return;
+      const dt = document.createElement('dt');
+      dt.textContent = question.q;
+      const dd = document.createElement('dd');
+      dd.textContent = question.type === 'scale' ? `${answer} / 5` : answer;
+      qa.append(dt, dd);
+    });
+    li.appendChild(qa);
+
+    const actions = document.createElement('div');
+    actions.className = 'journal-card-actions';
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'edit-btn';
+    editBtn.textContent = 'Edit';
+    editBtn.addEventListener('click', () => {
+      openJournalWizard(entry.type, entry);
+      document.getElementById('journal-wizard').scrollIntoView({ block: 'nearest' });
+    });
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'delete-btn';
+    deleteBtn.textContent = 'Delete';
+    deleteBtn.addEventListener('click', () => deleteJournalEntry(entry.id));
+    actions.append(editBtn, deleteBtn);
+    li.appendChild(actions);
+
+    list.appendChild(li);
+  });
+
+  document.getElementById('journal-empty-state').hidden = journalEntries.length !== 0;
+}
+
+document.querySelectorAll('.journal-start-btn').forEach((btn) => {
+  btn.addEventListener('click', () => openJournalWizard(btn.dataset.journalType, null));
+});
+
+document.getElementById('journal-wizard').addEventListener('submit', (e) => {
+  e.preventDefault();
+  if (!journalDraft) return;
+  captureJournalAnswer();
+  const total = JOURNAL_TEMPLATES[journalDraft.type].questions.length;
+  if (journalDraft.step >= total) {
+    finishJournalEntry();
+  } else {
+    journalDraft.step += 1;
+    renderJournalStep();
+  }
+});
+
+document.getElementById('journal-back-btn').addEventListener('click', () => {
+  if (!journalDraft || journalDraft.step === 0) return;
+  captureJournalAnswer();
+  journalDraft.step -= 1;
+  renderJournalStep();
+});
+
+document.getElementById('journal-skip-btn').addEventListener('click', () => {
+  if (!journalDraft) return;
+  // Skipping discards whatever was typed on this question.
+  const question = JOURNAL_TEMPLATES[journalDraft.type].questions[journalDraft.step - 1];
+  if (question) delete journalDraft.answers[question.id];
+  journalDraft.step += 1;
+  renderJournalStep();
+});
+
+document.getElementById('journal-cancel-btn').addEventListener('click', closeJournalWizard);
+
+function setJournalBackupStatus(text, tone) {
+  const el = document.getElementById('journal-backup-status');
+  el.textContent = text;
+  el.hidden = false;
+  el.classList.toggle('sync-ok', tone === 'ok');
+  el.classList.toggle('sync-failed', tone === 'failed');
+}
+
+document.getElementById('journal-export-btn').addEventListener('click', () => {
+  const json = JSON.stringify({ journal: journalEntries }, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `second-memory-journal-${todayForFilename()}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  setJournalBackupStatus('Journal backup downloaded. Keep the file somewhere private.', 'ok');
+});
+
+document.getElementById('journal-import-btn').addEventListener('click', () => {
+  document.getElementById('journal-import-file').click();
+});
+
+document.getElementById('journal-import-file').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    let parsed;
+    try {
+      parsed = JSON.parse(reader.result);
+    } catch {
+      setJournalBackupStatus('Restore failed \u2014 that file is not valid JSON.', 'failed');
+      return;
+    }
+    const incoming = parsed && Array.isArray(parsed.journal) ? parsed.journal : null;
+    if (!incoming) {
+      setJournalBackupStatus("Restore failed \u2014 that file doesn't look like a journal backup.", 'failed');
+      return;
+    }
+    const known = new Set(journalEntries.map((x) => x.id));
+    let added = 0;
+    incoming.forEach((item) => {
+      const valid = item && typeof item.id === 'string' && JOURNAL_TEMPLATES[item.type]
+        && typeof item.date === 'string' && item.answers && typeof item.answers === 'object';
+      if (!valid || known.has(item.id)) return;
+      known.add(item.id);
+      journalEntries.push(item);
+      added += 1;
+    });
+    if (added > 0) {
+      saveJournalEntries();
+      renderJournal();
+    }
+    setJournalBackupStatus(
+      added > 0 ? `Restored ${added} entr${added === 1 ? 'y' : 'ies'}.` : 'Restore complete \u2014 nothing new to add.',
+      'ok'
+    );
+  };
+  reader.onerror = () => setJournalBackupStatus('Restore failed \u2014 could not read that file.', 'failed');
+  reader.readAsText(file);
+});
+
 // ---- Home ----
 // Pure, render-only aggregation over the live books/todos/bills arrays — no
 // own storage key, nothing to sync/export/undo. Re-rendered by hooking the
@@ -5201,6 +5565,7 @@ renderRecipes();
 renderMedications();
 renderDiagnoses();
 renderAppointments();
+renderJournal();
 renderTodos();
 renderShoppingList();
 renderNotes();
