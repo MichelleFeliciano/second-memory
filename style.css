@@ -532,7 +532,7 @@ body::before {
 
 .columns {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 20px;
 }
 
@@ -1939,3 +1939,14 @@ body::before {
 }
 
 .journal-backup { margin-top: 24px; }
+
+/* iOS Safari zooms the page when a text control under 16px gets focus. Later,
+   more specific rules (edit-form inputs, Move selects) were beating the earlier
+   16px rule, so this final override wins on phones. */
+@media (max-width: 700px) {
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}

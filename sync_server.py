@@ -18,6 +18,7 @@ import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import unquote
 
 PORT = int(os.environ.get("PORT", "8443"))
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/var/data"))
@@ -246,7 +247,12 @@ class SyncHandler(BaseHTTPRequestHandler):
         expected = self.server.sync_token
         got = self.headers.get("X-Sync-Token", "")
         # Compare bytes: str comparison raises TypeError on non-ASCII input.
-        return hmac.compare_digest(got.encode("utf-8"), expected.encode("utf-8"))
+        # A passphrase with non-ASCII characters arrives percent-encoded behind
+        # a "u:" marker (headers can't carry raw non-ASCII), so accept either form.
+        candidates = [got]
+        if got.startswith("u:"):
+            candidates.append(unquote(got[2:]))
+        return any(hmac.compare_digest(c.encode("utf-8"), expected.encode("utf-8")) for c in candidates)
 
     def do_OPTIONS(self):
         if self.path != "/api/sync":

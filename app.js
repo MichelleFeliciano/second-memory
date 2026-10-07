@@ -3233,17 +3233,50 @@ function addBill(fields) {
 
 // Never touches paidDates — only toggleBillPaid (and the "mark oldest unpaid
 // as paid" button, which calls the same function) ever mutates it.
+// The date of a schedule's nth (0-based) occurrence, or null if it has none.
+function nthOccurrenceDate(bill, n) {
+  const anchor = parseDateKey(bill.dueDate);
+  if (bill.frequency === 'one_time') return n === 0 ? bill.dueDate : null;
+  if (bill.frequency === 'weekly' || bill.frequency === 'biweekly') {
+    return shiftDateKey(bill.dueDate, n * (bill.frequency === 'weekly' ? 7 : 14));
+  }
+  if (bill.frequency === 'monthly') {
+    const total = anchor.y * 12 + anchor.m + n;
+    const y = Math.floor(total / 12);
+    const m = total % 12;
+    return dateKeyFromParts(y, m, Math.min(anchor.d, daysInMonth(y, m)));
+  }
+  if (bill.frequency === 'yearly') {
+    const y = anchor.y + n;
+    return dateKeyFromParts(y, anchor.m, Math.min(anchor.d, daysInMonth(y, anchor.m)));
+  }
+  return null;
+}
+
 function updateBill(id, fields) {
   const bill = bills.find((b) => b.id === id);
   if (!bill) return { ok: false, error: 'Bill not found.' };
   const result = validateBillFields(fields);
   if (!result.ok) return result;
   const before = structuredClone(bill);
+  const oldSchedule = { dueDate: bill.dueDate, frequency: bill.frequency };
   bill.name = result.name;
   bill.amount = result.amount;
   bill.dueDate = result.dueDate;
   bill.frequency = result.frequency;
   bill.category = result.category;
+  // Changing when a bill is due must not orphan the payments already marked
+  // paid: each paid occurrence moves to the same-numbered occurrence of the
+  // new schedule (the 3rd payment stays the 3rd payment), so totals don't jump.
+  if (oldSchedule.dueDate !== bill.dueDate || oldSchedule.frequency !== bill.frequency) {
+    const moved = [];
+    (bill.paidDates || []).forEach((d) => {
+      if (!occursOnDate(oldSchedule, d)) { moved.push(d); return; } // already unmatched; leave alone
+      const next = nthOccurrenceDate(bill, occurrenceCountThrough(oldSchedule, d) - 1);
+      if (next) moved.push(next);
+    });
+    bill.paidDates = [...new Set(moved)].sort();
+  }
   stampSync(bill);
   saveCollection(BILLS_KEY, bills);
   recordUndo('bills', id, before, structuredClone(bill));
@@ -5324,10 +5357,16 @@ function snapshotOfItems(items) {
   return map;
 }
 
+// HTTP header values can only carry plain ASCII; anything else is sent
+// percent-encoded behind a "u:" marker, which the server understands.
+function syncTokenHeader(token) {
+  return /^[\x20-\x7e]*$/.test(token) ? token : 'u:' + encodeURIComponent(token);
+}
+
 async function postSync(config, collections) {
   const response = await fetch(`${SYNC_SERVER_URL}/api/sync`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Sync-Token': config.token },
+    headers: { 'Content-Type': 'application/json', 'X-Sync-Token': syncTokenHeader(config.token) },
     body: JSON.stringify({ deviceId: getDeviceId(), clientVersion: 2, collections }),
   });
   if (response.status === 401) return { kind: 'unauthorized' };
@@ -5439,6 +5478,7 @@ async function runSync() {
   const syncNowBtn = document.getElementById('sync-now-btn');
   if (syncNowBtn) syncNowBtn.disabled = true;
   let resyncSoon = false;
+  let incompleteReply = false;
 
   try {
     let snapshot = loadSyncSnapshot();
@@ -5486,7 +5526,10 @@ async function runSync() {
     const nextSnapshot = { ...snapshot };
     SYNC_COLLECTIONS.forEach((c) => {
       const incoming = data.collections && Array.isArray(data.collections[c.name]) ? data.collections[c.name] : null;
-      if (!incoming) return;
+      if (!incoming) {
+        incompleteReply = true;
+        return;
+      }
       const before = JSON.stringify(c.get());
       const { result, known } = reconcileServerReply(c, incoming, preFlight[c.name]);
       nextSnapshot[c.name] = known;
@@ -5511,6 +5554,8 @@ async function runSync() {
         `Synced — ${conflicts.length} ${noun} merged as duplicates in ${collectionNames.join(', ')}. Review and remove any you don't need.`,
         'failed'
       );
+    } else if (incompleteReply) {
+      setSyncStatus('Synced, but the server reply was incomplete. Tap Sync now again.', 'failed');
     } else if (resyncSoon) {
       setSyncStatus('Synced — you changed something during the sync. Tap Sync now again to send it.', 'failed');
     } else {
@@ -5841,6 +5886,25 @@ document.getElementById('import-file-input').addEventListener('change', (e) => {
     setDataIoStatus('Import failed — could not read that file.', 'failed');
   };
   reader.readAsText(file);
+});
+
+// ---- Day rollover ----
+// "Today" drives overdue/due-soon/refill/calendar highlighting. If the app is
+// left open across midnight (or comes back to the foreground on a new day),
+// redraw the date-dependent screens. Local redraw only; nothing is synced.
+
+let lastRenderedDayKey = todayKey();
+
+function refreshForNewDay() {
+  const now = todayKey();
+  if (now === lastRenderedDayKey) return;
+  lastRenderedDayKey = now;
+  [renderBudget, renderTodos, renderMedications, renderAppointments, renderHome].forEach(safeRender);
+}
+
+setInterval(refreshForNewDay, 60000);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') refreshForNewDay();
 });
 
 // ---- Init ----

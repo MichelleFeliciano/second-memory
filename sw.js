@@ -3,7 +3,7 @@
 // The browser only detects a Service Worker update when sw.js's bytes change —
 // if this string is left unchanged, sw.js is byte-identical after a deploy, the
 // browser never notices, and users silently stay on old code forever.
-const CACHE_NAME = 'second-memory-v20';
+const CACHE_NAME = 'second-memory-v21';
 
 const APP_SHELL = [
   './',
@@ -12,6 +12,8 @@ const APP_SHELL = [
   './app.js',
   './manifest.json',
   './icons/apple-touch-icon.png',
+  './icons/icon-192.png',
+  './icons/icon-512.png',
 ];
 
 self.addEventListener('install', (event) => {
