@@ -1950,3 +1950,34 @@ body::before {
     font-size: 16px !important;
   }
 }
+
+/* Shown when the browser refuses to save (storage full or blocked). */
+.storage-warning {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 1000;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  background: var(--surface);
+  color: var(--text);
+  border: 2px solid var(--accent-2);
+  border-radius: 13px;
+  font-size: 0.9rem;
+  font-style: normal;
+}
+.storage-warning button {
+  flex: none;
+  min-height: 44px;
+  padding: 0 14px;
+  font: inherit;
+  color: var(--accent-contrast);
+  background: var(--accent-2);
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+}

@@ -122,6 +122,17 @@ def _content_matches(a, b, collection_name):
     return all(a.get(k) == b.get(k) for k in keys)
 
 
+def _usable_id(value):
+    """Record ids are strings (UUIDs / date keys). Anything unhashable or odd is skipped
+    rather than crashing the whole sync request."""
+    return isinstance(value, (str, int)) and not isinstance(value, bool) and value != ""
+
+
+def _safe_version(value):
+    """Versions are whole numbers; treat anything else (null, text, floats) as 0."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
 def merge_collection(server_items, client_items, collection_name):
     """Applies one collection's client-submitted records onto the server's
     stored records, per the server-owned-version optimistic-concurrency
@@ -130,14 +141,18 @@ def merge_collection(server_items, client_items, collection_name):
     removes a record — tombstones (`deleted: true`) are merged like any
     other record so a delete round-trips to every other device instead of
     being lost."""
-    by_id = {item["id"]: item for item in server_items if "id" in item}
+    by_id = {item["id"]: item for item in server_items if isinstance(item, dict) and _usable_id(item.get("id"))}
     conflicts = []
 
     for incoming in client_items:
-        record_id = incoming.get("id")
-        if not record_id:
+        # One malformed record must not abort the whole sync (which would leave the
+        # client retrying the same bad payload forever), so skip anything unusable.
+        if not isinstance(incoming, dict):
             continue
-        client_version = incoming.get("version", 0)
+        record_id = incoming.get("id")
+        if not _usable_id(record_id):
+            continue
+        client_version = _safe_version(incoming.get("version", 0))
         existing = by_id.get(record_id)
 
         if existing is None:
@@ -147,7 +162,7 @@ def merge_collection(server_items, client_items, collection_name):
             by_id[record_id] = new_record
             continue
 
-        server_version = existing.get("version", 0)
+        server_version = _safe_version(existing.get("version", 0))
 
         if client_version < server_version:
             # A dropped response can make a client retry a payload the server

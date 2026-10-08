@@ -18,8 +18,33 @@ function loadCollection(key) {
   }
 }
 
+// Shown when the browser refuses to save (storage full, blocked, or private mode).
+// Without this the change would stay on screen and quietly vanish on reload.
+function reportStorageProblem() {
+  if (document.getElementById('storage-warning')) return;
+  const box = document.createElement('div');
+  box.id = 'storage-warning';
+  box.className = 'storage-warning';
+  box.setAttribute('role', 'alert');
+  const text = document.createElement('span');
+  text.textContent = "Couldn't save: this browser's storage is full or blocked. Your latest change is only on " +
+    'screen and will be lost if you close or reload. Use Export data, then free up space.';
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.textContent = 'Dismiss';
+  close.addEventListener('click', () => box.remove());
+  box.append(text, close);
+  document.body.appendChild(box);
+}
+
 function saveCollection(key, items) {
-  localStorage.setItem(key, JSON.stringify(items));
+  try {
+    localStorage.setItem(key, JSON.stringify(items));
+    return true;
+  } catch {
+    reportStorageProblem();
+    return false;
+  }
 }
 
 // ---- Shared filter/sort helpers ----
@@ -58,7 +83,7 @@ function compareByField(getValue, direction = 1, { text = true } = {}) {
 // Trims and case-folds a free-text chip value so near-duplicates ("Fall
 // 2026" vs. "fall 2026 ") group into one chip instead of two.
 function normalizeChipKey(value) {
-  return (value || '').trim().toLowerCase();
+  return (typeof value === 'string' ? value : '').trim().toLowerCase();
 }
 
 // Derives the distinct chip groups from a live, non-deleted array: one entry
@@ -68,7 +93,8 @@ function normalizeChipKey(value) {
 function deriveChipOptions(items, getValue) {
   const byKey = new Map();
   items.forEach((item) => {
-    const raw = (getValue(item) || '').trim();
+    const value = getValue(item);
+    const raw = (typeof value === 'string' ? value : '').trim();
     if (!raw) return;
     const key = normalizeChipKey(raw);
     if (!byKey.has(key)) byKey.set(key, raw);
@@ -124,7 +150,11 @@ function getDeviceId() {
     // fall through and generate a new one
   }
   cachedDeviceId = makeId();
-  localStorage.setItem(DEVICE_KEY, JSON.stringify({ deviceId: cachedDeviceId, createdAt: new Date().toISOString() }));
+  try {
+    localStorage.setItem(DEVICE_KEY, JSON.stringify({ deviceId: cachedDeviceId, createdAt: new Date().toISOString() }));
+  } catch {
+    // Storage unavailable: this device id just won't persist across reloads.
+  }
   return cachedDeviceId;
 }
 
@@ -158,6 +188,15 @@ function migrateSyncFields(items, key, deviceId) {
   });
   if (changed) saveCollection(key, items);
   return items;
+}
+
+// Native validation bubble for fields where "   " slips past the `required` attribute.
+function rejectBlank(input, message) {
+  if (input.value.trim()) return false;
+  input.setCustomValidity(message);
+  input.reportValidity();
+  input.addEventListener('input', () => input.setCustomValidity(''), { once: true });
+  return true;
 }
 
 // ---- Undo/Redo ----
@@ -1516,6 +1555,7 @@ function renderDiagnoses() {
         e.preventDefault();
         // Hide before calling updateDiagnosis — see the identical comment
         // on Books' edit-form submit handler.
+        if (rejectBlank(editConditionInput, 'Enter a condition.')) return;
         editForm.hidden = true;
         viewSection.hidden = false;
         updateDiagnosis(diagnosis.id, {
@@ -1550,6 +1590,7 @@ document.getElementById('diagnoses-add-form').addEventListener('submit', (e) => 
   const dateInput = document.getElementById('diagnoses-date-input');
   const providerInput = document.getElementById('diagnoses-provider-input');
   const notesInput = document.getElementById('diagnoses-notes-input');
+  if (rejectBlank(conditionInput, 'Enter a condition.')) return;
   addDiagnosis(conditionInput.value, dateInput.value, providerInput.value, notesInput.value);
   conditionInput.value = '';
   dateInput.value = '';
@@ -1754,6 +1795,7 @@ function renderTodos() {
       e.preventDefault();
       // Hide before calling updateTodo — see the identical comment on
       // Books' edit-form submit handler.
+      if (rejectBlank(editTaskInput, 'Enter a task.')) return;
       editForm.hidden = true;
       viewSection.hidden = false;
       updateTodo(todo.id, { task: editTaskInput.value, dueDate: editDueInput.value });
@@ -1780,6 +1822,7 @@ document.getElementById('todo-add-form').addEventListener('submit', (e) => {
   e.preventDefault();
   const taskInput = document.getElementById('todo-task-input');
   const dueInput = document.getElementById('todo-due-input');
+  if (rejectBlank(taskInput, 'Enter a task.')) return;
   addTodo(taskInput.value, dueInput.value);
   taskInput.value = '';
   dueInput.value = '';
@@ -2005,6 +2048,7 @@ function renderShoppingList() {
       e.preventDefault();
       // Hide before calling updateShoppingItem — see the identical comment
       // on Books' edit-form submit handler.
+      if (rejectBlank(editItemInput, 'Enter an item.')) return;
       editForm.hidden = true;
       viewSection.hidden = false;
       updateShoppingItem(item.id, {
@@ -2035,6 +2079,7 @@ document.getElementById('shopping-add-form').addEventListener('submit', (e) => {
   const itemInput = document.getElementById('shopping-item-input');
   const quantityInput = document.getElementById('shopping-quantity-input');
   const categoryInput = document.getElementById('shopping-category-input');
+  if (rejectBlank(itemInput, 'Enter an item.')) return;
   addShoppingItem(itemInput.value, quantityInput.value, categoryInput.value);
   itemInput.value = '';
   quantityInput.value = '';
@@ -3188,10 +3233,21 @@ function formatSignedCurrency(amount) {
 // docs/specs/budget-income-followups.md §10.3 — net totals and the lifetime
 // balance only, not income totals).
 function signedAmountClass(amount) {
-  return amount < 0 ? 'amount-negative' : 'amount-positive';
+  // Compare in whole cents so float noise (e.g. -5.5e-17) never paints $0.00 red.
+  return Math.round(amount * 100) / 100 < 0 ? 'amount-negative' : 'amount-positive';
 }
 
 // ---- Bill CRUD ----
+
+// Dates outside this range are almost always a typo (typing "26" for the year gives 0026),
+// and a year before 1000 breaks the schedule math and makes the budget screen crawl.
+const DATE_YEAR_MIN = 1990;
+const DATE_YEAR_MAX = 2100;
+function isReasonableDateKey(key) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key || '');
+  return !!m && Number(m[1]) >= DATE_YEAR_MIN && Number(m[1]) <= DATE_YEAR_MAX;
+}
+const DATE_RANGE_MESSAGE = `Pick a date between the years ${DATE_YEAR_MIN} and ${DATE_YEAR_MAX}.`;
 
 function validateBillFields(fields) {
   const trimmedName = fields.name.trim();
@@ -3202,6 +3258,7 @@ function validateBillFields(fields) {
   }
   const dueDate = fields.dueDate;
   if (!dueDate) return { ok: false, error: 'Due date is required.' };
+  if (!isReasonableDateKey(dueDate)) return { ok: false, error: DATE_RANGE_MESSAGE };
   const frequency = BILL_FREQUENCIES.includes(fields.frequency) ? fields.frequency : 'monthly';
   return { ok: true, name: trimmedName, amount, dueDate, frequency, category: fields.category.trim() };
 }
@@ -3273,7 +3330,7 @@ function updateBill(id, fields) {
     (bill.paidDates || []).forEach((d) => {
       if (!occursOnDate(oldSchedule, d)) { moved.push(d); return; } // already unmatched; leave alone
       const next = nthOccurrenceDate(bill, occurrenceCountThrough(oldSchedule, d) - 1);
-      if (next) moved.push(next);
+      moved.push(next || d); // no matching slot in the new schedule: keep the payment as recorded
     });
     bill.paidDates = [...new Set(moved)].sort();
   }
@@ -3353,6 +3410,7 @@ function validateRecurringIncomeFields(fields) {
   }
   const dueDate = fields.dueDate; // "First occurrence" in the UI — see §3
   if (!dueDate) return { ok: false, error: 'First occurrence date is required.' };
+  if (!isReasonableDateKey(dueDate)) return { ok: false, error: DATE_RANGE_MESSAGE };
   const frequency = RECURRING_INCOME_FREQUENCIES.includes(fields.frequency) ? fields.frequency : 'biweekly';
   return { ok: true, name: trimmedName, amount, dueDate, frequency, category: fields.category.trim() };
 }
@@ -5066,8 +5124,8 @@ function renderHome() {
       `need${actionableCount === 1 ? 's' : ''} your attention this week.`;
     statsEl.hidden = false;
     emptyEl.hidden = true;
-    billsPanel.hidden = false;
-    todoPanel.hidden = false;
+    billsPanel.hidden = overdueBills.length + dueSoonBills.length === 0;
+    todoPanel.hidden = overdueTodos.length + dueSoonTodos.length === 0;
 
     overdueBills.forEach(({ bill, amount }) => {
       billsList.appendChild(makeHomeRow(() => setActiveTab('budget'), (btn) => {
@@ -5262,8 +5320,11 @@ function undo() {
   if (undoStack.length === 0) return;
   const entry = undoStack.pop();
   isApplyingHistory = true;
-  applyEntrySnapshot(entry, 'before');
-  isApplyingHistory = false;
+  try {
+    applyEntrySnapshot(entry, 'before');
+  } finally {
+    isApplyingHistory = false;
+  }
   redoStack.push(entry);
   if (redoStack.length > MAX_UNDO_DEPTH) redoStack.shift();
   updateUndoRedoButtons();
@@ -5273,8 +5334,11 @@ function redo() {
   if (redoStack.length === 0) return;
   const entry = redoStack.pop();
   isApplyingHistory = true;
-  applyEntrySnapshot(entry, 'after');
-  isApplyingHistory = false;
+  try {
+    applyEntrySnapshot(entry, 'after');
+  } finally {
+    isApplyingHistory = false;
+  }
   undoStack.push(entry);
   if (undoStack.length > MAX_UNDO_DEPTH) undoStack.shift();
   updateUndoRedoButtons();
@@ -5352,7 +5416,7 @@ function saveSyncSnapshot(snapshot) {
 }
 
 function snapshotOfItems(items) {
-  const map = {};
+  const map = Object.create(null); // no prototype, so an id such as "__proto__" is just a key
   items.forEach((item) => { map[item.id] = JSON.stringify(item); });
   return map;
 }
@@ -5363,16 +5427,26 @@ function syncTokenHeader(token) {
   return /^[\x20-\x7e]*$/.test(token) ? token : 'u:' + encodeURIComponent(token);
 }
 
+// A stalled connection would otherwise leave "Sync now" disabled until the browser gives up.
+const SYNC_TIMEOUT_MS = 60000; // generous: a sleeping free-tier server can take ~30s to wake
+
 async function postSync(config, collections) {
-  const response = await fetch(`${SYNC_SERVER_URL}/api/sync`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Sync-Token': syncTokenHeader(config.token) },
-    body: JSON.stringify({ deviceId: getDeviceId(), clientVersion: 2, collections }),
-  });
-  if (response.status === 401) return { kind: 'unauthorized' };
-  if (response.status === 426) return { kind: 'outdated' };
-  if (!response.ok) return { kind: 'error' };
-  return { kind: 'ok', data: await response.json() };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SYNC_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${SYNC_SERVER_URL}/api/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Sync-Token': syncTokenHeader(config.token) },
+      body: JSON.stringify({ deviceId: getDeviceId(), clientVersion: 2, collections }),
+      signal: controller.signal,
+    });
+    if (response.status === 401) return { kind: 'unauthorized' };
+    if (response.status === 426) return { kind: 'outdated' };
+    if (!response.ok) return { kind: 'error' };
+    return { kind: 'ok', data: await response.json() };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // First sync on a device with no snapshot: pull the server's state, then
@@ -5388,7 +5462,7 @@ function bootstrapSyncSnapshot(serverData) {
       : [];
     const serverById = new Map(serverItems.map((item) => [item.id, item]));
     const merged = [];
-    const known = {};
+    const known = Object.create(null);
     const seen = new Set();
 
     c.get().forEach((local) => {
@@ -5435,7 +5509,7 @@ function bootstrapSyncSnapshot(serverData) {
 function reconcileServerReply(c, incoming, preFlightMap) {
   const incomingById = new Map(incoming.map((item) => [item.id, item]));
   const result = [];
-  const known = {};
+  const known = Object.create(null);
   const seen = new Set();
 
   c.get().forEach((local) => {
@@ -5641,7 +5715,7 @@ function exportData() {
   document.body.appendChild(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 10000); // revoking at once can cancel the download on iOS/Safari
 }
 
 // Accepts the exact shape `buildExportPayload()` produces (`{ collections: {...} }`)
@@ -5899,6 +5973,7 @@ function refreshForNewDay() {
   const now = todayKey();
   if (now === lastRenderedDayKey) return;
   lastRenderedDayKey = now;
+  reminderBannerDismissed = false; // a new day can bring new due/overdue bills
   [renderBudget, renderTodos, renderMedications, renderAppointments, renderHome].forEach(safeRender);
 }
 
@@ -5924,6 +5999,8 @@ if ('serviceWorker' in navigator) {
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') registration.update();
       });
+    }).catch(() => {
+      // Offline install is optional (e.g. private browsing); the app still works without it.
     });
   });
 }

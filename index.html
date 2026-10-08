@@ -179,7 +179,7 @@
 
     <div class="sync-panel">
       <div class="sync-status" id="sync-status" hidden>
-        <span class="sync-status-text" id="sync-status-text">Sync not set up</span>
+        <span class="sync-status-text" id="sync-status-text" role="status">Sync not set up</span>
         <button type="button" class="sync-change-btn" id="sync-now-btn">Sync now</button>
         <button type="button" class="sync-change-btn" id="sync-change-btn">Change</button>
       </div>
@@ -197,7 +197,7 @@
         <button type="button" id="import-data-btn" class="data-io-btn">Import data</button>
       </div>
       <input type="file" id="import-file-input" accept="application/json" hidden>
-      <p class="sync-status-text data-io-status" id="data-io-status" hidden></p>
+      <p class="sync-status-text data-io-status" id="data-io-status" role="status" hidden></p>
     </div>
   </nav>
 
@@ -409,11 +409,11 @@
       </div>
 
       <form id="journal-wizard" class="journal-wizard" hidden>
-        <p class="journal-progress" id="journal-progress"></p>
-        <h3 class="journal-question" id="journal-question"></h3>
+        <p class="journal-progress" id="journal-progress" aria-live="polite"></p>
+        <h3 class="journal-question" id="journal-question" aria-live="polite"></h3>
         <p class="journal-hint" id="journal-hint" hidden></p>
         <div class="journal-answer" id="journal-answer"></div>
-        <p class="form-error" id="journal-error" hidden></p>
+        <p class="form-error" id="journal-error" role="alert" hidden></p>
         <div class="journal-wizard-actions">
           <button type="button" id="journal-back-btn" class="journal-secondary-btn">Back</button>
           <button type="button" id="journal-cancel-btn" class="journal-secondary-btn">Cancel</button>
@@ -431,7 +431,7 @@
         <button type="button" id="journal-import-btn" class="data-io-btn">Restore journal</button>
       </div>
       <input type="file" id="journal-import-file" accept="application/json" hidden>
-      <p class="sync-status-text" id="journal-backup-status" hidden></p>
+      <p class="sync-status-text" id="journal-backup-status" role="status" hidden></p>
     </section>
 
     <section class="collection" id="diagnoses-collection" hidden>
@@ -578,7 +578,7 @@
       </div>
       <form id="payday-settings-form" class="add-form">
         <label class="date-field">A recent payday
-          <input type="date" id="payday-date-input" aria-label="A recent payday">
+          <input type="date" id="payday-date-input" min="1990-01-01" max="2100-12-31" aria-label="A recent payday">
         </label>
         <select id="payday-frequency-input" aria-label="Pay frequency">
           <option value="weekly">Weekly</option>
@@ -616,7 +616,7 @@
         <input type="text" id="budget-name-input" placeholder="Bill name" required aria-label="Bill name">
         <input type="number" id="budget-amount-input" placeholder="Amount" min="0.01" step="0.01" required aria-label="Bill amount">
         <label class="date-field">Due date
-          <input type="date" id="budget-duedate-input" required aria-label="Due date">
+          <input type="date" id="budget-duedate-input" min="1990-01-01" max="2100-12-31" required aria-label="Due date">
         </label>
         <select id="budget-frequency-input" aria-label="Frequency">
           <option value="monthly">Monthly</option>
@@ -643,7 +643,7 @@
         <input type="text" id="recurring-income-name-input" placeholder="Source name (e.g. Paycheck)" required aria-label="Income source name">
         <input type="number" id="recurring-income-amount-input" placeholder="Amount" min="0.01" step="0.01" required aria-label="Income amount">
         <label class="date-field">First occurrence
-          <input type="date" id="recurring-income-startdate-input" required aria-label="First occurrence date">
+          <input type="date" id="recurring-income-startdate-input" min="1990-01-01" max="2100-12-31" required aria-label="First occurrence date">
         </label>
         <select id="recurring-income-frequency-input" aria-label="Frequency">
           <option value="biweekly">Biweekly</option>
@@ -1009,7 +1009,7 @@
       <input type="text" class="bill-edit-name" placeholder="Bill name" required aria-label="Edit bill name">
       <input type="number" class="bill-edit-amount" placeholder="Amount" min="0.01" step="0.01" required aria-label="Edit bill amount">
       <label class="date-field">Due date
-        <input type="date" class="bill-edit-duedate" required aria-label="Edit due date">
+        <input type="date" class="bill-edit-duedate" min="1990-01-01" max="2100-12-31" required aria-label="Edit due date">
       </label>
       <select class="bill-edit-frequency" aria-label="Edit frequency">
         <option value="monthly">Monthly</option>
@@ -1047,7 +1047,7 @@
       <input type="text" class="recurring-income-edit-name" placeholder="Source name" required aria-label="Edit income source name">
       <input type="number" class="recurring-income-edit-amount" placeholder="Amount" min="0.01" step="0.01" required aria-label="Edit income amount">
       <label class="date-field">First occurrence
-        <input type="date" class="recurring-income-edit-startdate" required aria-label="Edit first occurrence date">
+        <input type="date" class="recurring-income-edit-startdate" min="1990-01-01" max="2100-12-31" required aria-label="Edit first occurrence date">
       </label>
       <select class="recurring-income-edit-frequency" aria-label="Edit frequency">
         <option value="biweekly">Biweekly</option>
