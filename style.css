@@ -2009,3 +2009,10 @@ body::before {
   border-radius: 10px;
   cursor: pointer;
 }
+
+.bill-edit-hint {
+  display: block;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-style: normal;
+}

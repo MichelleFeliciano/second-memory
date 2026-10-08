@@ -3184,6 +3184,24 @@ function occurrenceCountThrough(bill, throughKey) {
   return 0;
 }
 
+// A payment is worth what was paid when it was marked paid, not whatever the bill's amount is
+// today. Each paid date can carry its amount in `paidAmounts` ({ "2026-09-01": 1000 }). Payments
+// recorded before that existed (or by an older copy of the app) have no entry and fall back to the
+// bill's amount; they get their amount frozen the moment the bill's amount is edited (updateBill).
+function paidAmountFor(bill, dateKey) {
+  const map = bill.paidAmounts;
+  if (map && typeof map === 'object' && Object.prototype.hasOwnProperty.call(map, dateKey)) {
+    const stored = map[dateKey];
+    if (typeof stored === 'number' && Number.isFinite(stored)) return stored;
+  }
+  return bill.amount;
+}
+
+// What one occurrence is worth: the recorded amount if it was paid, the current amount if not.
+function occurrenceAmount(bill, dateKey) {
+  return (bill.paidDates || []).includes(dateKey) ? paidAmountFor(bill, dateKey) : bill.amount;
+}
+
 function unpaidAmountThrough(bill, throughKey) {
   const totalOccurrences = occurrenceCountThrough(bill, throughKey);
   if (totalOccurrences === 0) return 0;
@@ -3482,6 +3500,15 @@ function updateBill(id, fields) {
   if (!result.ok) return result;
   const before = structuredClone(bill);
   const oldSchedule = { dueDate: bill.dueDate, frequency: bill.frequency };
+  // Changing the amount must not rewrite money that was already paid: record each existing
+  // payment at the amount it was actually paid before the new amount takes effect.
+  if (result.amount !== bill.amount) {
+    const frozen = { ...(bill.paidAmounts || {}) };
+    (bill.paidDates || []).forEach((d) => {
+      if (!Object.prototype.hasOwnProperty.call(frozen, d)) frozen[d] = bill.amount;
+    });
+    bill.paidAmounts = frozen;
+  }
   bill.name = result.name;
   bill.amount = result.amount;
   bill.dueDate = result.dueDate;
@@ -3492,12 +3519,21 @@ function updateBill(id, fields) {
   // new schedule (the 3rd payment stays the 3rd payment), so totals don't jump.
   if (oldSchedule.dueDate !== bill.dueDate || oldSchedule.frequency !== bill.frequency) {
     const moved = [];
+    const movedAmounts = {};
     (bill.paidDates || []).forEach((d) => {
-      if (!occursOnDate(oldSchedule, d)) { moved.push(d); return; } // already unmatched; leave alone
-      const next = nthOccurrenceDate(bill, occurrenceCountThrough(oldSchedule, d) - 1);
-      moved.push(next || d); // no matching slot in the new schedule: keep the payment as recorded
+      let target = d; // already unmatched: leave alone
+      if (occursOnDate(oldSchedule, d)) {
+        const next = nthOccurrenceDate(bill, occurrenceCountThrough(oldSchedule, d) - 1);
+        target = next || d; // no matching slot in the new schedule: keep the payment as recorded
+      }
+      moved.push(target);
+      // the payment keeps its recorded amount when its date moves
+      if (bill.paidAmounts && Object.prototype.hasOwnProperty.call(bill.paidAmounts, d) && !(target in movedAmounts)) {
+        movedAmounts[target] = bill.paidAmounts[d];
+      }
     });
     bill.paidDates = [...new Set(moved)].sort();
+    if (bill.paidAmounts) bill.paidAmounts = movedAmounts;
   }
   stampSync(bill);
   saveCollection(BILLS_KEY, bills);
@@ -3537,8 +3573,19 @@ function toggleBillPaid(billId, dateKey, paid) {
   if (!bill) return;
   const before = structuredClone(bill);
   const paidSet = new Set(bill.paidDates || []);
-  if (paid) paidSet.add(dateKey); else paidSet.delete(dateKey);
+  const amounts = { ...(bill.paidAmounts || {}) };
+  if (paid) {
+    paidSet.add(dateKey);
+    // Remember what this payment was worth (keep an amount already recorded for this date).
+    if (!Object.prototype.hasOwnProperty.call(amounts, dateKey)) amounts[dateKey] = bill.amount;
+  } else {
+    paidSet.delete(dateKey);
+    delete amounts[dateKey];
+  }
   bill.paidDates = [...paidSet];
+  // Only keep amounts for dates that are still paid.
+  Object.keys(amounts).forEach((d) => { if (!paidSet.has(d)) delete amounts[d]; });
+  bill.paidAmounts = amounts;
   stampSync(bill);
   saveCollection(BILLS_KEY, bills);
   recordUndo('bills', billId, before, structuredClone(bill));
@@ -3707,10 +3754,11 @@ function totalPaidEver(allBills) {
   allBills.forEach((b) => {
     (b.paidDates || []).forEach((d) => {
       if (d > todayK || !occursOnDate(b, d)) return;
-      const key = `${normalizeChipKey(b.name)}|${b.amount}|${d}`;
+      const amount = paidAmountFor(b, d);
+      const key = `${normalizeChipKey(b.name)}|${amount}|${d}`;
       if (counted.has(key)) return;
       counted.add(key);
-      sum += b.amount;
+      sum += amount;
     });
   });
   return sum;
@@ -3752,7 +3800,7 @@ function computePaidByCategory(allBills, y, m) {
   allBills.forEach((bill) => {
     const dates = (bill.paidDates || []).filter((d) => {
       if (!d.startsWith(prefix) || !occursOnDate(bill, d)) return false;
-      const paymentKey = `${normalizeChipKey(bill.name)}|${bill.amount}|${d}`;
+      const paymentKey = `${normalizeChipKey(bill.name)}|${paidAmountFor(bill, d)}|${d}`;
       if (counted.has(paymentKey)) return false;
       counted.add(paymentKey);
       return true;
@@ -3762,7 +3810,7 @@ function computePaidByCategory(allBills, y, m) {
     const raw = (bill.category || '').trim();
     const key = normalizeChipKey(raw);
     const entry = byKey.get(key) || { label: raw || 'Uncategorized', total: 0 };
-    entry.total += count * bill.amount;
+    entry.total += dates.reduce((sum, d) => sum + paidAmountFor(bill, d), 0);
     byKey.set(key, entry);
   });
   return [...byKey.values()].sort((a, b) => b.total - a.total);
@@ -3968,7 +4016,7 @@ function renderPayPeriod() {
     while (dateKey < periodEnd) {
       if (occursOnDate(bill, dateKey)) {
         occurrenceDates.push(dateKey);
-        total += bill.amount;
+        total += occurrenceAmount(bill, dateKey);
       }
       dateKey = shiftDateKey(dateKey, 1);
     }
@@ -4364,7 +4412,7 @@ function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, nonDeletedRecur
           nameSpan.className = 'budget-occurrence-name';
           nameSpan.textContent = bill.name;
 
-          const amountText = `$${bill.amount.toFixed(2)}`;
+          const amountText = `$${(paid ? paidAmountFor(bill, dateKey) : bill.amount).toFixed(2)}`;
           label.title = bill.category ? `${bill.name} — ${amountText} (${bill.category})` : `${bill.name} — ${amountText}`;
 
           daySummary.push(`${bill.name}${paid ? ' (paid)' : overdue ? ' (overdue)' : ''}`);
