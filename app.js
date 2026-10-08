@@ -4918,6 +4918,18 @@ const JOURNAL_TEMPLATES = {
       { id: 'next', type: 'text', q: 'What do I want to bring up next session?' },
     ],
   },
+  daily: {
+    label: 'Journal',
+    questions: [
+      { id: 'on_mind', type: 'text', q: "What's on your mind today?", hint: 'Free-write here. Skip the rest if this is all you need.' },
+      { id: 'day_rating', type: 'scale', q: 'How was your day overall?', hint: '1 = rough, 5 = great' },
+      { id: 'feeling', type: 'choice', q: 'How are you feeling right now?', options: ['Happy', 'Calm', 'Grateful', 'Okay', 'Tired', 'Stressed', 'Anxious', 'Sad'] },
+      { id: 'happened', type: 'text', q: 'What happened today?' },
+      { id: 'went_well', type: 'text', q: 'What went well, or what are you grateful for?' },
+      { id: 'hard', type: 'text', q: 'What was hard?' },
+      { id: 'tomorrow', type: 'text', q: 'What do you want to remember or do tomorrow?' },
+    ],
+  },
 };
 
 let selectedJournalFilter = 'all';
@@ -4991,7 +5003,9 @@ function renderJournalStep() {
     (step === 0 ? 'Date' : `Question ${step} of ${total}`);
 
   if (step === 0) {
-    questionEl.textContent = type === 'dream' ? 'Which night was this dream?' : 'When was the session?';
+    questionEl.textContent = type === 'dream' ? 'Which night was this dream?'
+      : type === 'daily' ? 'Which day is this entry for?'
+      : 'When was the session?';
     hintEl.hidden = true;
     const dateInput = document.createElement('input');
     dateInput.type = 'date';
@@ -5090,6 +5104,7 @@ function deleteJournalEntry(id) {
 function renderJournal() {
   const filterOptions = [
     { key: 'all', label: 'All' },
+    { key: 'daily', label: 'Journal' },
     { key: 'dream', label: 'Dreams' },
     { key: 'therapy', label: 'Therapy' },
   ];
@@ -5202,7 +5217,7 @@ function renderJournalDateStrip(visible) {
     chip.dataset.entryId = entry.id;
     chip.textContent = journalChipLabel(entry);
     const kind = document.createElement('small');
-    kind.textContent = entry.type === 'dream' ? 'D' : 'T';
+    kind.textContent = { dream: 'D', therapy: 'T', daily: 'J' }[entry.type] || '?';
     kind.title = JOURNAL_TEMPLATES[entry.type].label;
     chip.appendChild(kind);
     chip.addEventListener('click', () => {
