@@ -354,10 +354,10 @@
         <input type="text" id="medications-frequency-input" placeholder="Frequency (e.g. twice daily)" aria-label="Medication frequency">
         <input type="text" id="medications-doctor-input" placeholder="Prescribing doctor" aria-label="Prescribing doctor">
         <label class="date-field">Start date
-          <input type="date" id="medications-start-input" aria-label="Start date">
+          <input type="date" id="medications-start-input" min="1990-01-01" max="2100-12-31" aria-label="Start date">
         </label>
         <label class="date-field">Next refill date
-          <input type="date" id="medications-refill-input" aria-label="Next refill date">
+          <input type="date" id="medications-refill-input" min="1990-01-01" max="2100-12-31" aria-label="Next refill date">
         </label>
         <textarea id="medications-notes-input" placeholder="Notes (optional)" aria-label="Medication notes" rows="2"></textarea>
         <p class="form-error" id="medications-form-error" hidden></p>
@@ -827,11 +827,11 @@
       </div>
       <div class="med-dates">
         <label class="date-field">Start date
-          <input type="date" class="med-start-date" aria-label="Start date">
+          <input type="date" class="med-start-date" min="1990-01-01" max="2100-12-31" aria-label="Start date">
           <small class="unknown-hint" hidden>unknown</small>
         </label>
         <label class="date-field">Next refill date
-          <input type="date" class="med-refill-date" aria-label="Next refill date">
+          <input type="date" class="med-refill-date" min="1990-01-01" max="2100-12-31" aria-label="Next refill date">
           <small class="refill-hint" hidden></small>
         </label>
         <p class="form-error med-date-error" hidden></p>

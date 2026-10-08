@@ -210,6 +210,7 @@ const MAX_UNDO_DEPTH = 50;
 
 function recordUndo(collectionName, id, before, after) {
   if (isApplyingHistory) return;
+  flushMedDateUndo(); // keep undo steps in the order things really happened
   undoStack.push({
     collection: collectionName,
     id,
@@ -818,6 +819,9 @@ function addMedication(fields) {
   if (!trimmedName) return { ok: false, error: 'Name is required.' };
   const startDate = fields.startDate || null;
   const refillDate = fields.refillDate || null;
+  if ((startDate && !isReasonableDateKey(startDate)) || (refillDate && !isReasonableDateKey(refillDate))) {
+    return { ok: false, error: DATE_RANGE_MESSAGE };
+  }
   const now = new Date().toISOString();
   const med = {
     id: makeId(),
@@ -842,17 +846,55 @@ function addMedication(fields) {
   return { ok: true };
 }
 
+// The date boxes on a medication card save as you type. They must NOT redraw the list:
+// a redraw replaces the box you are typing in and the cursor is lost after one digit.
+// So the card is updated in place, and a whole burst of typing becomes one undo step,
+// recorded when you leave the box (or just before anything else needs the undo history).
+let pendingMedDateUndo = null; // { id, before } for the burst in progress
+
+function flushMedDateUndo() {
+  if (!pendingMedDateUndo) return;
+  const { id, before } = pendingMedDateUndo;
+  pendingMedDateUndo = null;
+  const med = medications.find((m) => m.id === id);
+  if (!med) return;
+  if (before.startDate === med.startDate && before.refillDate === med.refillDate) return;
+  recordUndo('medications', id, before, structuredClone(med));
+}
+
 function updateMedicationDate(id, field, value) {
   const med = medications.find((m) => m.id === id);
   if (!med) return { ok: false, error: 'Medication not found.' };
-  const before = structuredClone(med);
-  if (field === 'startDate') med.startDate = value || null;
-  else if (field === 'refillDate') med.refillDate = value || null;
+  if (field !== 'startDate' && field !== 'refillDate') return { ok: false, error: 'Unknown date field.' };
+  if (!pendingMedDateUndo || pendingMedDateUndo.id !== id) {
+    flushMedDateUndo();
+    pendingMedDateUndo = { id, before: structuredClone(med) };
+  }
+  med[field] = value || null;
   stampSync(med);
   saveCollection(MEDICATIONS_KEY, medications);
-  recordUndo('medications', id, before, structuredClone(med));
-  renderMedications();
+  renderHome(); // refills show on Home; this does not touch the medication list
   return { ok: true };
+}
+
+// The "overdue / due in N days" and "unknown" labels under the date boxes.
+function updateMedHints(med, refillHint, unknownHint) {
+  refillHint.hidden = true;
+  refillHint.className = 'refill-hint';
+  refillHint.textContent = '';
+  if (med.refillDate) {
+    const days = daysUntilDateKey(med.refillDate);
+    if (days < 0) {
+      refillHint.textContent = 'overdue';
+      refillHint.className = 'refill-hint overdue';
+      refillHint.hidden = false;
+    } else if (days <= 7) {
+      refillHint.textContent = days === 0 ? 'due today' : `due in ${days} day${days === 1 ? '' : 's'}`;
+      refillHint.className = 'refill-hint soon';
+      refillHint.hidden = false;
+    }
+  }
+  unknownHint.hidden = !!med.startDate;
 }
 
 function deleteMedication(id) {
@@ -949,35 +991,35 @@ function renderMedicationList(items, template, openEdit) {
 
     startInput.value = med.startDate || '';
     refillInput.value = med.refillDate || '';
-    if (med.refillDate) {
-      const days = daysUntilDateKey(med.refillDate);
-      if (days < 0) {
-        refillHint.textContent = 'overdue';
-        refillHint.className = 'refill-hint overdue';
-        refillHint.hidden = false;
-      } else if (days <= 7) {
-        refillHint.textContent = days === 0 ? 'due today' : `due in ${days} day${days === 1 ? '' : 's'}`;
-        refillHint.className = 'refill-hint soon';
-        refillHint.hidden = false;
-      }
-    }
-    unknownHint.hidden = !!med.startDate;
+    updateMedHints(med, refillHint, unknownHint);
 
-    startInput.addEventListener('change', () => {
-      const result = updateMedicationDate(med.id, 'startDate', startInput.value);
-      if (!result.ok) {
-        dateError.textContent = result.error;
-        dateError.hidden = false;
-        startInput.value = med.startDate || '';
-      }
-    });
-    refillInput.addEventListener('change', () => {
-      const result = updateMedicationDate(med.id, 'refillDate', refillInput.value);
-      if (!result.ok) {
-        dateError.textContent = result.error;
-        dateError.hidden = false;
-        refillInput.value = med.refillDate || '';
-      }
+    // `change` fires on every digit once a date is complete, so each one saves quietly in
+    // place. A half-typed year (e.g. 0002) is never saved; if it is still out of range when
+    // you leave the box, the box goes back to the saved date.
+    [[startInput, 'startDate'], [refillInput, 'refillDate']].forEach(([input, field]) => {
+      input.addEventListener('change', () => {
+        if (input.value && !isReasonableDateKey(input.value)) {
+          dateError.textContent = DATE_RANGE_MESSAGE;
+          dateError.hidden = false;
+          return;
+        }
+        dateError.hidden = true;
+        const result = updateMedicationDate(med.id, field, input.value);
+        if (!result.ok) {
+          dateError.textContent = result.error;
+          dateError.hidden = false;
+          input.value = med[field] || '';
+          return;
+        }
+        updateMedHints(med, refillHint, unknownHint);
+      });
+      input.addEventListener('blur', () => {
+        flushMedDateUndo();
+        if (input.value && !isReasonableDateKey(input.value)) {
+          input.value = med[field] || '';
+          dateError.hidden = true;
+        }
+      });
     });
 
     const notesEl = node.querySelector('.med-notes');
@@ -1058,6 +1100,7 @@ function renderMedicationList(items, template, openEdit) {
 }
 
 function renderMedications() {
+  flushMedDateUndo(); // a redraw replaces the date boxes, so close any typing burst first
   const searchTerm = document.getElementById('medications-search-input').value;
   const visible = medications.filter((m) => !m.deleted).filter((m) => matchesMedicationSearch(m, searchTerm));
   const template = document.getElementById('medications-card-template');
@@ -5317,6 +5360,7 @@ function applyEntrySnapshot(entry, which) {
 }
 
 function undo() {
+  flushMedDateUndo();
   if (undoStack.length === 0) return;
   const entry = undoStack.pop();
   isApplyingHistory = true;
@@ -5331,6 +5375,7 @@ function undo() {
 }
 
 function redo() {
+  flushMedDateUndo();
   if (redoStack.length === 0) return;
   const entry = redoStack.pop();
   isApplyingHistory = true;
