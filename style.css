@@ -1395,6 +1395,7 @@ body::before {
    and a media query earlier in the file than the rule it overrides loses. */
 .budget-day-body { display: contents; }
 .budget-day-close { display: none; }
+.budget-day-open-btn { display: none; }
 
 .budget-day-cell {
   display: flex;
@@ -1545,10 +1546,37 @@ body::before {
   }
 
   .budget-day-cell {
+    position: relative;
     min-height: 52px;
     padding: 4px 2px;
     cursor: pointer;
   }
+
+  /* A real button laid over the whole day: reachable with Tab, opened with Enter or Space. */
+  .budget-day-open-btn {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: inherit;
+    background: transparent;
+    font-size: 0;
+    cursor: pointer;
+  }
+
+  .budget-day-open-btn:focus-visible {
+    outline: 3px solid var(--accent);
+    outline-offset: -3px;
+  }
+
+  .budget-day-open .budget-day-open-btn { display: none; }
+
+  .budget-day-body:focus { outline: none; }
 
   .budget-day-header { text-align: center; }
 

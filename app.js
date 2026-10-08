@@ -4031,10 +4031,59 @@ function isCompactCalendar() {
   return window.matchMedia('(max-width: 900px)').matches;
 }
 
-function closeCalendarDay() {
-  openCalendarDayKey = null;
-  document.querySelectorAll('.budget-day-cell.budget-day-open').forEach((el) => el.classList.remove('budget-day-open'));
+// In the compact calendar an opened day is a bottom sheet. For keyboard and screen-reader users it
+// is exposed as a dialog: it has a name, focus moves into it, Tab stays inside, Escape closes it.
+function setDayDialog(cell, open) {
+  const body = cell.querySelector('.budget-day-body');
+  if (!body) return;
+  if (open) {
+    body.setAttribute('role', 'dialog');
+    body.setAttribute('aria-modal', 'true');
+    body.setAttribute('aria-label', cell.dataset.fullLabel || 'Day');
+  } else {
+    body.removeAttribute('role');
+    body.removeAttribute('aria-modal');
+    body.removeAttribute('aria-label');
+  }
 }
+
+function closeCalendarDay({ restoreFocus = false } = {}) {
+  const key = openCalendarDayKey;
+  openCalendarDayKey = null;
+  document.querySelectorAll('.budget-day-cell.budget-day-open').forEach((el) => {
+    el.classList.remove('budget-day-open');
+    setDayDialog(el, false);
+  });
+  if (restoreFocus && key) {
+    // The Close button is about to be hidden, so hand focus back to the day that was opened.
+    const opener = document.querySelector(`.budget-day-cell[data-date-key="${key}"] .budget-day-open-btn`);
+    if (opener) opener.focus();
+  }
+}
+
+document.addEventListener('keydown', (e) => {
+  if (!openCalendarDayKey) return;
+  const sheet = document.querySelector('.budget-day-cell.budget-day-open .budget-day-body');
+  if (!sheet) return;
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    closeCalendarDay({ restoreFocus: true });
+    return;
+  }
+  if (e.key !== 'Tab') return;
+  const stops = [...sheet.querySelectorAll('button, input')].filter((n) => !n.disabled && n.offsetParent !== null);
+  if (!stops.length) return;
+  const first = stops[0];
+  const last = stops[stops.length - 1];
+  const here = document.activeElement;
+  if (e.shiftKey && (here === first || here === sheet)) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && (here === last || !sheet.contains(here))) {
+    e.preventDefault();
+    first.focus();
+  }
+});
 
 // Capture phase so a tap outside the open day sheet only closes it, rather
 // than also opening whichever other day cell happened to be underneath.
@@ -4190,8 +4239,19 @@ function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, nonDeletedRecur
       const cellEl = document.createElement('div');
       cellEl.className = 'budget-day-cell';
       cellEl.dataset.dateKey = dateKey;
+      cellEl.dataset.fullLabel = `${MONTH_NAMES[m]} ${d}`;
       cellEl.classList.toggle('budget-day-today', dateKey === todayK);
-      cellEl.classList.toggle('budget-day-open', isCompactCalendar() && dateKey === openCalendarDayKey);
+      const startsOpen = isCompactCalendar() && dateKey === openCalendarDayKey;
+      cellEl.classList.toggle('budget-day-open', startsOpen);
+
+      // Compact calendar only (hidden by CSS on wide screens): a real button laid over the cell, so
+      // the day can be reached with Tab and opened with Enter/Space. Its name is filled in below.
+      const openBtn = document.createElement('button');
+      openBtn.type = 'button';
+      openBtn.className = 'budget-day-open-btn';
+      openBtn.setAttribute('aria-haspopup', 'dialog');
+      cellEl.appendChild(openBtn);
+
       cellEl.addEventListener('click', (e) => {
         if (!isCompactCalendar() || openCalendarDayKey === dateKey) return;
         // The dots are <label>s around hidden checkboxes: stop the tap that
@@ -4200,6 +4260,10 @@ function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, nonDeletedRecur
         closeCalendarDay();
         openCalendarDayKey = dateKey;
         cellEl.classList.add('budget-day-open');
+        setDayDialog(cellEl, true);
+        // The button that was just activated is now hidden; move focus into the sheet itself
+        // (not an input, so a phone keyboard doesn't pop up). Tab then reaches its controls.
+        if (e.target === openBtn) cellEl.querySelector('.budget-day-body').focus({ preventScroll: true });
       });
 
       // All cell content lives in one wrapper so the compact calendar can lift
@@ -4207,7 +4271,11 @@ function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, nonDeletedRecur
       // its slot in the week grid. display: contents on desktop = no change.
       const bodyEl = document.createElement('div');
       bodyEl.className = 'budget-day-body';
+      bodyEl.tabIndex = -1; // focusable by script only, so the opened sheet can receive focus
       cellEl.appendChild(bodyEl);
+      if (startsOpen) setDayDialog(cellEl, true);
+
+      const daySummary = []; // what this day holds, for the open button's accessible name
 
       const headerEl = document.createElement('div');
       headerEl.className = 'budget-day-header';
@@ -4220,7 +4288,7 @@ function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, nonDeletedRecur
       closeBtn.type = 'button';
       closeBtn.className = 'budget-day-close';
       closeBtn.textContent = 'Close';
-      closeBtn.addEventListener('click', (e) => { e.stopPropagation(); closeCalendarDay(); });
+      closeBtn.addEventListener('click', (e) => { e.stopPropagation(); closeCalendarDay({ restoreFocus: true }); });
       headerEl.appendChild(closeBtn);
       bodyEl.appendChild(headerEl);
 
@@ -4248,6 +4316,7 @@ function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, nonDeletedRecur
           nameSpan.textContent = `+ ${source.name}`;
 
           itemEl.title = `${source.name} — $${source.amount.toFixed(2)}`;
+          daySummary.push(`income ${source.name}`);
           itemEl.appendChild(dotSpan);
           itemEl.appendChild(nameSpan);
           occurrencesEl.appendChild(itemEl);
@@ -4298,6 +4367,7 @@ function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, nonDeletedRecur
           const amountText = `$${bill.amount.toFixed(2)}`;
           label.title = bill.category ? `${bill.name} — ${amountText} (${bill.category})` : `${bill.name} — ${amountText}`;
 
+          daySummary.push(`${bill.name}${paid ? ' (paid)' : overdue ? ' (overdue)' : ''}`);
           label.appendChild(checkbox);
           if (dotSpan) label.appendChild(dotSpan);
           label.appendChild(nameSpan);
@@ -4330,6 +4400,11 @@ function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, nonDeletedRecur
       }
       footerEl.appendChild(manualInput);
       bodyEl.appendChild(footerEl);
+
+      if (incomeRecord) daySummary.push(`income entered $${Number(incomeRecord.amount).toFixed(2)}`);
+      openBtn.setAttribute('aria-label',
+        `${MONTH_NAMES[m]} ${d}${dateKey === todayK ? ', today' : ''}: ` +
+        `${daySummary.length ? daySummary.join(', ') : 'nothing scheduled'}. Open day.`);
 
       cellsEl.appendChild(cellEl);
     });
