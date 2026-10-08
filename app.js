@@ -124,6 +124,7 @@ function renderChipFilter(container, options, getSelected, setSelected, onSelect
     chip.className = 'chip';
     chip.textContent = label;
     chip.classList.toggle('chip-active', getSelected() === key);
+    chip.setAttribute('aria-pressed', String(getSelected() === key));
     chip.addEventListener('click', () => {
       setSelected(key);
       onSelect();
@@ -131,6 +132,127 @@ function renderChipFilter(container, options, getSelected, setSelected, onSelect
     container.appendChild(chip);
   });
 }
+
+// ---- Keep keyboard focus when a list redraws ----
+// Every screen rebuilds its cards from scratch after a change. That used to throw away the
+// control you were on (tick a to-do box with Space and focus fell back to the top of the page).
+// withFocusRestore() remembers which control had focus, lets the screen redraw, then puts
+// focus back on the equivalent control in the new cards.
+
+const FOCUS_UNIT = 'li, .budget-day-cell, tr';
+
+function focusText(node) {
+  return (node.textContent || '').replace(/\s+/g, ' ').trim();
+}
+
+function focusKind(node) {
+  return [node.tagName, [...node.classList].sort().join('.'), node.getAttribute('aria-label') || '', node.type || ''].join('|');
+}
+
+function focusUnitSignature(unit) {
+  return (unit.dataset.dateKey || '') + '|' + focusText(unit).slice(0, 160);
+}
+
+function describeFocus() {
+  const el = document.activeElement;
+  if (!el || el === document.body || el === document.documentElement) return null;
+  const section = el.closest('[id$="-collection"]');
+  if (!section) return null;
+  const chip = el.closest('.chip');
+  if (chip && chip.parentElement && chip.parentElement.id) {
+    return { sectionId: section.id, mode: 'chip', containerId: chip.parentElement.id, label: focusText(chip) };
+  }
+  const unit = el.closest(FOCUS_UNIT);
+  if (unit && section.contains(unit)) {
+    const units = [...section.querySelectorAll(FOCUS_UNIT)];
+    const signature = focusUnitSignature(unit);
+    const unitIndex = units.indexOf(unit);
+    const kind = focusKind(el);
+    return {
+      sectionId: section.id,
+      mode: 'unit',
+      signature,
+      sameBefore: units.slice(0, unitIndex).filter((u) => focusUnitSignature(u) === signature).length,
+      unitIndex,
+      kind,
+      controlIndex: Math.max(0, [...unit.querySelectorAll('*')].filter((n) => focusKind(n) === kind).indexOf(el)),
+    };
+  }
+  if (el.id) return { sectionId: section.id, mode: 'id', id: el.id };
+  return { sectionId: section.id, mode: 'loose', kind: focusKind(el), label: focusText(el) };
+}
+
+function restoreFocus(d) {
+  if (!d) return;
+  const active = document.activeElement;
+  // Something (e.g. the budget screen's own income-box logic) already put focus back.
+  if (active && active !== document.body && document.contains(active)) return;
+  const section = document.getElementById(d.sectionId);
+  if (!section || section.hidden) return;
+  let target = null;
+  if (d.mode === 'chip') {
+    const container = document.getElementById(d.containerId);
+    const chips = container ? [...container.querySelectorAll('.chip')] : [];
+    target = chips.find((c) => focusText(c) === d.label) || chips[0] || null;
+  } else if (d.mode === 'id') {
+    target = document.getElementById(d.id);
+  } else if (d.mode === 'unit') {
+    const units = [...section.querySelectorAll(FOCUS_UNIT)];
+    const same = units.filter((u) => focusUnitSignature(u) === d.signature);
+    const unit = same[d.sameBefore] || same[0] || null;
+    if (unit) {
+      const matches = [...unit.querySelectorAll('*')].filter((n) => focusKind(n) === d.kind);
+      target = matches[d.controlIndex] || matches[0] || null;
+    } else if (units.length) {
+      // The card is gone (deleted, or filtered out). Land on the first control of the card now
+      // in its place, never on its Delete button, so pressing Enter again can't remove the next item.
+      const next = units[Math.min(d.unitIndex, units.length - 1)];
+      target = next.querySelector('input:not([type=hidden]), select, textarea, a[href], button:not(.delete-btn)');
+    }
+  } else if (d.mode === 'loose') {
+    target = [...section.querySelectorAll('button, input, select, textarea, a[href]')]
+      .find((n) => focusKind(n) === d.kind && focusText(n) === d.label) || null;
+  }
+  if (target && !target.disabled && !target.hidden) target.focus({ preventScroll: true });
+}
+
+function withFocusRestore(render) {
+  return function wrappedRender(...args) {
+    const snapshot = describeFocus();
+    const result = render.apply(this, args);
+    restoreFocus(snapshot);
+    return result;
+  };
+}
+
+// Used after the user jumps to another screen from Home or the reminder banner, so keyboard
+// and screen-reader users land on the new screen instead of a control that just disappeared.
+function focusSectionHeading(tab) {
+  const heading = document.querySelector(`#${tab}-collection h2`);
+  if (!heading) return;
+  heading.tabIndex = -1;
+  heading.focus();
+}
+
+function goToTab(tab) {
+  setActiveTab(tab);
+  focusSectionHeading(tab);
+}
+
+// Install the focus-keeping wrappers (function declarations are hoisted, so this is safe at the top).
+renderBooks = withFocusRestore(renderBooks);
+renderRecipes = withFocusRestore(renderRecipes);
+renderMedications = withFocusRestore(renderMedications);
+renderAppointments = withFocusRestore(renderAppointments);
+renderDiagnoses = withFocusRestore(renderDiagnoses);
+renderTodos = withFocusRestore(renderTodos);
+renderShoppingList = withFocusRestore(renderShoppingList);
+renderNotes = withFocusRestore(renderNotes);
+renderLinks = withFocusRestore(renderLinks);
+renderCourses = withFocusRestore(renderCourses);
+renderBudget = withFocusRestore(renderBudget);
+renderJournal = withFocusRestore(renderJournal);
+
 
 // ---- Device identity & sync metadata ----
 
@@ -4693,6 +4815,8 @@ function closeJournalWizard() {
   journalDraft = null;
   document.getElementById('journal-wizard').hidden = true;
   document.getElementById('journal-start').hidden = false;
+  const startBtn = document.querySelector('#journal-start .journal-start-btn');
+  if (startBtn) startBtn.focus(); // the wizard button that had focus is now hidden
 }
 
 function captureJournalAnswer() {
@@ -5104,10 +5228,13 @@ function renderReminderBanner(overdueBills, dueSoonBills) {
   banner.hidden = false;
 }
 
-document.getElementById('reminder-banner-view').addEventListener('click', () => setActiveTab('budget'));
+document.getElementById('reminder-banner-view').addEventListener('click', () => goToTab('budget'));
 document.getElementById('reminder-banner-dismiss').addEventListener('click', () => {
   reminderBannerDismissed = true;
   document.getElementById('reminder-banner').hidden = true;
+  // The button that had focus just disappeared; move focus to the screen you were on.
+  const visibleHeading = document.querySelector('[id$="-collection"]:not([hidden]) h2');
+  if (visibleHeading) { visibleHeading.tabIndex = -1; visibleHeading.focus(); }
 });
 
 function computeCurrentlyReading(nonDeletedBooks) {
@@ -5171,7 +5298,7 @@ function renderHome() {
     todoPanel.hidden = overdueTodos.length + dueSoonTodos.length === 0;
 
     overdueBills.forEach(({ bill, amount }) => {
-      billsList.appendChild(makeHomeRow(() => setActiveTab('budget'), (btn) => {
+      billsList.appendChild(makeHomeRow(() => goToTab('budget'), (btn) => {
         const name = document.createElement('strong');
         name.className = 'bill-name';
         name.textContent = bill.name;
@@ -5183,7 +5310,7 @@ function renderHome() {
     });
 
     dueSoonBills.forEach(({ bill, dateKey }) => {
-      billsList.appendChild(makeHomeRow(() => setActiveTab('budget'), (btn) => {
+      billsList.appendChild(makeHomeRow(() => goToTab('budget'), (btn) => {
         const name = document.createElement('strong');
         name.className = 'bill-name';
         name.textContent = bill.name;
@@ -5195,7 +5322,7 @@ function renderHome() {
     });
 
     [...overdueTodos, ...dueSoonTodos].forEach((todo) => {
-      todoList.appendChild(makeHomeRow(() => setActiveTab('todo'), (btn) => {
+      todoList.appendChild(makeHomeRow(() => goToTab('todo'), (btn) => {
         const task = document.createElement('span');
         task.className = 'todo-task';
         task.textContent = todo.task;
@@ -5215,7 +5342,7 @@ function renderHome() {
 
   refillsPanel.hidden = homeRefills.length === 0;
   homeRefills.forEach((med) => {
-    refillsList.appendChild(makeHomeRow(() => setActiveTab('medications'), (btn) => {
+    refillsList.appendChild(makeHomeRow(() => goToTab('medications'), (btn) => {
       const name = document.createElement('strong');
       name.className = 'med-name';
       name.textContent = med.name;
@@ -5229,7 +5356,7 @@ function renderHome() {
 
   appointmentsPanel.hidden = homeAppointments.length === 0;
   homeAppointments.forEach((appt) => {
-    appointmentsList.appendChild(makeHomeRow(() => setActiveTab('appointments'), (btn) => {
+    appointmentsList.appendChild(makeHomeRow(() => goToTab('appointments'), (btn) => {
       const title = document.createElement('strong');
       title.className = 'appt-title';
       title.textContent = appt.title;
@@ -5244,7 +5371,7 @@ function renderHome() {
   if (currentlyReading.length > 0) {
     readingPanel.hidden = false;
     currentlyReading.forEach((book) => {
-      readingList.appendChild(makeHomeRow(() => setActiveTab('books'), (btn) => {
+      readingList.appendChild(makeHomeRow(() => goToTab('books'), (btn) => {
         const title = document.createElement('strong');
         title.className = 'book-title';
         title.textContent = book.title;
