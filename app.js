@@ -3197,6 +3197,16 @@ function paidAmountFor(bill, dateKey) {
   return bill.amount;
 }
 
+// Identifies one real payment, so a payment recorded on several copies of the same bill is counted
+// once. Copies come from a sync conflict or a restore from a backup: both clone the record and change
+// only its id, so a copy keeps the original bill's creation time (dateAdded). Two bills you created
+// yourself never share one, even with the same name, amount and paid date (two loans both called
+// "Student loan" are two payments, not one). A bill with no creation time is never merged with another.
+function paymentIdentity(bill, dateKey) {
+  const origin = bill.dateAdded || `id:${bill.id}`;
+  return `${origin}|${paidAmountFor(bill, dateKey)}|${dateKey}`;
+}
+
 // What one occurrence is worth: the recorded amount if it was paid, the current amount if not.
 function occurrenceAmount(bill, dateKey) {
   return (bill.paidDates || []).includes(dateKey) ? paidAmountFor(bill, dateKey) : bill.amount;
@@ -3748,17 +3758,17 @@ function totalPaidEver(allBills) {
   const todayK = todayKey();
   // Each real payment counts once: sync conflicts used to leave several
   // copies of the same bill (most now deleted), each carrying the same paid
-  // date, which inflated this total. Same name + amount + date = one payment.
+  // date, which inflated this total. Copies of one bill share its creation
+  // time; separately created bills never do (see paymentIdentity).
   const counted = new Set();
   let sum = 0;
   allBills.forEach((b) => {
     (b.paidDates || []).forEach((d) => {
       if (d > todayK || !occursOnDate(b, d)) return;
-      const amount = paidAmountFor(b, d);
-      const key = `${normalizeChipKey(b.name)}|${amount}|${d}`;
+      const key = paymentIdentity(b, d);
       if (counted.has(key)) return;
       counted.add(key);
-      sum += amount;
+      sum += paidAmountFor(b, d);
     });
   });
   return sum;
@@ -3800,7 +3810,7 @@ function computePaidByCategory(allBills, y, m) {
   allBills.forEach((bill) => {
     const dates = (bill.paidDates || []).filter((d) => {
       if (!d.startsWith(prefix) || !occursOnDate(bill, d)) return false;
-      const paymentKey = `${normalizeChipKey(bill.name)}|${paidAmountFor(bill, d)}|${d}`;
+      const paymentKey = paymentIdentity(bill, d);
       if (counted.has(paymentKey)) return false;
       counted.add(paymentKey);
       return true;
