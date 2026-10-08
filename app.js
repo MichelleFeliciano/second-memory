@@ -366,11 +366,13 @@ function saveUiState(state) {
 
 function setActiveTab(tab) {
   const activeTab = TABS.includes(tab) ? tab : 'home';
+  const showingJournal = activeTab === 'journal';
   TABS.forEach((t) => {
     document.getElementById(`${t}-collection`).hidden = t !== activeTab;
     document.querySelector(`.nav-item[data-tab="${t}"]`).classList.toggle('active', t === activeTab);
   });
   saveUiState({ activeTab });
+  if (showingJournal) renderJournal(); // the tab is visible now, so widths (and the scroll position) are real
 
   if (window.matchMedia('(max-width: 700px)').matches) {
     const sidebar = document.querySelector('.sidebar');
@@ -4920,6 +4922,12 @@ const JOURNAL_TEMPLATES = {
 
 let selectedJournalFilter = 'all';
 
+// 'end' = jump to the newest entry (first load, new entry, filter change);
+// 'keep' = stay where the reader was (edit, delete, restore).
+let journalScrollMode = 'end';
+let journalLastScrollLeft = 0; // browsers reset a hidden element's scroll, so remember it
+let journalActiveOverride = null; // a date the reader just tapped, kept highlighted until they scroll themselves
+
 // Wizard state: step 0 is the date; steps 1..N are the template's questions.
 let journalDraft = null; // { type, editingId, date, answers, step }
 
@@ -5068,6 +5076,7 @@ function finishJournalEntry() {
     return;
   }
   closeJournalWizard();
+  if (!editingId) journalScrollMode = 'end';
   renderJournal();
 }
 
@@ -5089,24 +5098,27 @@ function renderJournal() {
     filterOptions,
     () => selectedJournalFilter,
     (key) => { selectedJournalFilter = key; },
-    renderJournal
+    () => { journalScrollMode = 'end'; renderJournal(); }
   );
 
   const list = document.getElementById('journal-list');
+  const previousScroll = list.clientWidth > 0 ? list.scrollLeft : journalLastScrollLeft;
   list.innerHTML = '';
   const visible = journalEntries
     .filter((e) => JOURNAL_TEMPLATES[e.type])
     .filter((e) => selectedJournalFilter === 'all' || e.type === selectedJournalFilter)
     .sort((a, b) => {
+      // Oldest on the left, newest on the right.
       const ka = `${a.date} ${a.dateAdded}`;
       const kb = `${b.date} ${b.dateAdded}`;
-      return ka < kb ? 1 : ka > kb ? -1 : 0;
+      return ka < kb ? -1 : ka > kb ? 1 : 0;
     });
 
   visible.forEach((entry) => {
     const template = JOURNAL_TEMPLATES[entry.type];
     const li = document.createElement('li');
     li.className = 'journal-card';
+    li.dataset.entryId = entry.id;
 
     const header = document.createElement('div');
     header.className = 'journal-card-header';
@@ -5155,7 +5167,112 @@ function renderJournal() {
   });
 
   document.getElementById('journal-empty-state').hidden = journalEntries.length !== 0;
+  renderJournalDateStrip(visible);
+  document.getElementById('journal-nav').hidden = visible.length === 0;
+
+  // Scroll positions can only be set once the tab is visible (hidden elements
+  // have no width); journalScrollMode stays pending until then.
+  if (list.clientWidth > 0) {
+    if (journalScrollMode === 'end') journalActiveOverride = null;
+    list.style.scrollSnapType = 'none';
+    list.scrollLeft = journalScrollMode === 'end' ? list.scrollWidth : previousScroll;
+    list.style.scrollSnapType = '';
+    journalLastScrollLeft = list.scrollLeft;
+    journalScrollMode = 'keep';
+    updateJournalActiveDate();
+  }
 }
+
+function journalChipLabel(entry) {
+  if (!DATE_KEY_RE.test(entry.date)) return entry.date;
+  const { y, m, d } = parseDateKey(entry.date);
+  const thisYear = new Date().getFullYear();
+  return `${MONTH_NAMES[m].slice(0, 3)} ${d}${y === thisYear ? '' : ` '${String(y).slice(2)}`}`;
+}
+
+// One button per entry, in the same order as the cards; tapping one scrolls
+// the timeline to that entry.
+function renderJournalDateStrip(visible) {
+  const strip = document.getElementById('journal-date-strip');
+  strip.innerHTML = '';
+  visible.forEach((entry) => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'journal-date-chip';
+    chip.dataset.entryId = entry.id;
+    chip.textContent = journalChipLabel(entry);
+    const kind = document.createElement('small');
+    kind.textContent = entry.type === 'dream' ? 'D' : 'T';
+    kind.title = JOURNAL_TEMPLATES[entry.type].label;
+    chip.appendChild(kind);
+    chip.addEventListener('click', () => {
+      journalActiveOverride = entry.id;
+      scrollJournalToEntry(entry.id);
+      updateJournalActiveDate();
+    });
+    strip.appendChild(chip);
+  });
+}
+
+function scrollJournalToEntry(id) {
+  const list = document.getElementById('journal-list');
+  const card = [...list.children].find((c) => c.dataset.entryId === id);
+  if (!card) return;
+  const delta = card.getBoundingClientRect().left - list.getBoundingClientRect().left;
+  list.scrollTo({ left: list.scrollLeft + delta, behavior: 'smooth' });
+}
+
+// Highlights the date chip of the card currently at the left edge and keeps
+// that chip visible inside the date strip.
+function updateJournalActiveDate() {
+  const list = document.getElementById('journal-list');
+  const strip = document.getElementById('journal-date-strip');
+  const cards = [...list.children];
+  if (cards.length === 0) return;
+  const listLeft = list.getBoundingClientRect().left;
+  let active = cards[0];
+  let best = Infinity;
+  cards.forEach((card) => {
+    const distance = Math.abs(card.getBoundingClientRect().left - listLeft);
+    if (distance < best) { best = distance; active = card; }
+  });
+  // At the far right the last card may never reach the left edge; treat the
+  // end of the scroll range as "newest".
+  if (list.scrollLeft + list.clientWidth >= list.scrollWidth - 2) active = cards[cards.length - 1];
+  // The last few cards can't reach the left edge (the row runs out of room), so
+  // honour a date the reader just tapped instead of the geometric guess.
+  const pinned = journalActiveOverride && cards.find((c) => c.dataset.entryId === journalActiveOverride);
+  if (pinned) active = pinned;
+  strip.querySelectorAll('.journal-date-chip').forEach((chip) => {
+    const isActive = chip.dataset.entryId === active.dataset.entryId;
+    chip.classList.toggle('journal-date-chip-active', isActive);
+    if (isActive) strip.scrollLeft = chip.offsetLeft - (strip.clientWidth - chip.offsetWidth) / 2;
+  });
+}
+
+let journalScrollFrame = null;
+const journalListEl = document.getElementById('journal-list');
+journalListEl.addEventListener('scroll', () => {
+  const list = journalListEl;
+  if (journalScrollFrame) return;
+  journalScrollFrame = requestAnimationFrame(() => {
+    journalScrollFrame = null;
+    if (list.clientWidth > 0) journalLastScrollLeft = list.scrollLeft;
+    updateJournalActiveDate();
+  });
+});
+
+function scrollJournalByPage(direction) {
+  journalActiveOverride = null;
+  const list = document.getElementById('journal-list');
+  list.scrollBy({ left: direction * Math.max(200, list.clientWidth * 0.8), behavior: 'smooth' });
+}
+
+document.getElementById('journal-scroll-prev').addEventListener('click', () => scrollJournalByPage(-1));
+document.getElementById('journal-scroll-next').addEventListener('click', () => scrollJournalByPage(1));
+['wheel', 'touchstart', 'pointerdown', 'keydown'].forEach((evt) => {
+  journalListEl.addEventListener(evt, () => { journalActiveOverride = null; }, { passive: true });
+});
 
 document.querySelectorAll('.journal-start-btn').forEach((btn) => {
   btn.addEventListener('click', () => {

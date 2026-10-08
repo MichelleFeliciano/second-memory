@@ -423,7 +423,13 @@
       </form>
 
       <div class="chip-row" id="journal-filters"></div>
-      <ul class="card-list flat-list" id="journal-list"></ul>
+
+      <div class="journal-nav" id="journal-nav" hidden>
+        <button type="button" id="journal-scroll-prev" class="journal-secondary-btn" aria-label="Earlier entries">&lsaquo; Earlier</button>
+        <div class="journal-date-strip" id="journal-date-strip" aria-label="Jump to a date"></div>
+        <button type="button" id="journal-scroll-next" class="journal-secondary-btn" aria-label="Later entries">Later &rsaquo;</button>
+      </div>
+      <ul class="card-list journal-timeline" id="journal-list" tabindex="0" aria-label="Journal entries, oldest to newest. Scroll sideways."></ul>
       <p class="empty-state" id="journal-empty-state" hidden>No entries yet &mdash; start one above.</p>
 
       <div class="data-io-buttons journal-backup">

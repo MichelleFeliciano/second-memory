@@ -2016,3 +2016,68 @@ body::before {
   font-size: 0.8rem;
   font-style: normal;
 }
+
+/* Journal timeline: entries sit side by side, oldest on the left, newest on
+   the right, and scroll sideways. */
+
+.journal-nav[hidden] { display: none; }
+
+.journal-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.journal-date-strip {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding-bottom: 4px;
+}
+
+.journal-date-chip {
+  flex: 0 0 auto;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.8rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.journal-date-chip:hover { border-color: var(--accent); }
+
+.journal-date-chip.journal-date-chip-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
+}
+
+.journal-date-chip small { margin-left: 4px; opacity: 0.75; }
+
+#journal-list.journal-timeline {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 14px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scroll-padding-left: 2px;
+  padding: 2px 2px 14px;
+  outline-offset: 2px;
+}
+
+#journal-list.journal-timeline .journal-card {
+  flex: 0 0 min(340px, 86%);
+  scroll-snap-align: start;
+  box-sizing: border-box;
+  max-height: 70vh;
+  overflow-y: auto;
+}
