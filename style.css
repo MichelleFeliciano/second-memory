@@ -2233,3 +2233,42 @@ body::before {
   body.summary-open .summary-body .summary-session { border-bottom-color: #bbb; }
   .summary-no-print { display: none !important; }
 }
+
+/* Recipe -> shopping list */
+.add-to-shopping-btn {
+  padding: 5px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 13px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.add-to-shopping-btn:hover { background: var(--accent); color: var(--accent-contrast); }
+.add-to-shopping-btn[hidden] { display: none; }
+
+.recipe-shop-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 0;
+  font-size: 0.85rem;
+  color: var(--accent);
+}
+
+.recipe-shop-status[hidden] { display: none; }
+
+.recipe-open-shopping {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.recipe-open-shopping:hover { color: var(--accent); border-color: var(--accent); }

@@ -736,6 +736,35 @@ function updateRecipe(id, fields) {
   renderRecipes();
 }
 
+// "2 cups flour", "- 2 cups flour" and "1) 2 cups flour" all become the plain item text.
+function ingredientToShoppingText(line) {
+  return String(line).replace(/^\s*(?:[-*\u2022]|\d+[.)])\s+/, '').trim();
+}
+
+// Adds each ingredient to the shopping list, skipping any that is already on it
+// unchecked (same text, ignoring case). The recipe's title is used as the
+// category so the list can be filtered by recipe.
+function addRecipeToShoppingList(recipe) {
+  const onList = new Set(
+    shoppingItems.filter((i) => !i.deleted && !i.checked).map((i) => i.item.trim().toLowerCase())
+  );
+  let added = 0;
+  let alreadyThere = 0;
+  (recipe.ingredients || []).forEach((line) => {
+    const text = ingredientToShoppingText(line);
+    if (!text) return;
+    const key = text.toLowerCase();
+    if (onList.has(key)) {
+      alreadyThere += 1;
+      return;
+    }
+    onList.add(key);
+    addShoppingItem(text, '', recipe.title || '');
+    added += 1;
+  });
+  return { added, alreadyThere };
+}
+
 function matchesRecipeSearch(recipe, term) {
   if (!term) return true;
   const haystack = [recipe.title, recipe.category, ...recipe.ingredients, ...recipe.steps, recipe.notes]
@@ -897,6 +926,21 @@ function renderRecipes() {
     });
 
     node.querySelector('.delete-btn').addEventListener('click', () => deleteRecipe(recipe.id));
+
+    const shopBtn = node.querySelector('.add-to-shopping-btn');
+    const shopStatus = node.querySelector('.recipe-shop-status');
+    const shopStatusText = node.querySelector('.recipe-shop-status-text');
+    shopBtn.hidden = !(recipe.ingredients && recipe.ingredients.length);
+    shopBtn.setAttribute('aria-label', `Add the ingredients of ${recipe.title} to the shopping list`);
+    shopBtn.addEventListener('click', () => {
+      const { added, alreadyThere } = addRecipeToShoppingList(recipe);
+      const kept = alreadyThere ? ` (${alreadyThere} already on it)` : '';
+      shopStatusText.textContent = added
+        ? `Added ${added} ingredient${added === 1 ? '' : 's'} to your shopping list${kept}.`
+        : 'Everything from this recipe is already on your shopping list.';
+      shopStatus.hidden = false;
+    });
+    node.querySelector('.recipe-open-shopping').addEventListener('click', () => goToTab('shopping'));
 
     if (openEdit && openEdit.id === recipe.id) {
       editTitleInput.value = openEdit.title;

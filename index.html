@@ -761,9 +761,14 @@
       </div>
       <p class="recipe-notes" hidden></p>
       <div class="recipe-actions">
+        <button type="button" class="add-to-shopping-btn" hidden>Add to shopping list</button>
         <button type="button" class="edit-btn">Edit</button>
         <button type="button" class="delete-btn" aria-label="Delete recipe">Delete</button>
       </div>
+      <p class="recipe-shop-status" role="status" hidden>
+        <span class="recipe-shop-status-text"></span>
+        <button type="button" class="recipe-open-shopping">View shopping list</button>
+      </p>
     </div>
     <form class="recipe-edit-form" hidden>
       <input type="text" class="recipe-edit-title" placeholder="Title" required aria-label="Edit recipe title">
