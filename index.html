@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Second Memory</title>
+<!-- Applies a Light/Dark theme chosen in the Menu before the page paints, so it does not flash. -->
+<script>
+try { var t = localStorage.getItem('secondMemory.theme.v1'); if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); } catch (e) { /* storage unavailable: follow the device */ }
+</script>
 <link rel="stylesheet" href="style.css">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" href="icons/apple-touch-icon.png">
@@ -198,6 +202,14 @@
       <input type="file" id="import-file-input" accept="application/json" hidden>
       <p class="sync-status-text data-io-status" id="data-io-status" role="status" hidden></p>
     </div>
+
+    <!-- Menu footer: Theme button (Auto / Light / Dark) and the app version, filled by app.js. -->
+    <div class="data-io">
+      <div class="data-io-buttons">
+        <button type="button" id="theme-btn" class="data-io-btn">Theme: Auto</button>
+      </div>
+      <p class="app-version" id="app-version"></p>
+    </div>
   </nav>
 
   <!-- Main content: the reminder banner, then one <section> per tab. Only the active one is visible. -->
@@ -220,6 +232,18 @@
         <label class="global-search-journal"><input type="checkbox" id="global-search-journal"> Include my journal</label>
         <div id="global-search-results" role="region" aria-label="Search results" aria-live="polite" hidden></div>
       </div>
+
+      <!-- Quick add: drop a to-do, shopping item or note in without opening its tab. -->
+      <form class="quick-add" id="quick-add-form">
+        <select id="quick-add-type" aria-label="What to add">
+          <option value="todo">To-do</option>
+          <option value="shopping">Shopping item</option>
+          <option value="note">Note</option>
+        </select>
+        <input type="text" id="quick-add-input" placeholder="Add something…" aria-label="Text to add" required>
+        <button type="submit">Add</button>
+        <p class="quick-add-status" id="quick-add-status" role="status" hidden></p>
+      </form>
 
       <p class="stats-line" id="home-stats"></p>
       <div id="home-backup-notes" hidden></div>

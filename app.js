@@ -5735,6 +5735,19 @@ function renderBackupNotes() {
       action: exportData,
     });
   }
+  // Syncing is manual, so nudge when it has been a while (only on devices where sync is set up).
+  if (loadSyncConfig()) {
+    const syncDays = daysSinceBackup(LAST_SYNC_AT_KEY);
+    if (syncDays === null) {
+      recordBackupTime(LAST_SYNC_AT_KEY); // start the clock the first time we notice sync is on
+    } else if (syncDays >= SYNC_STALE_DAYS) {
+      reminders.push({
+        text: `You haven't synced in ${syncDays} days. Changes on this device are not on your other devices yet.`,
+        label: 'Sync now',
+        action: runSync,
+      });
+    }
+  }
   box.hidden = backupNotesDismissed || reminders.length === 0;
   reminders.forEach((reminder) => {
     const row = document.createElement('div');
@@ -6363,6 +6376,9 @@ document.getElementById('redo-btn').addEventListener('click', redo);
 // Sync progress state: a sync is running, when the last one finished, and whether its message was ok/failed.
 let syncInFlight = false;
 let lastSyncedAt = null;
+// The last successful sync is also saved, so the Home screen can warn when it has been too long.
+const LAST_SYNC_AT_KEY = 'secondMemory.lastSyncAt.v1';
+const SYNC_STALE_DAYS = 7;
 let lastSyncTone = null;
 
 // Shows a sync message in the sidebar; tone is 'ok', 'failed' or null (neutral).
@@ -6693,6 +6709,7 @@ async function runSync() {
       setSyncStatus('Synced — you changed something during the sync. Tap Sync now again to send it.', 'failed');
     } else {
       setSyncStatus('Synced just now', 'ok');
+      recordBackupTime(LAST_SYNC_AT_KEY);
     }
   // Network failures and timeouts end up here; always unlock the button afterwards.
   } catch (err) {
@@ -7108,6 +7125,60 @@ function refreshForNewDay() {
 setInterval(refreshForNewDay, 60000);
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') refreshForNewDay();
+});
+
+// ---- Theme, version and quick add ----
+
+// The build number shown in the Menu. Keep it equal to the number in CACHE_NAME in sw.js
+// (a test checks this), so "which version am I on?" has a one-glance answer.
+const APP_VERSION = 58;
+const THEME_KEY = 'secondMemory.theme.v1';
+const THEMES = ['auto', 'light', 'dark'];
+
+// Reads the saved theme choice; anything unexpected means "auto" (follow the device).
+function loadTheme() {
+  try {
+    const value = localStorage.getItem(THEME_KEY);
+    return THEMES.includes(value) ? value : 'auto';
+  } catch {
+    return 'auto';
+  }
+}
+
+// Applies and saves a theme: Light or Dark set <html data-theme>, Auto removes it.
+function applyTheme(theme) {
+  if (theme === 'auto') document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.setAttribute('data-theme', theme);
+  try {
+    if (theme === 'auto') localStorage.removeItem(THEME_KEY);
+    else localStorage.setItem(THEME_KEY, theme);
+  } catch { /* storage unavailable: the choice lasts until the page closes */ }
+  const btn = document.getElementById('theme-btn');
+  if (btn) btn.textContent = `Theme: ${theme.charAt(0).toUpperCase()}${theme.slice(1)}`;
+}
+
+document.getElementById('theme-btn').addEventListener('click', () => {
+  applyTheme(THEMES[(THEMES.indexOf(loadTheme()) + 1) % THEMES.length]);
+});
+applyTheme(loadTheme());
+document.getElementById('app-version').textContent = `Version ${APP_VERSION}`;
+
+// Quick add on Home: one box that adds a to-do, shopping item or note, then reports what it did.
+document.getElementById('quick-add-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const type = document.getElementById('quick-add-type').value;
+  const input = document.getElementById('quick-add-input');
+  const status = document.getElementById('quick-add-status');
+  const text = input.value.trim();
+  if (!text) return;
+  let label;
+  if (type === 'todo') { addTodo(text, '', ''); label = 'your to-dos'; }
+  else if (type === 'shopping') { addShoppingItem(text, '', ''); label = 'your shopping list'; }
+  else { addNote('', text); label = 'your notes'; }
+  input.value = '';
+  status.textContent = `Added to ${label}.`;
+  status.hidden = false;
+  input.focus();
 });
 
 // ---- Init ----
