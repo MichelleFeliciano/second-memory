@@ -3425,8 +3425,8 @@ function formatSignedCurrency(amount) {
 // (CSS class vs. text) — kept as its own function rather than teaching
 // formatSignedCurrency to touch the DOM, which would also affect its
 // income-total callers that this feature does not ask to color-code (see
-// docs/specs/budget-income-followups.md §10.3 — net totals and the lifetime
-// balance only, not income totals).
+// docs/specs/budget-income-followups.md §10.3 — net totals only, not income
+// totals).
 function signedAmountClass(amount) {
   // Compare in whole cents so float noise (e.g. -5.5e-17) never paints $0.00 red.
   return Math.round(amount * 100) / 100 < 0 ? 'amount-negative' : 'amount-positive';
@@ -3717,7 +3717,7 @@ function recurringIncomeSumInRange(startKey, endKey, source) {
 
 // The single source of truth for "how much income does the calendar show for
 // this period" from this point forward — every income-derived total (week,
-// month, and the 90-day forecast) MUST call this, not the bare
+// month, and pay period) MUST call this, not the bare
 // incomeSumInRange, or the total will silently omit recurring occurrences the
 // calendar visibly displays. incomeSumInRange itself stays unchanged and
 // still exists as a standalone "manual entries only" helper — this is an
@@ -3730,85 +3730,17 @@ function totalIncomeInRange(startKey, endKey, nonDeletedIncome, nonDeletedRecurr
   return manual + recurring;
 }
 
-// ---- Lifetime balance ----
-// lifetimeBalance = totalIncomeEver - totalPaidEver. `recurringIncome` is
-// deliberately excluded entirely — its occurrences are purely projected
-// (§4), with no per-occurrence ledger to anchor a "trustworthy, historical"
-// figure against; editing a source's amount/frequency retroactively
-// rewrites its entire implied history via occurrenceCountThrough. See
-// docs/specs/budget-income-followups.md §11.3 (Architect-approved).
-
-// Sums every real, non-retracted income fact ever entered, up through today
-// — deliberately excludes any future-dated pre-entered income and deleted
-// records (a deleted `income` record means "that fact was wrong/retracted,"
-// not "stop tracking an ongoing thing," unlike bills/recurringIncome below).
-function totalIncomeEver(allIncome) {
-  const todayK = todayKey();
-  return allIncome
-    .filter((r) => !r.deleted && r.dateKey <= todayK)
-    .reduce((sum, r) => sum + r.amount, 0);
-}
-
-// Sums every bill occurrence actually marked paid, ever, up through today —
-// including bills that have SINCE been deleted (deleting a bill stops future
-// tracking, it does not un-spend money that was genuinely paid while the
-// bill was active), but excluding any paidDates entry dated in the future
-// and any paidDates entry that no longer matches the bill's CURRENT
-// recurrence rule (the same staleness filter unpaidAmountThrough already
-// applies, reused here for consistency). See §11.2.
-function totalPaidEver(allBills) {
-  const todayK = todayKey();
-  // Each real payment counts once: sync conflicts used to leave several
-  // copies of the same bill (most now deleted), each carrying the same paid
-  // date, which inflated this total. Copies of one bill share its creation
-  // time; separately created bills never do (see paymentIdentity).
-  const counted = new Set();
-  let sum = 0;
-  allBills.forEach((b) => {
-    (b.paidDates || []).forEach((d) => {
-      if (d > todayK || !occursOnDate(b, d)) return;
-      const key = paymentIdentity(b, d);
-      if (counted.has(key)) return;
-      counted.add(key);
-      sum += paidAmountFor(b, d);
-    });
-  });
-  return sum;
-}
-
-function lifetimeBalance(allIncome, allBills) {
-  return totalIncomeEver(allIncome) - totalPaidEver(allBills);
-}
-
-// Display-only anchor label ("Since March 3, 2026: ...") — not a filter;
-// a record can't exist before it was created, so summing everything that
-// exists already satisfies "since tracking started" with no computed anchor
-// needed. Earliest dateAdded across `income`/`bills`, unfiltered by
-// `deleted` (a later-deleted record's creation timestamp still marks when
-// tracking genuinely began). `recurringIncome` excluded, consistent with its
-// exclusion from the sum itself. See §11.4.
-function earliestTrackedDateAdded(allIncome, allBills) {
-  // Deleted income is a retracted fact (see totalIncomeEver), so it doesn't
-  // mark when tracking began; a deleted bill still does only if it recorded
-  // real payments (otherwise it's just a discarded or test entry).
-  const timestamps = [
-    ...allIncome.filter((r) => !r.deleted),
-    ...allBills.filter((b) => !b.deleted || (b.paidDates || []).length > 0),
-  ].map((r) => r.dateAdded);
-  return timestamps.length ? timestamps.reduce((min, t) => (t < min ? t : min)) : null;
-}
-
 // ---- Paid history ----
 // Per-category totals of bill occurrences marked paid in one calendar month.
 // Reads ALL bills including deleted ones (deleting a bill doesn't un-spend
-// money already paid), filtered through occursOnDate like totalPaidEver.
+// money already paid), filtered through occursOnDate.
 
 let paidHistoryMonth = (() => { const { y, m } = parseDateKey(todayKey()); return { y, m }; })();
 
 function computePaidByCategory(allBills, y, m) {
   const prefix = `${y}-${String(m + 1).padStart(2, '0')}-`;
   const byKey = new Map();
-  const counted = new Set(); // same payment recorded on duplicate bills counts once (matches totalPaidEver)
+  const counted = new Set(); // same payment recorded on duplicate bills counts once (see paymentIdentity)
   allBills.forEach((bill) => {
     const dates = (bill.paidDates || []).filter((d) => {
       if (!d.startsWith(prefix) || !occursOnDate(bill, d)) return false;
@@ -4006,8 +3938,12 @@ function renderPayPeriod() {
   // for weekly/biweekly/monthly within the 31-day scan bound) undetermined
   // period — treated identically: empty state, no summary, no crash.
   const period = settings.payDateKey ? computeCurrentPayPeriod(settings.payDateKey, settings.frequency) : null;
+  const incomeEl = document.getElementById('pay-period-income-total');
+  const netEl = document.getElementById('pay-period-net-total');
   if (!period) {
     summaryEl.textContent = '';
+    if (incomeEl) incomeEl.textContent = '';
+    if (netEl) netEl.textContent = '';
     emptyEl.hidden = false;
     return;
   }
@@ -4042,6 +3978,23 @@ function renderPayPeriod() {
     `Payday ${formatDateKeyLong(periodStart)} to ${formatDateKeyLong(periodEnd)}: ` +
     `$${grandTotal.toFixed(2)} due across ${matches.length} bill${matches.length === 1 ? '' : 's'}`;
   emptyEl.hidden = matches.length !== 0;
+
+  // Income and net for exactly this pay period (payday up to, not including,
+  // the next payday), so the period reads like the weekly and monthly totals.
+  const periodIncome = totalIncomeInRange(
+    periodStart,
+    shiftDateKey(periodEnd, -1),
+    income.filter((r) => !r.deleted),
+    recurringIncome.filter((r) => !r.deleted)
+  );
+  const periodNet = periodIncome - grandTotal;
+  if (incomeEl) {
+    incomeEl.innerHTML = `Income this pay period: <strong>${formatSignedCurrency(periodIncome)}</strong>`;
+  }
+  if (netEl) {
+    netEl.innerHTML = `Net this pay period: <strong class="${signedAmountClass(periodNet)}">${formatSignedCurrency(periodNet)}</strong>`;
+    netEl.title = 'Income entered or expected in this pay period minus the bills due in it.';
+  }
 
   matches.forEach(({ bill, total, occurrenceDates }) => {
     const li = document.createElement('li');
@@ -4204,77 +4157,6 @@ function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, nonDeletedRecur
     monthNetTotalEl.title =
       'Income entered or expected this month minus every bill unpaid as of the end of this month ' +
       '(includes unpaid amounts carried over from past months)';
-  }
-
-  // Lifetime balance — see docs/specs/budget-income-followups.md §11. Passed
-  // the FULL (not nonDeleted-filtered) `income`/`bills` arrays deliberately —
-  // totalIncomeEver/earliestTrackedDateAdded filter `income` by `!deleted`
-  // internally, and totalPaidEver intentionally includes deleted bills'
-  // still-valid paidDates entries (§11.2). `recurringIncome` is excluded
-  // entirely (§11.3), by construction (not passed in at all).
-  const lifetimeAnchor = earliestTrackedDateAdded(income, bills);
-  const lifetimeBalanceAmount = lifetimeBalance(nonDeletedIncome, bills);
-  const lifetimeEl = document.getElementById('budget-lifetime-balance');
-  if (lifetimeEl) {
-    let label = 'Lifetime balance';
-    if (lifetimeAnchor) {
-      const { y, m, d } = parseDateKey(dateKeyFromLocalDate(new Date(lifetimeAnchor)));
-      label = `Since ${MONTH_NAMES[m]} ${d}, ${y}`;
-    }
-    lifetimeEl.innerHTML =
-      `${label}: <strong class="${signedAmountClass(lifetimeBalanceAmount)}">${formatSignedCurrency(lifetimeBalanceAmount)}</strong>`;
-    lifetimeEl.title = 'Total income entered (one-time/manual only — recurring income ' +
-      'projections aren’t a historical record) minus total confirmed-paid across ' +
-      'all bills, ever, including bills since deleted.';
-  }
-
-  // 90-day forecast: a third, longer time horizon alongside the week totals
-  // (rolling, per-week) and the month total (current calendar month) above —
-  // same unpaidAmountThrough cumulative math, just anchored 90 days out
-  // instead of at a week/month boundary. Deliberately unfiltered by category,
-  // same carve-out as monthTotal/weekTotal (see matchesBillCategory comment
-  // further down).
-  const forecastEndKey = shiftDateKey(todayK, 90);
-  const forecastTotal = nonDeletedBills.reduce((sum, b) => sum + unpaidAmountThrough(b, forecastEndKey), 0);
-  const forecastEl = document.getElementById('budget-forecast-total');
-  if (forecastEl) {
-    const { y: forecastYear, m: forecastMonth, d: forecastDay } = parseDateKey(forecastEndKey);
-    forecastEl.innerHTML =
-      `By ${MONTH_NAMES[forecastMonth]} ${forecastDay}, ${forecastYear}: ` +
-      `<strong>~$${forecastTotal.toFixed(2)}</strong> in recurring bills`;
-  }
-
-  // Income forecast: incomeSumInRange + recurringIncomeSumInRange (NOT
-  // unpaidAmountThrough — structurally wrong for income, see §8.1). Includes
-  // pre-entered future one-off `income` entries deliberately (§8.2) — once
-  // that date rolls into the visible calendar window it's already counted by
-  // totalIncomeInRange above, so excluding it here would make the forecast
-  // lag behind what the calendar will eventually show. Labeled "expected
-  // income," not "recurring income," because it mixes manual and recurring
-  // sources (§8.2).
-  const forecastIncomeManual = incomeSumInRange(todayK, forecastEndKey, nonDeletedIncome);
-  const forecastIncomeRecurring = nonDeletedRecurringIncome.reduce(
-    (sum, src) => sum + recurringIncomeSumInRange(todayK, forecastEndKey, src), 0
-  );
-  const forecastIncomeTotal = forecastIncomeManual + forecastIncomeRecurring;
-  const forecastIncomeEl = document.getElementById('budget-forecast-income-total');
-  if (forecastIncomeEl) {
-    const { y: forecastYear, m: forecastMonth, d: forecastDay } = parseDateKey(forecastEndKey);
-    forecastIncomeEl.innerHTML =
-      `By ${MONTH_NAMES[forecastMonth]} ${forecastDay}, ${forecastYear}: ` +
-      `<strong>~${formatSignedCurrency(forecastIncomeTotal)}</strong> expected income`;
-  }
-
-  const forecastNet = forecastIncomeTotal - forecastTotal;
-  const forecastNetEl = document.getElementById('budget-forecast-net-total');
-  if (forecastNetEl) {
-    const { y: forecastYear, m: forecastMonth, d: forecastDay } = parseDateKey(forecastEndKey);
-    forecastNetEl.innerHTML =
-      `By ${MONTH_NAMES[forecastMonth]} ${forecastDay}, ${forecastYear}: ` +
-      `<strong class="${signedAmountClass(forecastNet)}">${formatSignedCurrency(forecastNet)}</strong> net`;
-    forecastNetEl.title =
-      'Income entered or expected through this date (manual entries plus recurring projections) ' +
-      'minus every bill unpaid as of this date.';
   }
 
   const windowDays = getCalendarWindowDays(today);

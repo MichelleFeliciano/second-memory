@@ -1357,21 +1357,13 @@ body::before {
 
 .budget-month-total,
 .budget-month-income-total,
-.budget-month-net-total,
-.budget-lifetime-balance {
+.budget-month-net-total {
   margin: 0;
   color: var(--muted);
   font-size: 0.85rem;
 }
 
-.budget-forecast-total {
-  margin: 0 0 12px;
-  color: var(--muted);
-  font-size: 0.85rem;
-  font-style: italic;
-}
-
-/* Net totals and the lifetime balance color-code their <strong> child via
+/* Net totals color-code their <strong> child via
    signedAmountClass() — income totals stay plain/uncolored (see
    docs/specs/budget-income-followups.md §10.3). Reuses the same
    amount-positive/amount-negative class pair the income-day dot below uses —
