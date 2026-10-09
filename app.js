@@ -39,7 +39,8 @@ function loadCollection(key) {
   try {
     const raw = localStorage.getItem(key);
     const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
+    // Keep only real records; a stray null or number in the saved list would otherwise crash the load.
+    return Array.isArray(parsed) ? parsed.filter((item) => item && typeof item === 'object' && !Array.isArray(item)) : [];
   } catch {
     return [];
   }
@@ -406,7 +407,9 @@ function loadUiState() {
 
 // Remembers which tab is open so the app reopens on it.
 function saveUiState(state) {
-  localStorage.setItem(UI_STORAGE_KEY, JSON.stringify(state));
+  try {
+    localStorage.setItem(UI_STORAGE_KEY, JSON.stringify(state));
+  } catch { /* storage full or blocked: the screen still switches, it just is not remembered */ }
 }
 
 // Shows one screen and hides the rest (unknown names fall back to Home); closes the phone sidebar.
@@ -540,19 +543,18 @@ function updateBook(id, fields) {
   if (!book) return;
   const trimmedTitle = fields.title.trim();
   if (!trimmedTitle) return false;
+  // The finished date is only edited when the form offers it (a read shelf); blank clears it.
+  // It is checked BEFORE anything changes, so a refused edit leaves the book exactly as it was.
+  let newFinished;
+  if (fields.dateFinished !== undefined) {
+    if (fields.dateFinished === '') newFinished = null;
+    else if (isRealDateKey(fields.dateFinished) && fields.dateFinished <= todayKey()) newFinished = fields.dateFinished;
+    else return false;
+  }
   const before = structuredClone(book);
   book.title = trimmedTitle;
   book.author = fields.author.trim();
-  // The finished date is only edited when the form offers it (a read shelf); blank clears it.
-  if (fields.dateFinished !== undefined) {
-    if (fields.dateFinished === '') {
-      book.dateFinished = null;
-    } else if (isRealDateKey(fields.dateFinished) && fields.dateFinished <= todayKey()) {
-      book.dateFinished = fields.dateFinished;
-    } else {
-      return false;
-    }
-  }
+  if (fields.dateFinished !== undefined) book.dateFinished = newFinished;
   stampSync(book);
   saveCollection(BOOKS_KEY, books);
   recordUndo('books', id, before, structuredClone(book));
@@ -924,7 +926,10 @@ async function requestCookWakeLock() {
   const note = document.getElementById('cook-awake');
   try {
     if ('wakeLock' in navigator) {
-      cookWakeLock = await navigator.wakeLock.request('screen');
+      if (cookWakeLock) { cookWakeLock.release().catch(() => {}); cookWakeLock = null; }
+      const lock = await navigator.wakeLock.request('screen');
+      if (!cookState) { lock.release().catch(() => {}); return; } // closed while we were waiting
+      cookWakeLock = lock;
       note.hidden = false;
     }
   } catch { note.hidden = true; }
@@ -1074,13 +1079,15 @@ function ingredientToShoppingText(line) {
 // Adds each ingredient to the shopping list, skipping any that is already on it
 // unchecked (same text, ignoring case). The recipe's title is used as the
 // category so the list can be filtered by recipe.
-function addRecipeToShoppingList(recipe) {
+function addRecipeToShoppingList(recipe, factor) {
   const onList = new Set(
     shoppingItems.filter((i) => !i.deleted && !i.checked).map((i) => i.item.trim().toLowerCase())
   );
   let added = 0;
   let alreadyThere = 0;
-  (recipe.ingredients || []).forEach((line) => {
+  // The amounts on the list match the scale chosen on the recipe card (1 = as written).
+  const lines = factor && factor !== 1 ? scaledIngredients(recipe, factor) : (recipe.ingredients || []);
+  lines.forEach((line) => {
     const text = ingredientToShoppingText(line);
     if (!text) return;
     const key = text.toLowerCase();
@@ -1098,7 +1105,7 @@ function addRecipeToShoppingList(recipe) {
 // True if the search text appears in the recipe's title, category, ingredients, steps or notes.
 function matchesRecipeSearch(recipe, term) {
   if (!term) return true;
-  const haystack = [recipe.title, recipe.category, ...recipe.ingredients, ...recipe.steps, recipe.notes]
+  const haystack = [recipe.title, recipe.category, ...(recipe.ingredients || []), ...(recipe.steps || []), recipe.notes]
     .join(' ')
     .toLowerCase();
   return haystack.includes(term.toLowerCase());
@@ -1185,7 +1192,7 @@ function renderRecipes() {
 
     const ingredientsSection = node.querySelector('.recipe-ingredients-section');
     const factor = recipeScales.get(recipe.id) || 1;
-    if (recipe.ingredients.length) {
+    if ((recipe.ingredients || []).length) {
       const ingredientsList = node.querySelector('.recipe-ingredients');
       scaledIngredients(recipe, factor).forEach((ing) => {
         const li = document.createElement('li');
@@ -1207,7 +1214,7 @@ function renderRecipes() {
     cookBtn.addEventListener('click', () => openCookMode(recipe.id));
 
     const stepsSection = node.querySelector('.recipe-steps-section');
-    if (recipe.steps.length) {
+    if ((recipe.steps || []).length) {
       const stepsList = node.querySelector('.recipe-steps');
       recipe.steps.forEach((step) => {
         const li = document.createElement('li');
@@ -1278,7 +1285,7 @@ function renderRecipes() {
     shopBtn.hidden = !(recipe.ingredients && recipe.ingredients.length);
     shopBtn.setAttribute('aria-label', `Add the ingredients of ${recipe.title} to the shopping list`);
     shopBtn.addEventListener('click', () => {
-      const { added, alreadyThere } = addRecipeToShoppingList(recipe);
+      const { added, alreadyThere } = addRecipeToShoppingList(recipe, recipeScales.get(recipe.id) || 1);
       const kept = alreadyThere ? ` (${alreadyThere} already on it)` : '';
       shopStatusText.textContent = added
         ? `Added ${added} ingredient${added === 1 ? '' : 's'} to your shopping list${kept}.`
@@ -1794,10 +1801,11 @@ function validateWeightFields(fields) {
   if (date > todayKey()) return { ok: false, error: "The date can't be in the future." };
   const raw = String(fields.value === undefined || fields.value === null ? '' : fields.value).trim();
   const value = Number(raw);
-  if (raw === '' || !Number.isFinite(value) || value <= 0 || value > WEIGHT_MAX) {
+  const rounded = Math.round(value * 10) / 10; // what will actually be saved
+  if (raw === '' || !Number.isFinite(value) || rounded < 0.1 || value > WEIGHT_MAX) {
     return { ok: false, error: `Enter a weight between 0.1 and ${WEIGHT_MAX} ${WEIGHT_UNIT}.` };
   }
-  return { ok: true, date, weight: Math.round(value * 10) / 10, note: (fields.note || '').trim() };
+  return { ok: true, date, weight: rounded, note: (fields.note || '').trim() };
 }
 
 // Adds a weight entry. Returns { ok } or { ok: false, error } if the fields don't validate.
@@ -2313,7 +2321,7 @@ function renderDiagnoses() {
   DIAGNOSIS_STATUSES.forEach((status, index) => {
     const list = lists[index];
     list.innerHTML = '';
-    const items = visible.filter((d) => d.status === status).sort(comparator);
+    const items = visible.filter((d) => (DIAGNOSIS_STATUSES.includes(d.status) ? d.status : 'active') === status).sort(comparator);
     document.querySelector(`[data-diagnosis-count="${status}"]`).textContent = items.length;
 
     items.forEach((diagnosis) => {
@@ -2452,13 +2460,30 @@ function stepRepeatDate(dateKey, repeat, anchorDay) {
 // The next due date after a repeating to-do is completed: one step from its due date, and
 // never on or before today (a weekly chore finished two weeks late is next due in the future,
 // not in the past). With no due date, the schedule starts from today.
-function nextRepeatDate(dueDate, repeat) {
+// anchorDay (monthly only) is the day of the month the task should land on, so a task due on the
+// 31st goes Feb 28, then back to Mar 31, rather than staying on the 28th for good.
+function nextRepeatDate(dueDate, repeat, anchorDay) {
   const today = todayKey();
   const base = dueDate || today;
-  const anchorDay = parseDateKey(base).d;
-  let next = stepRepeatDate(base, repeat, anchorDay);
-  for (let i = 0; i < 1000 && next <= today; i++) next = stepRepeatDate(next, repeat, anchorDay);
+  const anchor = anchorDay || parseDateKey(base).d;
+  if (repeat === 'daily' || repeat === 'weekly') {
+    // Jump straight past today in whole steps (no loop, so a chore years overdue is still fine).
+    const step = repeat === 'daily' ? 1 : 7;
+    const late = epochDays(today) - epochDays(base);
+    return shiftDateKey(base, (Math.max(0, Math.floor(late / step)) + 1) * step);
+  }
+  let next = stepRepeatDate(base, repeat, anchor);
+  for (let i = 0; i < 1200 && next <= today; i++) next = stepRepeatDate(next, repeat, anchor);
   return next;
+}
+
+// The day of the month a monthly task is anchored to: the saved one while the due date still
+// matches it (it may be clamped in a short month), otherwise the day of the current due date.
+function repeatAnchorDay(todo) {
+  if (!todo.dueDate || !isRealDateKey(todo.dueDate)) return null;
+  const { y, m, d } = parseDateKey(todo.dueDate);
+  const saved = Number.isInteger(todo.repeatDay) ? todo.repeatDay : null;
+  return saved && d === Math.min(saved, daysInMonth(y, m)) ? saved : d;
 }
 
 // Adds a to-do; a blank task is ignored.
@@ -2507,7 +2532,8 @@ function toggleTodoCompleted(id, completed) {
       task: todo.task,
       completed: false,
       repeat: todo.repeat,
-      dueDate: nextRepeatDate(todo.dueDate, todo.repeat),
+      dueDate: nextRepeatDate(todo.dueDate, todo.repeat, repeatAnchorDay(todo)),
+      repeatDay: repeatAnchorDay(todo),
       dateAdded: now,
       updatedAt: now,
       deviceId: getDeviceId(),
@@ -2518,7 +2544,8 @@ function toggleTodoCompleted(id, completed) {
     todo.spawnedId = child.id;
   } else if (!completed && todo.spawnedId) {
     const next = liveTodo(todo.spawnedId);
-    if (next && !next.completed) {
+    // Only an untouched next task is taken away; if you edited it, it stays.
+    if (next && !next.completed && next.updatedAt === next.dateAdded) {
       removed = { record: next, before: structuredClone(next) };
       next.deleted = true;
       stampSync(next);
@@ -3641,9 +3668,7 @@ function occurrenceAmount(bill, dateKey) {
 function unpaidAmountThrough(bill, throughKey) {
   const totalOccurrences = occurrenceCountThrough(bill, throughKey);
   if (totalOccurrences === 0) return 0;
-  const paidCount = (bill.paidDates || [])
-    .filter((d) => d <= throughKey && occursOnDate(bill, d))
-    .length;
+  const paidCount = new Set((bill.paidDates || []).filter((d) => d <= throughKey && occursOnDate(bill, d))).size;
   return Math.max(0, totalOccurrences - paidCount) * bill.amount;
 }
 
@@ -3761,12 +3786,14 @@ function setIncomeForDate(dateKey, rawValue) {
   const existing = income.find((r) => r.id === dateKey);
 
   if (rawValue === '') {
-    if (existing && !existing.deleted) deleteIncome(dateKey);
+    // Clear every live record for the date (a restore or conflict can leave a second one with a
+    // different id), otherwise the old value would come back.
+    income.filter((r) => r.dateKey === dateKey && !r.deleted).forEach((r) => deleteIncome(r.id));
     return; // already blank/absent — no-op, nothing to record
   }
 
   const amount = Number(rawValue);
-  if (!Number.isFinite(amount)) return; // defensive; a native <input type=number>'s
+  if (!Number.isFinite(amount) || Math.abs(amount) > MAX_MONEY) return; // defensive; a native <input type=number>'s
                                           // committed value should never actually hit this
 
   if (existing) {
@@ -3888,12 +3915,15 @@ function isReasonableDateKey(key) {
 const DATE_RANGE_MESSAGE = `Pick a date between the years ${DATE_YEAR_MIN} and ${DATE_YEAR_MAX}.`;
 
 // Checks and cleans a bill's form values (name, amount above $0, due date); unknown frequency becomes monthly.
+// The largest amount accepted for a bill or income entry (keeps totals and displays sane).
+const MAX_MONEY = 1000000000;
+
 function validateBillFields(fields) {
   const trimmedName = fields.name.trim();
   if (!trimmedName) return { ok: false, error: 'Bill name is required.' };
-  const amount = Number(fields.amount);
-  if (!Number.isFinite(amount) || amount <= 0) {
-    return { ok: false, error: 'Amount must be a number greater than $0.' };
+  const amount = Math.round(Number(fields.amount) * 100) / 100; // whole cents, as it will be shown
+  if (!Number.isFinite(amount) || amount <= 0 || amount > MAX_MONEY) {
+    return { ok: false, error: 'Amount must be between $0.01 and $1,000,000,000.' };
   }
   const dueDate = fields.dueDate;
   if (!dueDate) return { ok: false, error: 'Due date is required.' };
@@ -4075,13 +4105,13 @@ let recurringIncome = migrateSyncFields(loadCollection(RECURRING_INCOME_KEY), RE
 function validateRecurringIncomeFields(fields) {
   const trimmedName = fields.name.trim();
   if (!trimmedName) return { ok: false, error: 'Income source name is required.' };
-  const amount = Number(fields.amount);
+  const amount = Math.round(Number(fields.amount) * 100) / 100; // whole cents, as it will be shown
   // > 0 required — a deliberate divergence from `income`'s unconstrained
   // amount. A recurring source describes an ongoing schedule, not a single
   // historical fact, so a $0/negative one is meaningless and would propagate
   // into every future total forever. See §2.1.
-  if (!Number.isFinite(amount) || amount <= 0) {
-    return { ok: false, error: 'Amount must be a number greater than $0.' };
+  if (!Number.isFinite(amount) || amount <= 0 || amount > MAX_MONEY) {
+    return { ok: false, error: 'Amount must be between $0.01 and $1,000,000,000.' };
   }
   const dueDate = fields.dueDate; // "First occurrence" in the UI — see §3
   if (!dueDate) return { ok: false, error: 'First occurrence date is required.' };
@@ -4199,8 +4229,10 @@ function computePaidByCategory(allBills, y, m) {
   const byKey = new Map();
   const counted = new Set(); // same payment recorded on duplicate bills counts once (see paymentIdentity)
   allBills.forEach((bill) => {
+    // Every recorded payment counts, even one that no longer lines up with the bill's schedule
+    // (for example after the schedule was edited): money that was paid should not vanish from history.
     const dates = (bill.paidDates || []).filter((d) => {
-      if (!d.startsWith(prefix) || !occursOnDate(bill, d)) return false;
+      if (typeof d !== 'string' || !d.startsWith(prefix)) return false;
       const paymentKey = paymentIdentity(bill, d);
       if (counted.has(paymentKey)) return false;
       counted.add(paymentKey);
@@ -4453,7 +4485,7 @@ function renderPayPeriod() {
   const periodIncome = totalIncomeInRange(
     periodStart,
     shiftDateKey(periodEnd, -1),
-    uniqueIncomeByDate(income.filter((r) => !r.deleted)),
+    uniqueIncomeByDate(income).filter((r) => !r.deleted),
     recurringIncome.filter((r) => !r.deleted)
   );
   const periodNet = periodIncome - grandTotal;
@@ -5112,7 +5144,8 @@ function renderRecurringIncomeList(nonDeletedRecurringIncome, openEdit) {
 // be mid-typing into). See docs/specs/budget-tab.md §6.1.
 function renderBudget() {
   const nonDeleted = bills.filter((b) => !b.deleted);
-  const nonDeletedIncome = uniqueIncomeByDate(income.filter((r) => !r.deleted));
+  // One record per date first (the newest wins, even if it is a cleared one), then drop cleared ones.
+  const nonDeletedIncome = uniqueIncomeByDate(income).filter((r) => !r.deleted);
   const nonDeletedRecurringIncome = recurringIncome.filter((r) => !r.deleted);
 
   const activeEl = document.activeElement;
@@ -5178,6 +5211,7 @@ function renderBudget() {
 
   form.addEventListener('submit', (e) => {
     e.preventDefault();
+    if (dateInput.value && !isReasonableDateKey(dateInput.value)) return; // a mistyped year like 0026
     savePaydaySettings({
       payDateKey: dateInput.value || null,
       frequency: PAY_PERIOD_FREQUENCIES.includes(frequencyInput.value) ? frequencyInput.value : 'biweekly',
@@ -5566,6 +5600,11 @@ function finishJournalEntry() {
       entry.date = date;
       entry.answers = cleaned;
       entry.updatedAt = now;
+    } else {
+      // The entry was deleted while its edit form was open: save what was written as an entry
+      // again instead of silently dropping it.
+      journalEntries.push({ id: editingId, type, date, answers: cleaned, dateAdded: now, updatedAt: now });
+      forgetDeletedJournalId(editingId);
     }
   } else {
     journalEntries.push({ id: makeId(), type, date, answers: cleaned, dateAdded: now, updatedAt: now });
@@ -5589,8 +5628,37 @@ function finishJournalEntry() {
 function deleteJournalEntry(id) {
   if (!window.confirm('Delete this journal entry? This cannot be undone.')) return;
   journalEntries = journalEntries.filter((e) => e.id !== id);
+  rememberDeletedJournalId(id);
   saveJournalEntries();
   renderJournal();
+}
+
+// The journal has no tombstones (a deleted entry is gone), so the ids of deleted entries are
+// remembered here (on this device only). That way restoring an older backup file cannot quietly
+// bring back an entry you deliberately deleted.
+const JOURNAL_DELETED_KEY = 'secondMemory.journalDeleted.v1';
+const JOURNAL_DELETED_KEPT = 500;
+
+// The remembered ids of deleted journal entries.
+function loadDeletedJournalIds() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(JOURNAL_DELETED_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed.filter((id) => typeof id === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+// Remembers one deleted id (newest 500 kept).
+function rememberDeletedJournalId(id) {
+  const ids = loadDeletedJournalIds().filter((x) => x !== id);
+  ids.push(id);
+  try { localStorage.setItem(JOURNAL_DELETED_KEY, JSON.stringify(ids.slice(-JOURNAL_DELETED_KEPT))); } catch { /* storage full: deletion still works, it just is not remembered */ }
+}
+
+// Forgets a deleted id (the entry exists again).
+function forgetDeletedJournalId(id) {
+  try { localStorage.setItem(JOURNAL_DELETED_KEY, JSON.stringify(loadDeletedJournalIds().filter((x) => x !== id))); } catch { /* storage full: nothing to update */ }
 }
 
 // Redraws the Journal screen: type chips, the row of entry cards (oldest left, newest right),
@@ -5993,8 +6061,8 @@ document.getElementById('journal-back-btn').addEventListener('click', () => {
 
 document.getElementById('journal-skip-btn').addEventListener('click', () => {
   if (!journalDraft) return;
-  // Skip leaves the question as it was (blank on a new entry, the saved
-  // answer when editing) and moves on.
+  // Skip moves on without requiring an answer, but anything already typed is kept.
+  captureJournalAnswer();
   journalDraft.step += 1;
   renderJournalStep();
 });
@@ -6013,15 +6081,18 @@ function setJournalBackupStatus(text, tone) {
 // Guards a restore from a backup file: true only for entries with an id, a known type, a date and answers.
 function isValidJournalEntry(item) {
   return !!item && typeof item.id === 'string' && !!JOURNAL_TEMPLATES[item.type]
-    && typeof item.date === 'string' && !!item.answers && typeof item.answers === 'object';
+    && typeof item.date === 'string' && !!item.answers && typeof item.answers === 'object'
+    && !Array.isArray(item.answers)
+    && Object.values(item.answers).every((v) => typeof v === 'string' || typeof v === 'number');
 }
 
 // Adds entries that are valid and not already here (matched by id). Returns how many were added.
 function mergeJournalEntries(incoming) {
   const known = new Set(journalEntries.map((x) => x.id));
+  const deleted = new Set(loadDeletedJournalIds()); // entries you deleted stay deleted
   let added = 0;
   incoming.forEach((item) => {
-    if (!isValidJournalEntry(item) || known.has(item.id)) return;
+    if (!isValidJournalEntry(item) || known.has(item.id) || deleted.has(item.id)) return;
     known.add(item.id);
     journalEntries.push(item);
     added += 1;
@@ -6045,7 +6116,7 @@ function downloadJournalBackup() {
   document.body.appendChild(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 10000); // revoking at once can cancel the download on iOS/Safari
   setJournalBackupStatus('Journal backup downloaded. Keep the file somewhere private.', 'ok');
   renderBackupNotes();
 }
@@ -6104,7 +6175,7 @@ const SUMMARY_LABELS = {
 function therapySessions(limit) {
   return journalEntries
     .filter((e) => e.type === 'therapy' && DATE_KEY_RE.test(e.date))
-    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : (a.dateAdded < b.dateAdded ? 1 : -1)))
+    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : String(b.dateAdded || '').localeCompare(String(a.dateAdded || ''))))
     .slice(0, limit);
 }
 
@@ -6589,6 +6660,7 @@ function computeHomeBills(nonDeletedBills) {
   // click handler for cost reasons. Home re-renders on every add/edit/delete/
   // undo/redo/sync across three collections, so it must stay cheap.
   const overdue = nonDeletedBills
+    .filter((bill) => !bill.autopay) // a bill that pays itself is not "overdue" just because it was not ticked off
     .map((bill) => ({ bill, amount: unpaidAmountThrough(bill, yesterdayK) }))
     .filter((x) => x.amount > 0)
     .sort((a, b) => b.amount - a.amount);
@@ -7596,6 +7668,14 @@ function mergeCollectionFromImport(localItems, importedItems, collectionName) {
       return;
     }
 
+    // A backup copy that is not newer than what is here is simply old news (the record was edited
+    // and synced since the backup was made). It must not be added again as a duplicate, however many
+    // times the same file is imported.
+    if ((existing.updatedAt || '') >= (incoming.updatedAt || '')) {
+      unchanged += 1;
+      return;
+    }
+
     // Income is one entry per date (the id is the date): the most recently edited wins instead
     // of creating a second entry, which would count the money twice.
     if (collectionName === 'income') {
@@ -7639,11 +7719,20 @@ function isValidImportRecord(collectionName, rec) {
   if (!rec || typeof rec !== 'object' || typeof rec.id !== 'string' || !rec.id) return false;
   const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
   const isDate = (v) => isRealDateKey(v);
-  if (collectionName === 'bills') return isNum(rec.amount) && isDate(rec.dueDate) && IMPORT_FREQUENCIES.includes(rec.frequency) && (rec.autopay === undefined || typeof rec.autopay === 'boolean');
-  if (collectionName === 'books') return rec.dateFinished == null || isDate(rec.dateFinished);
-  if (collectionName === 'recurringIncome') return isNum(rec.amount) && isDate(rec.dueDate) && IMPORT_FREQUENCIES.includes(rec.frequency) && rec.frequency !== 'one_time';
+  const isText = (v) => typeof v === 'string';
+  const textOrMissing = (v) => v === undefined || v === null || typeof v === 'string';
+  const listOrMissing = (v) => v === undefined || (Array.isArray(v) && v.every((x) => typeof x === 'string'));
+  if (collectionName === 'bills') return isText(rec.name) && textOrMissing(rec.category) && listOrMissing(rec.paidDates) && isNum(rec.amount) && isDate(rec.dueDate) && IMPORT_FREQUENCIES.includes(rec.frequency) && (rec.autopay === undefined || typeof rec.autopay === 'boolean');
+  if (collectionName === 'books') return isText(rec.title) && BOOK_STATUSES.includes(rec.status) && (rec.dateFinished == null || isDate(rec.dateFinished));
+  if (collectionName === 'recipes') return isText(rec.title) && listOrMissing(rec.ingredients) && listOrMissing(rec.steps);
+  if (collectionName === 'diagnoses') return isText(rec.condition) && DIAGNOSIS_STATUSES.includes(rec.status);
+  if (collectionName === 'todos') return isText(rec.task);
+  if (collectionName === 'shoppingList') return isText(rec.item);
+  if (collectionName === 'notes') return textOrMissing(rec.title) && textOrMissing(rec.body);
+  if (collectionName === 'links') return textOrMissing(rec.label) && textOrMissing(rec.url);
+  if (collectionName === 'recurringIncome') return isText(rec.name) && isNum(rec.amount) && isDate(rec.dueDate) && IMPORT_FREQUENCIES.includes(rec.frequency) && rec.frequency !== 'one_time';
   if (collectionName === 'income') return isNum(rec.amount) && isDate(rec.dateKey);
-  if (collectionName === 'medications') return rec.takenDates === undefined || Array.isArray(rec.takenDates);
+  if (collectionName === 'medications') return isText(rec.name) && (rec.takenDates === undefined || Array.isArray(rec.takenDates));
   if (collectionName === 'weights') return isNum(rec.weight) && rec.weight > 0 && rec.weight <= WEIGHT_MAX && isDate(rec.date);
   return true;
 }
@@ -7797,7 +7886,7 @@ document.addEventListener('visibilitychange', () => {
 
 // The build number shown in the Menu. Keep it equal to the number in CACHE_NAME in sw.js
 // (a test checks this), so "which version am I on?" has a one-glance answer.
-const APP_VERSION = 62;
+const APP_VERSION = 64;
 const THEME_KEY = 'secondMemory.theme.v1';
 const THEMES = ['auto', 'light', 'dark'];
 
@@ -7878,13 +7967,14 @@ function buildHealthSummaryData() {
 
   // Diagnoses, active first, then monitoring, then resolved.
   const diags = diagnoses.filter((d) => !d.deleted)
-    .sort((a, b) => DIAGNOSIS_STATUSES.indexOf(a.status) - DIAGNOSIS_STATUSES.indexOf(b.status)
-      || a.condition.localeCompare(b.condition, undefined, { sensitivity: 'base' }));
+    .sort((a, b) => Math.max(0, DIAGNOSIS_STATUSES.indexOf(a.status)) - Math.max(0, DIAGNOSIS_STATUSES.indexOf(b.status))
+      || String(a.condition || '').localeCompare(String(b.condition || ''), undefined, { sensitivity: 'base' }));
   sections.push({
     title: 'Diagnoses',
     empty: 'No diagnoses recorded.',
     entries: diags.map((d) => {
-      const lines = [`Status: ${d.status.charAt(0).toUpperCase()}${d.status.slice(1)}`];
+      const status = DIAGNOSIS_STATUSES.includes(d.status) ? d.status : 'active';
+      const lines = [`Status: ${status.charAt(0).toUpperCase()}${status.slice(1)}`];
       if (d.dateDiagnosed) lines.push(`Diagnosed ${isRealDateKey(d.dateDiagnosed) ? formatDateKeyLong(d.dateDiagnosed) : d.dateDiagnosed}`);
       if (d.provider) lines.push(`Provider: ${d.provider}`);
       if (d.notes) lines.push(d.notes);
@@ -8023,9 +8113,23 @@ const LOCK_AFTER_MS = 2 * 60 * 1000;
 const LOCK_PIN_RE = /^\d{4,12}$/;
 const LOCK_MAX_TRIES = 5;
 const LOCK_COOLDOWN_MS = 30000;
+const LOCK_TRIES_KEY = 'secondMemory.lockTries.v1';
 let lockFailures = 0;
 let lockBlockedUntil = 0;
 let lockHiddenAt = null;
+let lockChecking = false; // true while a PIN is being checked, so a double tap cannot run two checks
+
+// Wrong-try count and pause end time live in storage too, so reloading the page cannot skip the pause.
+function saveLockTries() {
+  try { localStorage.setItem(LOCK_TRIES_KEY, JSON.stringify({ fails: lockFailures, until: lockBlockedUntil })); } catch { /* storage full: the in-memory count still applies */ }
+}
+try {
+  const savedTries = JSON.parse(localStorage.getItem(LOCK_TRIES_KEY) || 'null');
+  if (savedTries && Number.isFinite(savedTries.fails) && Number.isFinite(savedTries.until)) {
+    lockFailures = Math.max(0, Math.min(LOCK_MAX_TRIES, savedTries.fails));
+    lockBlockedUntil = savedTries.until;
+  }
+} catch { /* damaged: start from zero */ }
 
 // The saved { salt, hash } (hex strings), or null when no lock is set or the saved value is damaged.
 function loadLock() {
@@ -8081,6 +8185,11 @@ function clearAppLock() {
 // Shows the lock screen (if a lock is set) and puts the cursor in the PIN box.
 function lockNow() {
   if (!loadLock()) return;
+  // Close anything showing private details first (summaries, cook mode, the lock settings dialog).
+  if (!document.getElementById('health-summary').hidden) closeHealthSummary();
+  if (!document.getElementById('therapy-summary').hidden) closeTherapySummary();
+  if (cookState) closeCookMode();
+  if (!document.getElementById('lock-setup').hidden) closeLockSetup();
   document.documentElement.setAttribute('data-locked', '1');
   const input = document.getElementById('lock-pin-input');
   input.value = '';
@@ -8114,25 +8223,34 @@ document.getElementById('lock-form').addEventListener('submit', async (e) => {
     errorEl.hidden = false;
     return;
   }
+  if (lockChecking) return;
+  lockChecking = true;
   const input = document.getElementById('lock-pin-input');
-  if (await checkPin(input.value)) {
-    lockFailures = 0;
-    document.documentElement.removeAttribute('data-locked');
+  try {
+    if (await checkPin(input.value)) {
+      lockFailures = 0;
+      lockBlockedUntil = 0;
+      saveLockTries();
+      document.documentElement.removeAttribute('data-locked');
+      input.value = '';
+      errorEl.hidden = true;
+      return;
+    }
+    lockFailures += 1;
     input.value = '';
-    errorEl.hidden = true;
-    return;
+    if (lockFailures >= LOCK_MAX_TRIES) {
+      lockFailures = 0;
+      lockBlockedUntil = Date.now() + LOCK_COOLDOWN_MS;
+      errorEl.textContent = 'Too many tries. Wait 30 seconds.';
+    } else {
+      errorEl.textContent = 'That PIN is not right.';
+    }
+    saveLockTries();
+    errorEl.hidden = false;
+    input.focus();
+  } finally {
+    lockChecking = false;
   }
-  lockFailures += 1;
-  input.value = '';
-  if (lockFailures >= LOCK_MAX_TRIES) {
-    lockFailures = 0;
-    lockBlockedUntil = Date.now() + LOCK_COOLDOWN_MS;
-    errorEl.textContent = 'Too many tries. Wait 30 seconds.';
-  } else {
-    errorEl.textContent = 'That PIN is not right.';
-  }
-  errorEl.hidden = false;
-  input.focus();
 });
 
 document.getElementById('lock-forgot-btn').addEventListener('click', () => {
@@ -8204,6 +8322,11 @@ document.addEventListener('visibilitychange', () => {
 });
 
 updateLockButtons();
+// A damaged saved lock cannot be unlocked and would trap you on the lock screen: clear it.
+if (document.documentElement.hasAttribute('data-locked') && !loadLock()) {
+  try { localStorage.removeItem(LOCK_KEY); } catch { /* nothing to remove it from */ }
+  document.documentElement.removeAttribute('data-locked');
+}
 if (loadLock()) lockNow(); // a locked app opens locked (the lock screen is already showing)
 
 // ---- Init ----

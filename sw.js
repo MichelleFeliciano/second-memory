@@ -12,7 +12,7 @@
 // The browser only detects a Service Worker update when sw.js's bytes change —
 // if this string is left unchanged, sw.js is byte-identical after a deploy, the
 // browser never notices, and users silently stay on old code forever.
-const CACHE_NAME = 'second-memory-v62';
+const CACHE_NAME = 'second-memory-v64';
 
 // Files pre-cached at install time: everything needed to run with no network.
 const APP_SHELL = [
@@ -41,7 +41,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
       .then((keys) => Promise.all(
-        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
+        keys.filter((key) => key.startsWith('second-memory-') && key !== CACHE_NAME).map((key) => caches.delete(key)) // only this app's old caches (the site address is shared)
       ))
       .then(() => self.clients.claim())
   );

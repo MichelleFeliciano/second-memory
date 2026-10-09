@@ -2776,7 +2776,10 @@ select[id$="-sort-input"],
 
 html[data-locked] .lock-screen { display: flex; }
 html[data-locked] .app-shell,
-html[data-locked] .storage-warning { visibility: hidden; }
+html[data-locked] .storage-warning,
+html[data-locked] .summary-overlay,
+html[data-locked] .cook-overlay,
+html[data-locked] .lock-backdrop { visibility: hidden; }
 
 /* The dialog for turning the lock on or off sits over the page like a small sheet. */
 .lock-backdrop {

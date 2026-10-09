@@ -22,7 +22,7 @@ check('Home still lists the autopay bill and marks it', [...document.querySelect
 // editing keeps/changes the flag
 updateBill(bills.find((b) => b.name === 'Manual bill').id, { name: 'Manual bill', amount: '40', dueDate: dk(3), frequency: 'monthly', category: '', autopay: true });
 check('editing can turn autopay on', bills.find((b) => b.name === 'Manual bill').autopay === true);
-check('import accepts a true/false autopay and refuses anything else', isValidImportRecord('bills', { id: 'x', amount: 5, dueDate: dk(1), frequency: 'monthly', autopay: true }) && !isValidImportRecord('bills', { id: 'x', amount: 5, dueDate: dk(1), frequency: 'monthly', autopay: 'yes' }));
+check('import accepts a true/false autopay and refuses anything else', isValidImportRecord('bills', { id: 'x', name: 'n', amount: 5, dueDate: dk(1), frequency: 'monthly', autopay: true }) && !isValidImportRecord('bills', { id: 'x', name: 'n', amount: 5, dueDate: dk(1), frequency: 'monthly', autopay: 'yes' }));
 // the add form checkbox
 set('budget-name-input', 'Form bill'); set('budget-amount-input', '12'); set('budget-duedate-input', dk(5));
 $('budget-autopay-input').checked = true; $('budget-add-form').requestSubmit(); await sleep(30);
@@ -60,7 +60,7 @@ check('the finished date can be edited', updateBook(finishedBook.id, { title: 'F
 check('a future finished date is refused', updateBook(finishedBook.id, { title: 'Finished one', author: 'A', dateFinished: dk(5) }) === false && finishedBook.dateFinished === dk(-3));
 check('a blank finished date clears it', updateBook(finishedBook.id, { title: 'Finished one', author: 'A', dateFinished: '' }) !== false && finishedBook.dateFinished === null);
 check('the card shows "Finished" with the date', (() => { finishedBook.dateFinished = dk(-3); renderBooks(); return [...document.querySelectorAll('.book-finished')].some((e) => !e.hidden && /Finished/.test(e.textContent)); })());
-check('import checks the finished date', isValidImportRecord('books', { id: 'x', dateFinished: dk(-1) }) && isValidImportRecord('books', { id: 'x' }) && !isValidImportRecord('books', { id: 'x', dateFinished: 'soon' }));
+check('import checks the finished date', isValidImportRecord('books', { id: 'x', title: 't', status: 'owned_read', dateFinished: dk(-1) }) && isValidImportRecord('books', { id: 'x', title: 't', status: 'owned_read' }) && !isValidImportRecord('books', { id: 'x', title: 't', status: 'owned_read', dateFinished: 'soon' }));
 
 // ================= recipe scaling =================
 check('1/2 cup doubled is 1 cup', scaleIngredientLine('1/2 cup flour', 2) === '1 cup flour');

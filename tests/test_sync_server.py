@@ -106,6 +106,40 @@ class MergeRules(unittest.TestCase):
         items, c = self.merge(server, [rec("2026-09-22", 5, amount=250, updatedAt="2026-10-02T10:00:00Z")], "income")
         self.assertEqual((len(items), c, items[0]["amount"], items[0]["version"]), (1, [], 100, 6))
 
+    def test_a_newer_income_entry_beats_an_older_cleared_one(self):
+        """A date cleared on one device and filled in later on another keeps the newer value."""
+        server = [rec("2026-10-01", version=3, deleted=True, updatedAt="2026-10-02T10:00:00Z", deviceId="A", amount=0)]
+        client = [rec("2026-10-01", version=1, deleted=False, updatedAt="2026-10-05T10:00:00Z", deviceId="B", amount=50)]
+        merged, conflicts = self.merge(server, client, "income")
+        self.assertEqual(len(merged), 1)
+        self.assertFalse(merged[0]["deleted"])
+        self.assertEqual(merged[0]["amount"], 50)
+        self.assertEqual(merged[0]["version"], 4)
+        self.assertEqual(conflicts, [])
+
+    def test_an_older_income_entry_does_not_beat_a_newer_clear(self):
+        server = [rec("2026-10-01", version=3, deleted=True, updatedAt="2026-10-09T10:00:00Z", deviceId="A", amount=0)]
+        client = [rec("2026-10-01", version=1, deleted=False, updatedAt="2026-10-05T10:00:00Z", deviceId="B", amount=50)]
+        merged, _ = self.merge(server, client, "income")
+        self.assertTrue(merged[0]["deleted"])
+
+    def test_a_device_editing_its_own_record_again_is_an_update_not_a_fork(self):
+        """After a lost reply the device is behind on version; its next edit must not duplicate the record."""
+        server = [rec("n1", version=2, deviceId="A", updatedAt="2026-10-07T10:00:00Z", name="first edit")]
+        client = [rec("n1", version=1, deviceId="A", updatedAt="2026-10-07T11:00:00Z", name="second edit")]
+        merged, conflicts = self.merge(server, client)
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]["name"], "second edit")
+        self.assertEqual(merged[0]["version"], 3)
+        self.assertEqual(conflicts, [])
+
+    def test_a_different_device_with_a_stale_version_still_forks(self):
+        server = [rec("n1", version=2, deviceId="A", updatedAt="2026-10-07T10:00:00Z", name="from A")]
+        client = [rec("n1", version=1, deviceId="B", updatedAt="2026-10-07T11:00:00Z", name="from B")]
+        merged, conflicts = self.merge(server, client)
+        self.assertEqual(len(merged), 2)
+        self.assertEqual(len(conflicts), 1)
+
     def test_other_lists_still_keep_both_sides_of_a_conflict(self):
         items, c = self.merge([rec("a", 6, name="A")], [rec("a", 5, name="B")], "notes")
         self.assertEqual((len(items), len(c)), (2, 1))
@@ -131,6 +165,14 @@ class Storage(unittest.TestCase):
         data = s.load_dataset()
         self.assertEqual(sorted(data), sorted(s.COLLECTION_NAMES))
         self.assertTrue(all(v == [] for v in data.values()))
+
+    def test_a_data_file_that_is_not_an_object_is_set_aside_not_trusted(self):
+        """Valid JSON of the wrong shape must be quarantined like a corrupt file, not copied over the good .bak."""
+        s.DATA_PATH.write_text("[1, 2, 3]")
+        data = s.load_dataset()
+        self.assertTrue(all(v == [] for v in data.values()))
+        self.assertFalse(s.DATA_PATH.exists())
+        self.assertTrue(list(self.dir.glob("sync_data.corrupt-*.json")))
 
     def test_lists_the_app_no_longer_has_are_dropped(self):
         s.DATA_PATH.write_text(json.dumps({"books": [{"id": "b"}], "courses": [{"id": "c"}], "deadlines": [{"id": "d"}]}))

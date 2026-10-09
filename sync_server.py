@@ -88,6 +88,10 @@ def load_dataset():
     try:
         with DATA_PATH.open("r", encoding="utf-8") as f:
             data = json.load(f)
+        if not isinstance(data, dict):
+            # Valid JSON but not our data (for example a list): treat it as corrupt, so it is set
+            # aside instead of being copied over the good .bak by the next save.
+            raise json.JSONDecodeError("data file is not an object", "", 0)
     except json.JSONDecodeError:
         # Corrupt file: set it aside instead of overwriting it, and fall back
         # to the last good backup if there is one.
@@ -252,6 +256,18 @@ def merge_collection(server_items, client_items, collection_name):
             # bring it back as a fork, and a delete made on a stale device
             # must not be undone by someone's newer edit to a record the user
             # chose to remove. This is what made deleted items "come back".
+            # The one exception is income, whose id IS its date: if the date was cleared earlier and a
+            # device has since entered a newer value for it, that newer entry wins over the tombstone.
+            if (collection_name == "income" and existing.get("deleted") and not incoming.get("deleted")
+                    and str(incoming.get("updatedAt", "")) > str(existing.get("updatedAt", ""))):
+                replacement = dict(incoming)
+                replacement["version"] = server_version + 1
+                by_id[record_id] = replacement
+                for i, item in enumerate(server_items):
+                    if item.get("id") == record_id:
+                        server_items[i] = replacement
+                        break
+                continue
             if existing.get("deleted"):
                 continue
             if incoming.get("deleted") and not existing.get("deleted"):
@@ -279,6 +295,20 @@ def merge_collection(server_items, client_items, collection_name):
                         if item.get("id") == record_id:
                             server_items[i] = replacement
                             break
+                continue
+
+            # The same device editing its own record again (typically after a reply to its earlier
+            # save was lost, so its version number is behind) is a plain update, not a conflict:
+            # forking here would hand the user a duplicate of their own record.
+            if (incoming.get("deviceId") and incoming.get("deviceId") == existing.get("deviceId")
+                    and str(incoming.get("updatedAt", "")) > str(existing.get("updatedAt", ""))):
+                replacement = dict(incoming)
+                replacement["version"] = server_version + 1
+                by_id[record_id] = replacement
+                for i, item in enumerate(server_items):
+                    if item.get("id") == record_id:
+                        server_items[i] = replacement
+                        break
                 continue
 
             # Genuine conflict: someone else's write already landed on this
@@ -325,6 +355,8 @@ def merge_collection(server_items, client_items, collection_name):
 class SyncHandler(BaseHTTPRequestHandler):
     """Handles the HTTP requests: /api/sync, /api/backup, and CORS preflights."""
     server_version = "SecondMemorySync/1"
+    # A connection that stalls (sends nothing) is dropped after 30 seconds instead of holding a thread forever.
+    timeout = 30
 
     def _allowed_origin(self):
         """The request's Origin if it is on the allowlist, otherwise None."""
@@ -403,8 +435,12 @@ class SyncHandler(BaseHTTPRequestHandler):
             if not path.is_file():
                 self._send_json(404, {"error": "no backup for that date"})
                 return
-            with path.open("r", encoding="utf-8") as f:
-                data = json.load(f)
+            try:
+                with path.open("r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except (OSError, ValueError):
+                self._send_json(500, {"error": "that backup could not be read"})
+                return
         self._send_json(200, {"date": date, "collections": data})
 
     def do_POST(self):

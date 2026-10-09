@@ -35,4 +35,4 @@ check('a damaged taken list never breaks the card', takenDatesOf(zinc()).length 
 zinc().takenDates = [dk(0)];
 updateMedication(zinc().id, { name: 'Zinc', dosage: '20mg', frequency: 'daily', prescribingDoctor: '', notes: '' });
 check('editing a medication keeps its taken days', zinc().takenDates.length === 1 && zinc().dosage === '20mg');
-check('import accepts a list of taken days and refuses a non-list', isValidImportRecord('medications', { id: 'x', takenDates: [] }) && !isValidImportRecord('medications', { id: 'x', takenDates: 'no' }));
+check('import accepts a list of taken days and refuses a non-list', isValidImportRecord('medications', { id: 'x', name: 'm', takenDates: [] }) && !isValidImportRecord('medications', { id: 'x', name: 'm', takenDates: 'no' }));
