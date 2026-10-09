@@ -99,3 +99,18 @@ check('the second click of a double-click does not pay another bill', bills.redu
 
 // ---- the phone calendar ----
 check('closing the day sheet is safe when none is open', (() => { closeCalendarDay(); return true; })());
+
+// ---- income is one entry per date, so nothing is ever counted twice ----
+income.length = 0;
+const incomeRec = (id, dateKey, amount, updatedAt) => ({ ...base, id, dateKey, amount, updatedAt });
+income.push(incomeRec(dk(0), dk(0), 100, '2026-10-01T10:00:00.000Z'), incomeRec('stray-copy', dk(0), 100, '2026-10-02T10:00:00.000Z'));
+check('two entries for one date are counted once', incomeSumInRange(dk(0), dk(0), uniqueIncomeByDate(income)) === 100, incomeSumInRange(dk(0), dk(0), uniqueIncomeByDate(income)));
+check('the most recently edited entry is the one used', uniqueIncomeByDate(income).find((r) => r.dateKey === dk(0)).id === 'stray-copy');
+renderBudget();
+check('the month total uses one entry per date', /\$100\.00/.test($('budget-month-income-total').textContent), $('budget-month-income-total').textContent);
+income.length = 0;
+income.push(incomeRec(dk(0), dk(0), 100, '2026-10-05T10:00:00.000Z')); income[0].version = 6;
+importData({ collections: { income: [{ ...incomeRec(dk(0), dk(0), 250, '2026-10-06T10:00:00.000Z'), version: 5 }] } });
+check('restoring a conflicting income entry replaces it, never adds a second', income.length === 1 && income[0].amount === 250, JSON.stringify(income.map((r) => r.amount)));
+importData({ collections: { income: [{ ...incomeRec(dk(0), dk(0), 999, '2026-10-01T10:00:00.000Z'), version: 3 }] } });
+check('an older conflicting income entry in a backup is ignored', income.length === 1 && income[0].amount === 250);

@@ -3176,6 +3176,17 @@ function restoreIncome(id) {
 // Deliberately NOT cumulative-through-date, unlike weekTotal()/unpaidAmountThrough(). Each
 // income record is summed into exactly the one week (or month) whose range its dateKey falls
 // in — never carried into subsequent periods. See docs/specs/budget-income.md §5.
+// Income is one entry per date. If two live entries for one date ever exist (from an old conflict or
+// restore), only the most recently edited one is used, so nothing is counted twice.
+function uniqueIncomeByDate(records) {
+  const latest = new Map();
+  records.forEach((r) => {
+    const current = latest.get(r.dateKey);
+    if (!current || (r.updatedAt || '') > (current.updatedAt || '')) latest.set(r.dateKey, r);
+  });
+  return [...latest.values()];
+}
+
 function incomeSumInRange(startKey, endKey, allIncome) {
   return allIncome
     .filter((r) => !r.deleted && r.dateKey >= startKey && r.dateKey <= endKey)
@@ -3759,7 +3770,7 @@ function renderPayPeriod() {
   const periodIncome = totalIncomeInRange(
     periodStart,
     shiftDateKey(periodEnd, -1),
-    income.filter((r) => !r.deleted),
+    uniqueIncomeByDate(income.filter((r) => !r.deleted)),
     recurringIncome.filter((r) => !r.deleted)
   );
   const periodNet = periodIncome - grandTotal;
@@ -4398,7 +4409,7 @@ function renderRecurringIncomeList(nonDeletedRecurringIncome, openEdit) {
 // be mid-typing into). See docs/specs/budget-tab.md §6.1.
 function renderBudget() {
   const nonDeleted = bills.filter((b) => !b.deleted);
-  const nonDeletedIncome = income.filter((r) => !r.deleted);
+  const nonDeletedIncome = uniqueIncomeByDate(income.filter((r) => !r.deleted));
   const nonDeletedRecurringIncome = recurringIncome.filter((r) => !r.deleted);
 
   const activeEl = document.activeElement;
@@ -6203,6 +6214,7 @@ function syncTokenHeader(token) {
 }
 
 // A stalled connection would otherwise leave "Sync now" disabled until the browser gives up.
+let SYNC_WAKE_NOTICE_MS = 5000; // after this long with no answer, explain the wait
 const SYNC_TIMEOUT_MS = 60000; // generous: a sleeping free-tier server can take ~30s to wake
 
 async function postSync(config, collections) {
@@ -6333,6 +6345,9 @@ async function runSync() {
   if (!config || syncInFlight) return;
   syncInFlight = true;
   setSyncStatus('Syncing…', null);
+  const wakeTimer = setTimeout(() => {
+    if (syncInFlight) setSyncStatus('Still syncing. The server may be waking up, which can take up to a minute.', null);
+  }, SYNC_WAKE_NOTICE_MS);
   const syncNowBtn = document.getElementById('sync-now-btn');
   if (syncNowBtn) syncNowBtn.disabled = true;
   let resyncSoon = false;
@@ -6419,9 +6434,15 @@ async function runSync() {
     } else {
       setSyncStatus('Synced just now', 'ok');
     }
-  } catch {
-    setSyncStatus('Sync failed — tap Sync now to try again', 'failed');
+  } catch (err) {
+    setSyncStatus(
+      err && err.name === 'AbortError'
+        ? 'Sync timed out. The server did not answer — tap Sync now to try again'
+        : 'Sync failed — tap Sync now to try again',
+      'failed'
+    );
   } finally {
+    clearTimeout(wakeTimer);
     syncInFlight = false;
     if (syncNowBtn) syncNowBtn.disabled = false;
     updateSyncPending();
@@ -6638,6 +6659,21 @@ function mergeCollectionFromImport(localItems, importedItems, collectionName) {
     // being brought back as a duplicate by an older backup file.
     if (existing.deleted && !incoming.deleted) {
       unchanged += 1;
+      return;
+    }
+
+    // Income is one entry per date (the id is the date): the most recently edited wins instead
+    // of creating a second entry, which would count the money twice.
+    if (collectionName === 'income') {
+      if ((incoming.updatedAt || '') > (existing.updatedAt || '')) {
+        const index = localItems.findIndex((item) => item.id === incoming.id);
+        const record = { ...incoming, version: existing.version };
+        localItems[index] = record;
+        byId.set(record.id, record);
+        updated += 1;
+      } else {
+        unchanged += 1;
+      }
       return;
     }
 

@@ -130,3 +130,21 @@ localStorage.setItem('secondMemory.syncSnapshot.v1', JSON.stringify({ shoppingLi
 $('sync-token-input').value = 'a-different-passphrase';
 $('sync-setup-form').requestSubmit(); await sleep(300);
 check('changing the passphrase starts fresh bookkeeping', !(JSON.parse(localStorage.getItem('secondMemory.syncSnapshot.v1') || '{}').shoppingList || {}).x);
+
+// ---- a slow (sleeping) server is explained, not left looking stuck ----
+localStorage.setItem('secondMemory.syncConfig.v1', JSON.stringify({ token: 'tok' }));
+let wake;
+server.gate = new Promise((r) => { wake = r; });
+SYNC_WAKE_NOTICE_MS = 80;
+const slow = runSync();
+await sleep(300);
+check('after a few seconds it says the server may be waking up', /waking up/.test(status()), status());
+server.gate = null; wake();
+await slow; await sleep(60);
+check('and finishes normally when the server answers', /Synced just now/.test(status()), status());
+const realFetch = window.fetch;
+window.fetch = () => { const e = new Error('aborted'); e.name = 'AbortError'; return Promise.reject(e); };
+await runSync(); await sleep(30);
+check('a request that times out says so', /timed out/i.test(status()), status());
+window.fetch = realFetch;
+SYNC_WAKE_NOTICE_MS = 5000;

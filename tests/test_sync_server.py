@@ -92,6 +92,21 @@ class MergeRules(unittest.TestCase):
         items, c = self.merge([rec("2026-09-22", 4, dateAdded="x", amount=100)], [rec("2026-09-22", 4, dateAdded="y", amount=100)], "income")
         self.assertEqual((len(items), items[0]["version"], c), (1, 4, []))
 
+    def test_income_conflict_never_makes_a_second_entry_for_the_date(self):
+        server = [rec("2026-09-22", 6, amount=100, updatedAt="2026-10-01T10:00:00Z")]
+        items, c = self.merge(server, [rec("2026-09-22", 5, amount=250, updatedAt="2026-10-02T10:00:00Z")], "income")
+        self.assertEqual((len(items), c), (1, []))
+        self.assertEqual((items[0]["amount"], items[0]["version"]), (250, 7), "the more recent edit wins")
+
+    def test_income_conflict_keeps_the_newer_server_value(self):
+        server = [rec("2026-09-22", 6, amount=100, updatedAt="2026-10-05T10:00:00Z")]
+        items, c = self.merge(server, [rec("2026-09-22", 5, amount=250, updatedAt="2026-10-02T10:00:00Z")], "income")
+        self.assertEqual((len(items), c, items[0]["amount"], items[0]["version"]), (1, [], 100, 6))
+
+    def test_other_lists_still_keep_both_sides_of_a_conflict(self):
+        items, c = self.merge([rec("a", 6, name="A")], [rec("a", 5, name="B")], "notes")
+        self.assertEqual((len(items), len(c)), (2, 1))
+
     def test_malformed_records_do_not_abort_the_sync(self):
         items, _ = self.merge([], [None, 5, "x", {"no": "id"}, {"id": ["list"]}, {"id": ""}, rec("ok", 0), rec("bad-version", version="abc")])
         self.assertEqual(sorted(i["id"] for i in items), ["bad-version", "ok"])

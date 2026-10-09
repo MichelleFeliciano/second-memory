@@ -236,6 +236,20 @@ def merge_collection(server_items, client_items, collection_name):
                         break
                 continue
 
+            # Income is one entry per date (its id IS the date), so a conflict must never
+            # create a second entry for the same date: that would count the money twice.
+            # The most recently edited version simply wins.
+            if collection_name == "income":
+                if str(incoming.get("updatedAt", "")) > str(existing.get("updatedAt", "")):
+                    replacement = dict(incoming)
+                    replacement["version"] = server_version + 1
+                    by_id[record_id] = replacement
+                    for i, item in enumerate(server_items):
+                        if item.get("id") == record_id:
+                            server_items[i] = replacement
+                            break
+                continue
+
             # Genuine conflict: someone else's write already landed on this
             # id since this client last synced. Keep the server's record
             # untouched and save the client's content as a brand-new record
