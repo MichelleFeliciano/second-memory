@@ -5515,6 +5515,156 @@ function renderBackupNotes() {
   });
 }
 
+// ---- Search everything ----
+// One box on Home that looks across every list at once. It uses the same matching rule as each
+// tab's own search box (the whole phrase, ignoring case), and tapping a result opens that tab
+// with its search box filled in. The journal is private, so it is only searched when you tick
+// "Include my journal".
+
+const SEARCH_RESULTS_PER_GROUP = 5;
+const SEARCH_MIN_LENGTH = 2;
+
+const SEARCH_SOURCES = [
+  { tab: 'books', label: 'Books', inputId: 'books-search-input', items: () => books, title: (b) => b.title, fields: (b) => [b.title, b.author] },
+  { tab: 'recipes', label: 'Recipes', inputId: 'recipes-search-input', items: () => recipes, title: (r) => r.title, fields: (r) => [r.title, r.category, ...(r.ingredients || []), ...(r.steps || []), r.notes] },
+  { tab: 'medications', label: 'Medications', inputId: 'medications-search-input', items: () => medications, title: (m) => m.name, fields: (m) => [m.name, m.dosage, m.frequency, m.prescribingDoctor, m.notes] },
+  { tab: 'diagnoses', label: 'Diagnoses', inputId: 'diagnoses-search-input', items: () => diagnoses, title: (d) => d.condition, fields: (d) => [d.condition, d.provider, d.notes] },
+  { tab: 'appointments', label: 'Appointments', inputId: null, items: () => appointments, title: (a) => a.title, fields: (a) => [a.title, a.provider, a.location, a.notes] },
+  { tab: 'todo', label: 'To-Do', inputId: 'todo-search-input', items: () => todos, title: (t) => (t.completed ? `${t.task} (done)` : t.task), fields: (t) => [t.task] },
+  { tab: 'shopping', label: 'Shopping List', inputId: 'shopping-search-input', items: () => shoppingItems, title: (s) => s.item, fields: (s) => [s.item, s.category, s.quantity] },
+  { tab: 'notes', label: 'Notes', inputId: 'notes-search-input', items: () => notes, title: (n) => n.title || '(untitled note)', fields: (n) => [n.title, n.body] },
+  { tab: 'budget', label: 'Bills', inputId: 'budget-search-input', items: () => bills, title: (b) => b.name, fields: (b) => [b.name, b.category] },
+  { tab: 'resume', label: 'Resume & Portfolio', inputId: 'resume-search-input', items: () => links, title: (l) => l.label, fields: (l) => [l.label, l.url, l.notes] },
+];
+
+const JOURNAL_SEARCH_SOURCE = {
+  tab: 'journal', label: 'Journal', inputId: 'journal-search-input', items: () => journalEntries,
+  title: (e) => `${(JOURNAL_TEMPLATES[e.type] || { label: 'Entry' }).label} \u00b7 ${DATE_KEY_RE.test(e.date) ? formatDateKeyLong(e.date) : e.date}`,
+  fields: (e) => [(JOURNAL_TEMPLATES[e.type] || {}).label, e.date, ...Object.values(e.answers || {})],
+};
+
+// The first matching field, trimmed to a short excerpt around the match.
+function searchSnippet(values, needle) {
+  for (const value of values) {
+    const text = String(value || '');
+    const at = text.toLowerCase().indexOf(needle);
+    if (at === -1) continue;
+    const start = Math.max(0, at - 30);
+    const end = Math.min(text.length, at + needle.length + 50);
+    return {
+      before: (start > 0 ? '\u2026' : '') + text.slice(start, at),
+      match: text.slice(at, at + needle.length),
+      after: text.slice(at + needle.length, end) + (end < text.length ? '\u2026' : ''),
+    };
+  }
+  return null;
+}
+
+function runGlobalSearch(term, includeJournal) {
+  const needle = term.trim().toLowerCase();
+  if (needle.length < SEARCH_MIN_LENGTH) return [];
+  const sources = includeJournal ? [...SEARCH_SOURCES, JOURNAL_SEARCH_SOURCE] : SEARCH_SOURCES;
+  const groups = [];
+  sources.forEach((source) => {
+    const hits = [];
+    source.items().forEach((item) => {
+      if (item.deleted) return;
+      const values = source.fields(item);
+      const haystack = values.map((v) => String(v || '')).join(' ').toLowerCase();
+      if (!haystack.includes(needle)) return;
+      hits.push({ title: source.title(item), snippet: searchSnippet(values, needle) });
+    });
+    if (hits.length) groups.push({ source, hits });
+  });
+  return groups;
+}
+
+function openSearchResult(source, term) {
+  goToTab(source.tab);
+  const input = source.inputId && document.getElementById(source.inputId);
+  if (input) {
+    input.value = term.trim();
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+}
+
+function renderGlobalSearch() {
+  const termInput = document.getElementById('global-search-input');
+  const resultsEl = document.getElementById('global-search-results');
+  const home = document.getElementById('home-collection');
+  const term = termInput.value;
+  const searching = term.trim().length > 0;
+  home.classList.toggle('is-searching', searching);
+  resultsEl.innerHTML = '';
+  resultsEl.hidden = !searching;
+  if (!searching) return;
+
+  if (term.trim().length < SEARCH_MIN_LENGTH) {
+    const hint = document.createElement('p');
+    hint.className = 'empty-state';
+    hint.textContent = `Type at least ${SEARCH_MIN_LENGTH} letters.`;
+    resultsEl.appendChild(hint);
+    return;
+  }
+
+  const groups = runGlobalSearch(term, document.getElementById('global-search-journal').checked);
+  if (groups.length === 0) {
+    const none = document.createElement('p');
+    none.className = 'empty-state';
+    none.textContent = `Nothing found for "${term.trim()}".`;
+    resultsEl.appendChild(none);
+    return;
+  }
+
+  groups.forEach(({ source, hits }) => {
+    const heading = document.createElement('h3');
+    heading.textContent = `${source.label} (${hits.length})`;
+    resultsEl.appendChild(heading);
+    const list = document.createElement('ul');
+    hits.slice(0, SEARCH_RESULTS_PER_GROUP).forEach((hit) => {
+      const li = document.createElement('li');
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'search-hit';
+      const title = document.createElement('span');
+      title.className = 'search-hit-title';
+      title.textContent = hit.title;
+      btn.appendChild(title);
+      if (hit.snippet) {
+        const snip = document.createElement('span');
+        snip.className = 'search-hit-snippet';
+        const mark = document.createElement('mark');
+        mark.textContent = hit.snippet.match;
+        snip.append(hit.snippet.before, mark, hit.snippet.after);
+        btn.appendChild(snip);
+      }
+      btn.addEventListener('click', () => openSearchResult(source, term));
+      li.appendChild(btn);
+      list.appendChild(li);
+    });
+    if (hits.length > SEARCH_RESULTS_PER_GROUP) {
+      const li = document.createElement('li');
+      const more = document.createElement('button');
+      more.type = 'button';
+      more.className = 'search-hit search-more';
+      more.textContent = `See all ${hits.length} in ${source.label}`;
+      more.addEventListener('click', () => openSearchResult(source, term));
+      li.appendChild(more);
+      list.appendChild(li);
+    }
+    resultsEl.appendChild(list);
+  });
+}
+
+document.getElementById('global-search-input').addEventListener('input', renderGlobalSearch);
+document.getElementById('global-search-journal').addEventListener('change', renderGlobalSearch);
+document.getElementById('global-search-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    e.target.value = '';
+    renderGlobalSearch();
+  }
+});
+
 // ---- Home ----
 // Pure, render-only aggregation over the live books/todos/bills arrays — no
 // own storage key, nothing to sync/export/undo. Re-rendered by hooking the

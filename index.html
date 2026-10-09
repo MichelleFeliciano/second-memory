@@ -205,6 +205,12 @@
         <h2>Home</h2>
       </div>
 
+      <div class="global-search">
+        <input type="search" id="global-search-input" placeholder="Search everything…" aria-label="Search everything">
+        <label class="global-search-journal"><input type="checkbox" id="global-search-journal"> Include my journal</label>
+        <div id="global-search-results" role="region" aria-label="Search results" aria-live="polite" hidden></div>
+      </div>
+
       <p class="stats-line" id="home-stats"></p>
       <div id="home-backup-notes" hidden></div>
       <p class="empty-state" id="home-empty-state" hidden>
