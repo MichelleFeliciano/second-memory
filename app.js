@@ -252,6 +252,7 @@ renderNotes = withFocusRestore(renderNotes);
 renderLinks = withFocusRestore(renderLinks);
 renderCourses = withFocusRestore(renderCourses);
 renderDeadlines = withFocusRestore(renderDeadlines);
+renderJournalTrends = withFocusRestore(renderJournalTrends);
 renderBudget = withFocusRestore(renderBudget);
 renderJournal = withFocusRestore(renderJournal);
 
@@ -3086,11 +3087,19 @@ function courseLabelFor(courseId) {
   return course.code || course.title;
 }
 
+// A real calendar date in YYYY-MM-DD form (rejects 2026-13-45 and 2026-02-30).
+function isRealDateKey(value) {
+  if (typeof value !== 'string' || !DATE_KEY_RE.test(value)) return false;
+  const { y, m, d } = parseDateKey(value);
+  const date = new Date(y, m, d);
+  return date.getFullYear() === y && date.getMonth() === m && date.getDate() === d;
+}
+
 function validateDeadlineFields(fields) {
   const title = (fields.title || '').trim();
   if (!title) return { ok: false, error: 'Say what is due.' };
   const dueDate = (fields.dueDate || '').trim();
-  if (!DATE_KEY_RE.test(dueDate)) return { ok: false, error: 'A due date is required.' };
+  if (!isRealDateKey(dueDate)) return { ok: false, error: 'Enter a real due date.' };
   const kind = Object.prototype.hasOwnProperty.call(DEADLINE_KINDS, fields.kind) ? fields.kind : 'assignment';
   return { ok: true, title, dueDate, kind, courseId: fields.courseId || '' };
 }
@@ -3212,7 +3221,8 @@ function renderDeadlines() {
 
   // Keep whatever the reader has chosen in the add form's course dropdown.
   const addSelect = document.getElementById('deadlines-course-input');
-  fillCourseOptions(addSelect, addSelect.value);
+  const chosen = courses.find((c) => c.id === addSelect.value && !c.deleted);
+  fillCourseOptions(addSelect, chosen ? chosen.id : '');
 
   renderChipFilter(
     document.getElementById('deadlines-filters'),
@@ -3237,12 +3247,12 @@ function renderDeadlines() {
     const node = template.content.cloneNode(true);
     const card = node.querySelector('.deadline-card');
     card.dataset.deadlineId = record.id;
-    card.classList.toggle('deadline-done', !!record.done);
+    card.classList.toggle('deadline-complete', !!record.done);
     const viewSection = node.querySelector('.deadline-view');
     const editForm = node.querySelector('.deadline-edit-form');
 
     node.querySelector('.deadline-title').textContent = record.title;
-    node.querySelector('.deadline-kind').textContent = DEADLINE_KINDS[record.kind] || 'Other';
+    node.querySelector('.deadline-kind').textContent = Object.prototype.hasOwnProperty.call(DEADLINE_KINDS, record.kind) ? DEADLINE_KINDS[record.kind] : 'Other';
     node.querySelector('.deadline-course').textContent = courseLabelFor(record.courseId);
     const dueEl = node.querySelector('.deadline-due');
     if (record.done) {
@@ -3253,7 +3263,7 @@ function renderDeadlines() {
       if (when.cls) dueEl.classList.add(when.cls);
     }
 
-    const doneBox = node.querySelector('.deadline-done');
+    const doneBox = node.querySelector('input.deadline-done');
     doneBox.checked = !!record.done;
     doneBox.addEventListener('change', () => setDeadlineDone(record.id, doneBox.checked));
 
@@ -5926,15 +5936,19 @@ document.getElementById('therapy-summary-copy').addEventListener('click', async 
   }
 });
 
-// Esc closes; Tab stays inside the sheet while it is open.
-document.getElementById('therapy-summary').addEventListener('keydown', (e) => {
+// Esc closes; Tab stays inside the sheet while it is open (listening on the document, because
+// after clicking the summary text focus is on the page body, not inside the dialog).
+document.addEventListener('keydown', (e) => {
+  const overlay = document.getElementById('therapy-summary');
+  if (overlay.hidden) return;
   if (e.key === 'Escape') { closeTherapySummary(); return; }
   if (e.key !== 'Tab') return;
-  const focusable = [...document.querySelectorAll('#therapy-summary select, #therapy-summary button:not(:disabled)')];
+  const focusable = [...overlay.querySelectorAll('select, button:not(:disabled)')];
   if (focusable.length === 0) return;
   const first = focusable[0];
   const last = focusable[focusable.length - 1];
-  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  const inside = overlay.contains(document.activeElement);
+  if (!inside || (e.shiftKey && document.activeElement === first)) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
   else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
 });
 
@@ -6196,7 +6210,10 @@ function renderHome() {
       act.className = 'home-item-action';
       act.textContent = action.label;
       act.setAttribute('aria-label', action.ariaLabel || action.label);
-      act.addEventListener('click', action.run);
+      act.addEventListener('click', (e) => {
+        if (e.detail > 1) return; // the second click of a double-click would hit whatever row slid into place
+        action.run();
+      });
       li.appendChild(act);
     }
     return li;
@@ -6459,7 +6476,7 @@ function redo() {
 const RECORD_LABEL_FIELD = {
   books: 'title', recipes: 'title', medications: 'name', diagnoses: 'condition',
   todos: 'task', shoppingList: 'item', notes: 'title', links: 'label', courses: 'title', bills: 'name',
-  income: 'dateKey', recurringIncome: 'name',
+  income: 'dateKey', recurringIncome: 'name', appointments: 'title', deadlines: 'title',
 };
 
 function describeEntry(entry) {
@@ -7027,7 +7044,7 @@ const IMPORT_FREQUENCIES = ['one_time', 'weekly', 'biweekly', 'monthly', 'yearly
 function isValidImportRecord(collectionName, rec) {
   if (!rec || typeof rec !== 'object' || typeof rec.id !== 'string' || !rec.id) return false;
   const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
-  const isDate = (v) => typeof v === 'string' && DATE_KEY_RE.test(v);
+  const isDate = (v) => isRealDateKey(v);
   if (collectionName === 'bills') return isNum(rec.amount) && isDate(rec.dueDate) && IMPORT_FREQUENCIES.includes(rec.frequency);
   if (collectionName === 'recurringIncome') return isNum(rec.amount) && isDate(rec.dueDate) && IMPORT_FREQUENCIES.includes(rec.frequency) && rec.frequency !== 'one_time';
   if (collectionName === 'income') return isNum(rec.amount) && isDate(rec.dateKey);
@@ -7124,7 +7141,7 @@ function refreshForNewDay() {
   if (now === lastRenderedDayKey) return;
   lastRenderedDayKey = now;
   reminderBannerDismissed = false; // a new day can bring new due/overdue bills
-  [renderBudget, renderTodos, renderMedications, renderAppointments, renderHome].forEach(safeRender);
+  [renderBudget, renderTodos, renderMedications, renderAppointments, renderDeadlines, renderHome].forEach(safeRender);
 }
 
 setInterval(refreshForNewDay, 60000);

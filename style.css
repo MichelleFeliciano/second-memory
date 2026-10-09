@@ -2115,7 +2115,7 @@ body::before {
 .deadline-due.overdue { color: var(--accent-2); font-weight: 600; }
 .deadline-due.soon { color: var(--accent-rose); font-weight: 600; }
 
-.deadline-card.deadline-done .deadline-title { text-decoration: line-through; color: var(--muted); }
+.deadline-card.deadline-complete .deadline-title { text-decoration: line-through; color: var(--muted); }
 
 .deadline-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
