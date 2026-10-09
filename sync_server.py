@@ -92,7 +92,7 @@ def load_dataset():
             # Valid JSON but not our data (for example a list): treat it as corrupt, so it is set
             # aside instead of being copied over the good .bak by the next save.
             raise json.JSONDecodeError("data file is not an object", "", 0)
-    except json.JSONDecodeError:
+    except ValueError:  # includes JSONDecodeError and UnicodeDecodeError (bytes that are not valid text)
         # Corrupt file: set it aside instead of overwriting it, and fall back
         # to the last good backup if there is one.
         quarantine = DATA_PATH.with_name(f"sync_data.corrupt-{int(time.time())}.json")
@@ -102,7 +102,7 @@ def load_dataset():
             try:
                 with backup.open("r", encoding="utf-8") as f:
                     data = json.load(f)
-            except (json.JSONDecodeError, OSError):
+            except (ValueError, OSError):
                 return empty_dataset()
         else:
             return empty_dataset()
@@ -111,6 +111,9 @@ def load_dataset():
     for name in COLLECTION_NAMES:
         if not isinstance(data.get(name), list):
             data[name] = []
+        else:
+            # Only real records are kept (a stray number or null in a list must not crash the merge).
+            data[name] = [item for item in data[name] if isinstance(item, dict)]
     # Lists the app no longer has (coursework and appointments were removed) are dropped, so the
     # next save no longer carries them. Older daily restore points keep them
     # until they age out after BACKUP_KEEP days.
@@ -270,6 +273,10 @@ def merge_collection(server_items, client_items, collection_name):
                 continue
             if existing.get("deleted"):
                 continue
+            # Income: a stale device's "cleared" must not wipe a newer amount entered for that date elsewhere.
+            if (collection_name == "income" and incoming.get("deleted") and not existing.get("deleted")
+                    and str(incoming.get("updatedAt", "")) < str(existing.get("updatedAt", ""))):
+                continue
             if incoming.get("deleted") and not existing.get("deleted"):
                 tombstone = dict(existing)
                 tombstone["deleted"] = True
@@ -300,8 +307,10 @@ def merge_collection(server_items, client_items, collection_name):
             # The same device editing its own record again (typically after a reply to its earlier
             # save was lost, so its version number is behind) is a plain update, not a conflict:
             # forking here would hand the user a duplicate of their own record.
-            if (incoming.get("deviceId") and incoming.get("deviceId") == existing.get("deviceId")
-                    and str(incoming.get("updatedAt", "")) > str(existing.get("updatedAt", ""))):
+            same_device = bool(incoming.get("deviceId")) and incoming.get("deviceId") == existing.get("deviceId")
+            if same_device and str(incoming.get("updatedAt", "")) < str(existing.get("updatedAt", "")):
+                continue  # a late or repeated older copy of its own edit: already superseded, not a conflict
+            if same_device and str(incoming.get("updatedAt", "")) > str(existing.get("updatedAt", "")):
                 replacement = dict(incoming)
                 replacement["version"] = server_version + 1
                 by_id[record_id] = replacement
@@ -444,6 +453,17 @@ class SyncHandler(BaseHTTPRequestHandler):
         self._send_json(200, {"date": date, "collections": data})
 
     def do_POST(self):
+        """Runs the POST handler; an unexpected error becomes a clean 500 reply instead of a dropped connection."""
+        try:
+            self._do_POST()
+        except Exception as err:  # noqa: BLE001 (anything at all must still get an answer)
+            print(f"ERROR: {err!r}", file=sys.stderr)
+            try:
+                self._send_json(500, {"error": "server error"})
+            except Exception:  # noqa: BLE001 (the connection may already be gone)
+                pass
+
+    def _do_POST(self):
         """Routes POSTs: /api/backup goes to _handle_backup; /api/sync validates
         the request, merges each collection under the lock, saves, and replies
         with the merged data and any conflicts."""

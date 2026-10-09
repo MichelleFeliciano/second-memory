@@ -133,6 +133,23 @@ class MergeRules(unittest.TestCase):
         self.assertEqual(merged[0]["version"], 3)
         self.assertEqual(conflicts, [])
 
+    def test_an_older_copy_of_its_own_edit_arriving_late_is_dropped_not_forked(self):
+        """A delayed duplicate of a device's earlier edit must not become a second record."""
+        server = [rec("n1", version=3, deviceId="A", updatedAt="2026-10-07T11:00:00Z", name="second edit")]
+        client = [rec("n1", version=1, deviceId="A", updatedAt="2026-10-07T10:00:00Z", name="first edit")]
+        merged, conflicts = self.merge(server, client)
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]["name"], "second edit")
+        self.assertEqual(conflicts, [])
+
+    def test_a_stale_income_clear_never_wipes_a_newer_amount(self):
+        """Income: a 'cleared' made earlier on an out-of-date device must not delete a newer amount for the date."""
+        server = [rec("2026-10-01", version=2, deleted=False, updatedAt="2026-10-05T10:00:00Z", deviceId="B", amount=50)]
+        client = [rec("2026-10-01", version=1, deleted=True, updatedAt="2026-10-03T10:00:00Z", deviceId="A", amount=0)]
+        merged, _ = self.merge(server, client, "income")
+        self.assertFalse(merged[0]["deleted"])
+        self.assertEqual(merged[0]["amount"], 50)
+
     def test_a_different_device_with_a_stale_version_still_forks(self):
         server = [rec("n1", version=2, deviceId="A", updatedAt="2026-10-07T10:00:00Z", name="from A")]
         client = [rec("n1", version=1, deviceId="B", updatedAt="2026-10-07T11:00:00Z", name="from B")]
@@ -165,6 +182,18 @@ class Storage(unittest.TestCase):
         data = s.load_dataset()
         self.assertEqual(sorted(data), sorted(s.COLLECTION_NAMES))
         self.assertTrue(all(v == [] for v in data.values()))
+
+    def test_a_data_file_with_invalid_text_bytes_is_set_aside_not_fatal(self):
+        """Bytes that are not valid UTF-8 must not make every request fail: set the file aside and carry on."""
+        s.DATA_PATH.write_bytes(b"\xff\xfe\x00 not text")
+        data = s.load_dataset()
+        self.assertTrue(all(v == [] for v in data.values()))
+        self.assertTrue(list(self.dir.glob("sync_data.corrupt-*.json")))
+
+    def test_stray_non_record_items_in_a_stored_list_are_dropped(self):
+        s.DATA_PATH.write_text(json.dumps({"notes": [5, None, "x", {"id": "n1"}]}))
+        data = s.load_dataset()
+        self.assertEqual(data["notes"], [{"id": "n1"}])
 
     def test_a_data_file_that_is_not_an_object_is_set_aside_not_trusted(self):
         """Valid JSON of the wrong shape must be quarantined like a corrupt file, not copied over the good .bak."""

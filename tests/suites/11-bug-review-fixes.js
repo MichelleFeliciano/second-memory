@@ -139,24 +139,24 @@ diagnoses.length = 0;
 diagnoses.push({ ...rb, id: 'dg1', condition: 'Odd one', dateDiagnosed: null, provider: '', notes: '' });
 nav('diagnoses'); renderDiagnoses();
 check('a diagnosis with no status appears under Active', [...document.querySelectorAll('[data-diagnosis-list="active"] .diagnosis-card')].length === 1);
-$('health-summary-btn') && nav('home');
-check('and the health summary handles it', (() => { try { buildHealthSummaryData(); return true; } catch { return false; } })());
+check('and the health summary lists it as Active', (() => { const text = buildHealthSummaryText(buildHealthSummaryData()); return /Odd one/.test(text) && /Status: Active/.test(text); })());
 diagnoses.length = 0;
 
 // ---- app lock ----
+const idle = async () => { for (let i = 0; i < 80 && lockChecking; i++) await sleep(50); await sleep(40); }; // wait for a PIN check to finish (it takes longer on a slow phone)
 localStorage.removeItem('secondMemory.lockTries.v1');
 await setAppLock('8642');
 lockNow();
 lockFailures = 0; lockBlockedUntil = 0;
-for (let i = 0; i < 5; i++) { set('lock-pin-input', '0000'); $('lock-form').requestSubmit(); await sleep(250); }
+for (let i = 0; i < 5; i++) { set('lock-pin-input', '0000'); $('lock-form').requestSubmit(); await idle(); }
 const savedTries = JSON.parse(localStorage.getItem('secondMemory.lockTries.v1') || 'null');
 check('the wrong-try pause is saved, so reloading the page cannot skip it', savedTries && savedTries.until > Date.now());
 lockBlockedUntil = 0; lockFailures = 0; saveLockTries();
-set('lock-pin-input', '8642'); $('lock-form').requestSubmit(); await sleep(400);
+set('lock-pin-input', '8642'); $('lock-form').requestSubmit(); await idle();
 check('the right PIN unlocks and resets the saved tries', !document.documentElement.hasAttribute('data-locked') && JSON.parse(localStorage.getItem('secondMemory.lockTries.v1')).fails === 0);
 nav('home');
 $('health-summary-btn').click();
 lockNow();
 check('locking closes the health summary so it cannot be read or printed', $('health-summary').hidden && !document.body.classList.contains('summary-open'));
-set('lock-pin-input', '8642'); $('lock-form').requestSubmit(); await sleep(400);
+set('lock-pin-input', '8642'); $('lock-form').requestSubmit(); await idle();
 clearAppLock();

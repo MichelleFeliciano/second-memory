@@ -960,10 +960,11 @@ body::before {
 }
 
 /* The chip whose filter is currently on. */
-.chip-active {
+.chip-active,
+.chip-active:hover {
   background: var(--accent);
   border-color: var(--accent);
-  color: var(--accent-contrast);
+  color: var(--accent-contrast); /* stays readable while hovered (phones keep :hover after a tap) */
 }
 
 .recipe-section {
@@ -1445,7 +1446,7 @@ body::before {
   text-align: right;
   font-size: 0.78rem;
   color: var(--muted);
-  padding-right: 4px;
+  padding: 0 13px; /* same inset as a week row (12px padding + 1px border), so the labels sit over their day cells */
 }
 
 .budget-week {
@@ -2958,4 +2959,42 @@ html[data-locked] .lock-backdrop { visibility: hidden; }
   font: inherit;
   cursor: pointer;
   overflow-wrap: anywhere;
+}
+
+/* ===== Review fixes: layout details ===== */
+
+/* A date box inside a column-flex edit form: the 160px flex basis of .date-field would become a
+   height there, leaving a tall empty gap, so it is switched off (the add forms already do this). */
+.book-edit-form .date-field,
+.diagnosis-edit-form .date-field,
+.bill-edit-form .date-field,
+.recurring-income-edit-form .date-field { flex: none; }
+
+/* The bill edit form styles every input like a text box; a checkbox must stay a plain checkbox. */
+.check-field input[type="checkbox"] {
+  padding: 0;
+  border: 0;
+  background: none;
+  width: auto;
+  flex: none;
+}
+
+/* The "Sort:" dropdowns' bottom margin is for stacked layouts; inside a centred toolbar row it pushed them up. */
+.collection-toolbar select,
+.summary-count-label select { margin-bottom: 0; }
+
+@media (max-width: 900px) {
+  .budget-weekday-row { padding: 0 9px; } /* weeks have 8px padding + 1px border here */
+}
+
+@media (max-width: 700px) {
+  /* Finger-sized tap targets for the small buttons. */
+  .chip,
+  .sync-change-btn,
+  .recipe-open-shopping,
+  .reminder-banner-btn { min-height: 36px; }
+
+  /* The weight chart is drawn in a 600-unit box that shrinks to the screen, so its labels need to start big. */
+  .weight-chart .w-label,
+  .weight-chart .w-goal-label { font-size: 26px; }
 }

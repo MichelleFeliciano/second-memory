@@ -12,7 +12,7 @@
 // The browser only detects a Service Worker update when sw.js's bytes change —
 // if this string is left unchanged, sw.js is byte-identical after a deploy, the
 // browser never notices, and users silently stay on old code forever.
-const CACHE_NAME = 'second-memory-v65';
+const CACHE_NAME = 'second-memory-v66';
 
 // Files pre-cached at install time: everything needed to run with no network.
 const APP_SHELL = [
@@ -53,8 +53,14 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
   if (new URL(request.url).origin !== self.location.origin) return;
 
+  // Only this app's own files (APP_SHELL) are served from, and saved to, this app's cache. Anything
+  // else (for example the test pages while developing) always comes fresh from the network.
+  const path = new URL(request.url).pathname;
+  const isShellFile = APP_SHELL.some((entry) => new URL(entry, self.location).pathname === path);
+  if (!isShellFile) return;
+
   event.respondWith(
-    caches.match(request, { ignoreSearch: true }).then((cached) => {
+    caches.open(CACHE_NAME).then((cache) => cache.match(request, { ignoreSearch: true })).then((cached) => {
       if (cached) return cached;
       return fetch(request).then((response) => {
         if (response.ok) {

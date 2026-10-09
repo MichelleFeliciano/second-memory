@@ -564,7 +564,7 @@ function updateBook(id, fields) {
 // True if the search text appears in the book's title or author (an empty search matches all).
 function matchesBookSearch(book, term) {
   if (!term) return true;
-  const haystack = `${book.title} ${book.author}`.toLowerCase();
+  const haystack = `${book.title} ${book.author || ''}`.toLowerCase();
   return haystack.includes(term.toLowerCase());
 }
 
@@ -757,6 +757,7 @@ function renderBooks() {
       const editTitleInput = node.querySelector('.book-edit-title');
       const editAuthorInput = node.querySelector('.book-edit-author');
       const editFinishedInput = node.querySelector('.book-edit-finished');
+      editFinishedInput.max = todayKey(); // a book cannot be finished in the future
 
       node.querySelector('.edit-btn').addEventListener('click', () => {
         // Only one book (across every status column) can be in edit mode at
@@ -769,7 +770,7 @@ function renderBooks() {
           }
         });
         editTitleInput.value = book.title;
-        editAuthorInput.value = book.author;
+        editAuthorInput.value = book.author || '';
         editFinishedInput.value = book.dateFinished || '';
         viewSection.hidden = true;
         editForm.hidden = false;
@@ -851,8 +852,8 @@ let recipes = migrateSyncFields(loadCollection(RECIPES_KEY), RECIPES_KEY, getDev
 
 const recipeScales = new Map(); // recipe id -> factor (1 when absent)
 const FRACTION_SYMBOLS = { '\u00bc': 0.25, '\u00bd': 0.5, '\u00be': 0.75, '\u2153': 1 / 3, '\u2154': 2 / 3, '\u215b': 0.125, '\u215c': 0.375, '\u215d': 0.625, '\u215e': 0.875 };
-const QTY_PART = '\\d+\\s*[\u00bc\u00bd\u00be\u2153\u2154\u215b\u215c\u215d\u215e]|\\d+\\s+\\d+\\/\\d+|\\d+\\/\\d+|\\d+\\.\\d+|\\d+|[\u00bc\u00bd\u00be\u2153\u2154\u215b\u215c\u215d\u215e]';
-const QTY_RE = new RegExp(`^(\\s*)(${QTY_PART})(?:(\\s*(?:-|\u2013|to)\\s*)(${QTY_PART}))?`);
+const QTY_PART = '\\d+\\s*[\u00bc\u00bd\u00be\u2153\u2154\u215b\u215c\u215d\u215e]|\\d+-\\d+\\/\\d+|\\d+\\s+\\d+\\/\\d+|\\d+\\/\\d+|\\d+\\.\\d+|\\d+|[\u00bc\u00bd\u00be\u2153\u2154\u215b\u215c\u215d\u215e]';
+const QTY_RE = new RegExp(`^(\\s*(?:[-*\u2022]\\s+|\\d+[.)]\\s+)?)(${QTY_PART})(?:(\\s*(?:-|\u2013|to)\\s*)(${QTY_PART}))?`);
 
 // The number a typed amount stands for ("1 1/2" is 1.5), or null if it cannot be read.
 function parseQuantity(text) {
@@ -860,6 +861,8 @@ function parseQuantity(text) {
   let m = t.match(/^(\d+)\s*([\u00bc\u00bd\u00be\u2153\u2154\u215b\u215c\u215d\u215e])$/);
   if (m) return Number(m[1]) + FRACTION_SYMBOLS[m[2]];
   if (FRACTION_SYMBOLS[t] !== undefined) return FRACTION_SYMBOLS[t];
+  m = t.match(/^(\d+)-(\d+)\/(\d+)$/); // 1-1/2 written with a hyphen
+  if (m) return Number(m[3]) === 0 ? null : Number(m[1]) + Number(m[2]) / Number(m[3]);
   m = t.match(/^(\d+)\s+(\d+)\/(\d+)$/);
   if (m) return Number(m[3]) === 0 ? null : Number(m[1]) + Number(m[2]) / Number(m[3]);
   m = t.match(/^(\d+)\/(\d+)$/);
@@ -900,9 +903,11 @@ function scaleIngredientLine(line, factor) {
   let rest = line.slice(consumed);
   const unit = rest.match(/^(\s+)([A-Za-z]+)/);
   if (unit) {
-    const base = unit[2].toLowerCase().replace(/s$/, '');
+    const lower = unit[2].toLowerCase();
+    const base = lower.endsWith('ches') ? lower.slice(0, -2) : lower.replace(/s$/, ''); // bunches -> bunch
     if (PLURAL_UNITS.includes(base)) {
-      const word = last > 1 ? `${unit[2].replace(/s$/i, '')}s` : unit[2].replace(/s$/i, '');
+      const singular = unit[2].slice(0, base.length);
+      const word = last > 1 ? (base.endsWith('ch') ? `${singular}es` : `${singular}s`) : singular;
       rest = unit[1] + word + rest.slice(unit[0].length);
     }
   }
@@ -929,6 +934,7 @@ async function requestCookWakeLock() {
       if (cookWakeLock) { cookWakeLock.release().catch(() => {}); cookWakeLock = null; }
       const lock = await navigator.wakeLock.request('screen');
       if (!cookState) { lock.release().catch(() => {}); return; } // closed while we were waiting
+      if (cookWakeLock) cookWakeLock.release().catch(() => {}); // two requests overlapped: keep only one
       cookWakeLock = lock;
       note.hidden = false;
     }
@@ -991,7 +997,7 @@ document.getElementById('cook-close').addEventListener('click', closeCookMode);
 document.addEventListener('keydown', (e) => {
   if (!cookState) return;
   if (e.key === 'Escape') closeCookMode();
-  else if (e.key === 'ArrowRight') cookStepBy(1);
+  else if (e.key === 'ArrowRight' && cookState.step < (cookState.recipe.steps || []).length - 1) cookStepBy(1); // Done is a button press, not an arrow
   else if (e.key === 'ArrowLeft') cookStepBy(-1);
 });
 // The browser releases a wake lock when the page is hidden; take it again when we come back.
@@ -1243,10 +1249,10 @@ function renderRecipes() {
         otherOpenForm.closest('.recipe-card').querySelector('.recipe-view').hidden = false;
       }
       editTitleInput.value = recipe.title;
-      editCategoryInput.value = recipe.category;
-      editIngredientsInput.value = recipe.ingredients.join('\n');
-      editStepsInput.value = recipe.steps.join('\n');
-      editNotesInput.value = recipe.notes;
+      editCategoryInput.value = recipe.category || '';
+      editIngredientsInput.value = (recipe.ingredients || []).join('\n');
+      editStepsInput.value = (recipe.steps || []).join('\n');
+      editNotesInput.value = recipe.notes || '';
       viewSection.hidden = true;
       editForm.hidden = false;
     });
@@ -1646,10 +1652,10 @@ function renderMedicationList(items, template, openEdit) {
         otherOpenForm.closest('.med-card').querySelector('.med-view').hidden = false;
       }
       editNameInput.value = med.name;
-      editDosageInput.value = med.dosage;
-      editFrequencyInput.value = med.frequency;
-      editDoctorInput.value = med.prescribingDoctor;
-      editNotesInput.value = med.notes;
+      editDosageInput.value = med.dosage || '';
+      editFrequencyInput.value = med.frequency || '';
+      editDoctorInput.value = med.prescribingDoctor || '';
+      editNotesInput.value = med.notes || '';
       editError.hidden = true;
       viewSection.hidden = true;
       editForm.hidden = false;
@@ -2055,6 +2061,7 @@ function weightChangeLast30(entries) {
   const sorted = weightEntriesForChart(entries, 0);
   if (sorted.length < 2) return null;
   const latest = sorted[sorted.length - 1];
+  if (latest.date < shiftDateKey(todayKey(), -30)) return null; // the newest weight is old: there is no "last 30 days" to describe
   const cutoff = shiftDateKey(latest.date, -30);
   const before = sorted.filter((w) => w.date <= cutoff);
   const base = before.length ? before[before.length - 1] : sorted.find((w) => w.date > cutoff && w !== latest);
@@ -2176,7 +2183,7 @@ document.getElementById('weight-goal-form').addEventListener('submit', (e) => {
   const errorEl = document.getElementById('weight-goal-error');
   const raw = document.getElementById('weight-goal-input').value.trim();
   const value = Number(raw);
-  if (raw === '' || !Number.isFinite(value) || value <= 0 || value > WEIGHT_MAX) {
+  if (raw === '' || !Number.isFinite(value) || Math.round(value * 10) / 10 < 0.1 || value > WEIGHT_MAX) {
     errorEl.textContent = `Enter a goal between 0.1 and ${WEIGHT_MAX} ${WEIGHT_UNIT}, or tap Clear.`;
     errorEl.hidden = false;
     return;
@@ -2347,7 +2354,7 @@ function renderDiagnoses() {
       }
 
       const moveSelect = node.querySelector('.move-select');
-      moveSelect.value = diagnosis.status;
+      moveSelect.value = DIAGNOSIS_STATUSES.includes(diagnosis.status) ? diagnosis.status : 'active';
       moveSelect.addEventListener('change', (e) => updateDiagnosisStatus(diagnosis.id, e.target.value));
 
       const editConditionInput = node.querySelector('.diagnosis-edit-condition');
@@ -2550,7 +2557,9 @@ function toggleTodoCompleted(id, completed) {
       next.deleted = true;
       stampSync(next);
     }
-    delete todo.spawnedId;
+    // Forget the link only when the next task is really gone. A kept (edited or completed) next
+    // task stays linked, so ticking this one again does not create a second copy of it.
+    if (!next || removed) delete todo.spawnedId;
   }
   stampSync(todo);
   saveCollection(TODOS_KEY, todos);
@@ -3352,6 +3361,7 @@ function matchesLinkSearch(link, term) {
 function hrefFor(url) {
   const trimmed = String(url).trim();
   if (/^(https?:\/\/|mailto:|tel:)/i.test(trimmed)) return trimmed;
+  if (/^[^\s/:@]+@[^\s/:@]+\.[^\s/:@]+$/.test(trimmed)) return `mailto:${trimmed}`; // me@site.com
   // Anything else (including javascript:/data: and host:port forms like
   // localhost:3000) is treated as a plain web address, never as a script.
   return `https://${trimmed.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '')}`;
@@ -3792,9 +3802,12 @@ function setIncomeForDate(dateKey, rawValue) {
     return; // already blank/absent — no-op, nothing to record
   }
 
-  const amount = Number(rawValue);
-  if (!Number.isFinite(amount) || Math.abs(amount) > MAX_MONEY) return; // defensive; a native <input type=number>'s
-                                          // committed value should never actually hit this
+  const parsed = Number(rawValue);
+  if (!Number.isFinite(parsed) || Math.abs(parsed) > MAX_MONEY) {
+    setTimeout(renderBudget, 0); // refused: put the saved value back in the box instead of leaving the rejected number showing
+    return;
+  }
+  const amount = Math.round(parsed * 100) / 100; // whole cents, like bills
 
   if (existing) {
     const before = structuredClone(existing);
@@ -4445,9 +4458,13 @@ function renderPayPeriod() {
     summaryEl.textContent = '';
     if (incomeEl) incomeEl.textContent = '';
     if (netEl) netEl.textContent = '';
+    emptyEl.textContent = settings.payDateKey
+      ? 'That payday is in the future, so there is no current pay period yet.'
+      : 'Set a recent payday above to see the current pay period.';
     emptyEl.hidden = false;
     return;
   }
+  emptyEl.textContent = 'No bills due in this pay period.';
 
   const { periodStart, periodEnd } = period;
   const nonDeletedBills = bills.filter((b) => !b.deleted);
@@ -4836,7 +4853,11 @@ function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, nonDeletedRecur
       manualInput.setAttribute('aria-label', `Income for ${MONTH_NAMES[m]} ${d}`);
       const incomeRecord = nonDeletedIncome.find((r) => r.dateKey === dateKey);
       manualInput.value = incomeRecord ? String(incomeRecord.amount) : '';
-      manualInput.addEventListener('change', (e) => setIncomeForDate(dateKey, e.target.value));
+      manualInput.addEventListener('change', (e) => {
+        // A half-typed number ("1e", "-") reads as empty: put the saved amount back rather than clearing the day.
+        if (e.target.value === '' && e.target.validity && e.target.validity.badInput) { setTimeout(renderBudget, 0); return; }
+        setIncomeForDate(dateKey, e.target.value);
+      });
       // Sign-aware, not flat "always green" — a negative manually-entered
       // income amount (income's amount is unconstrained, §1.2 of the income
       // spec) must not be shown with a color that implies "good news." Never
@@ -5447,8 +5468,11 @@ function renderJournalExtras() {
 
 // "Write about this" starts a journal entry with today's prompt already in the first answer.
 document.getElementById('journal-prompt-btn').addEventListener('click', () => {
+  // Starting a new entry replaces any entry being written, so ask first (like the other start buttons).
+  if (journalDraft && !window.confirm('Discard the entry you are writing and start a new one?')) return;
+  const shownPrompt = document.getElementById('journal-prompt-text').textContent || journalPromptForDate(todayKey());
   openJournalWizard('daily');
-  journalDraft.answers.on_mind = `${journalPromptForDate(todayKey())}\n\n`;
+  journalDraft.answers.on_mind = `${shownPrompt}\n\n`;
 });
 
 // Wizard state: step 0 is the date; steps 1..N are the template's questions.
@@ -6081,7 +6105,7 @@ function setJournalBackupStatus(text, tone) {
 // Guards a restore from a backup file: true only for entries with an id, a known type, a date and answers.
 function isValidJournalEntry(item) {
   return !!item && typeof item.id === 'string' && !!JOURNAL_TEMPLATES[item.type]
-    && typeof item.date === 'string' && !!item.answers && typeof item.answers === 'object'
+    && isRealDateKey(item.date) && !!item.answers && typeof item.answers === 'object'
     && !Array.isArray(item.answers)
     && Object.values(item.answers).every((v) => typeof v === 'string' || typeof v === 'number');
 }
@@ -7409,6 +7433,7 @@ async function runSync() {
 
     // Step 6: report the outcome (conflicts, an incomplete reply, edits made mid-sync, or success).
     lastSyncedAt = new Date();
+    recordBackupTime(LAST_SYNC_AT_KEY); // the server was reached and answered, whatever the details below
     const conflicts = Array.isArray(data.conflicts) ? data.conflicts : [];
     if (conflicts.length > 0) {
       const collectionNames = [...new Set(conflicts.map((c) => c.collection))]
@@ -7424,7 +7449,6 @@ async function runSync() {
       setSyncStatus('Synced — you changed something during the sync. Tap Sync now again to send it.', 'failed');
     } else {
       setSyncStatus('Synced just now', 'ok');
-      recordBackupTime(LAST_SYNC_AT_KEY);
     }
   // Network failures and timeouts end up here; always unlock the button afterwards.
   } catch (err) {
@@ -7886,7 +7910,7 @@ document.addEventListener('visibilitychange', () => {
 
 // The build number shown in the Menu. Keep it equal to the number in CACHE_NAME in sw.js
 // (a test checks this), so "which version am I on?" has a one-glance answer.
-const APP_VERSION = 65;
+const APP_VERSION = 66;
 const THEME_KEY = 'secondMemory.theme.v1';
 const THEMES = ['auto', 'light', 'dark'];
 
@@ -8254,7 +8278,7 @@ document.getElementById('lock-form').addEventListener('submit', async (e) => {
 });
 
 document.getElementById('lock-forgot-btn').addEventListener('click', () => {
-  const ok = window.confirm('Forgot your PIN?\n\nThe only way in is to erase everything stored on THIS device. Your synced lists come back when you sync again, but your journal exists only on this device unless you saved a backup file.\n\nErase this device and start over?');
+  const ok = window.confirm('Forgot your PIN?\n\nThe only way in is to erase everything stored on THIS device. Your synced lists come back when you sync again, but changes you have not synced yet, your sync passphrase and your journal (unless you saved a backup file) exist only on this device and will be lost.\n\nErase this device and start over?');
   if (!ok) return;
   wipeDeviceData();
   window.location.reload();
