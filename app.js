@@ -251,6 +251,7 @@ renderShoppingList = withFocusRestore(renderShoppingList);
 renderNotes = withFocusRestore(renderNotes);
 renderLinks = withFocusRestore(renderLinks);
 renderCourses = withFocusRestore(renderCourses);
+renderDeadlines = withFocusRestore(renderDeadlines);
 renderBudget = withFocusRestore(renderBudget);
 renderJournal = withFocusRestore(renderJournal);
 
@@ -5967,7 +5968,7 @@ function renderHome() {
   appointmentsList.innerHTML = '';
   deadlinesList.innerHTML = '';
 
-  function makeHomeRow(onClick, buildContent) {
+  function makeHomeRow(onClick, buildContent, action) {
     const li = document.createElement('li');
     li.className = 'home-item';
     const btn = document.createElement('button');
@@ -5976,6 +5977,16 @@ function renderHome() {
     buildContent(btn);
     btn.addEventListener('click', onClick);
     li.appendChild(btn);
+    if (action) {
+      li.classList.add('home-item-with-action');
+      const act = document.createElement('button');
+      act.type = 'button';
+      act.className = 'home-item-action';
+      act.textContent = action.label;
+      act.setAttribute('aria-label', action.ariaLabel || action.label);
+      act.addEventListener('click', action.run);
+      li.appendChild(act);
+    }
     return li;
   }
 
@@ -5996,6 +6007,13 @@ function renderHome() {
         due.className = 'bill-due overdue';
         due.textContent = `$${amount.toFixed(2)} overdue`;
         btn.append(name, due);
+      }, {
+        label: 'Mark paid',
+        ariaLabel: `Mark the oldest unpaid ${bill.name} payment as paid`,
+        run: () => {
+          const target = oldestUnpaidOccurrence(bill, shiftDateKey(todayKey(), -1));
+          if (target) toggleBillPaid(bill.id, target, true);
+        },
       }));
     });
 
@@ -6008,6 +6026,10 @@ function renderHome() {
         due.className = 'bill-due';
         due.textContent = `$${bill.amount.toFixed(2)} due ${dateKey}`;
         btn.append(name, due);
+      }, {
+        label: 'Mark paid',
+        ariaLabel: `Mark ${bill.name} due ${dateKey} as paid`,
+        run: () => toggleBillPaid(bill.id, dateKey, true),
       }));
     });
 
@@ -6046,7 +6068,7 @@ function renderHome() {
 
   deadlinesPanel.hidden = homeDeadlines.length === 0;
   homeDeadlines.forEach((record) => {
-    deadlinesList.appendChild(makeHomeRow(() => setActiveTab('coursework'), (btn) => {
+    deadlinesList.appendChild(makeHomeRow(() => goToTab('coursework'), (btn) => {
       const title = document.createElement('strong');
       title.className = 'deadline-title';
       const courseName = courseLabelFor(record.courseId);

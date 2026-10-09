@@ -2200,3 +2200,30 @@ body::before {
 }
 .trend-swatch.trend-daily { background: var(--accent); }
 .trend-swatch.trend-therapy { background: var(--accent-rose); }
+
+/* Home rows with a one-tap action (Mark paid) beside the link to the full screen */
+.home-item-with-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.home-item-with-action .home-item-link {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+.home-item-action {
+  flex: 0 0 auto;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.home-item-action:hover { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); }
