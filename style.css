@@ -290,7 +290,7 @@ body::before {
 }
 
 /* Same [hidden]-vs-unconditional-display landmine guarded elsewhere in this
-   file (see .rating-label, .grade-label, .note-view). */
+   file (see .rating-label, .note-view). */
 .sync-status[hidden] {
   display: none;
 }
@@ -470,8 +470,7 @@ body::before {
      fill vertical space." Selector specificity must match-or-beat that rule
      (it includes an attribute selector) or this override silently loses.
      Every input type present in the base rule above must also be listed
-     here — the Coursework `credits` field (input[type="number"]) is new
-     this cycle and was deliberately added to both lists together. */
+     here — every input type in the base rule must appear in both lists. */
   flex: none;
 }
 
@@ -668,8 +667,7 @@ body::before {
 /* Books can hold hundreds of records per column (218 in the real dataset) —
    cap each column's own height and let it scroll internally instead of the
    whole page growing to the length of the longest column. */
-.book-columns .card-list,
-.course-columns .card-list {
+.book-columns .card-list {
   max-height: min(520px, 60vh);
   overflow-y: auto;
   padding-right: 4px;
@@ -687,9 +685,7 @@ body::before {
 .shopping-item,
 .note-card,
 .appt-card,
-.deadline-card,
 .link-card,
-.course-card,
 .bill-card,
 .recurring-income-card,
 .home-item {
@@ -710,9 +706,7 @@ body::before {
 .shopping-item:hover,
 .note-card:hover,
 .appt-card:hover,
-.deadline-card:hover,
 .link-card:hover,
-.course-card:hover,
 .bill-card:hover,
 .recurring-income-card:hover,
 .home-item:hover {
@@ -748,8 +742,7 @@ body::before {
 }
 
 .book-actions select,
-.diagnosis-actions select,
-.course-actions select {
+.diagnosis-actions select {
   /* A <select>'s closed-state width is intrinsic to its widest <option> text
      ("Move: Currently Reading", "Move: Jon's Bookshelf") — without a cap it
      overflows a card at Books' narrower 5-column width. flex-wrap alone
@@ -1060,44 +1053,62 @@ body::before {
 .note-edit-form button[type="submit"]:hover { opacity: 0.9; }
 
 /* Edit-form pattern for the eight collections that gained an Edit button
-   this cycle (Books, Recipes, Medications, Diagnoses, Resume & Portfolio,
-   Coursework use the same vertical-card shape as .note-view/.note-edit-form
+   this cycle (Books, Recipes, Medications, Diagnoses, Resume & Portfolio
+   use the same vertical-card shape as .note-view/.note-edit-form
    above; To-Do/Shopping List use their own horizontal-row variant below). */
 
-.book-view, .book-edit-form,
-.recipe-view, .recipe-edit-form,
-.med-view, .med-edit-form,
-.diagnosis-view, .diagnosis-edit-form,
-.link-view, .link-edit-form,
-.course-view, .course-edit-form,
-.bill-view, .bill-edit-form,
-.recurring-income-view, .recurring-income-edit-form {
+.book-view,
+.book-edit-form,
+.recipe-view,
+.recipe-edit-form,
+.med-view,
+.med-edit-form,
+.diagnosis-view,
+.diagnosis-edit-form,
+.link-view,
+.link-edit-form,
+.bill-view,
+.bill-edit-form,
+.recurring-income-view,
+.recurring-income-edit-form {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
 /* Same [hidden]-vs-unconditional-display landmine guarded elsewhere in this
-   file (see .rating-label, .grade-label, .note-view). */
-.book-view[hidden], .book-edit-form[hidden],
-.recipe-view[hidden], .recipe-edit-form[hidden],
-.med-view[hidden], .med-edit-form[hidden],
-.diagnosis-view[hidden], .diagnosis-edit-form[hidden],
-.link-view[hidden], .link-edit-form[hidden],
-.course-view[hidden], .course-edit-form[hidden],
-.bill-view[hidden], .bill-edit-form[hidden],
-.recurring-income-view[hidden], .recurring-income-edit-form[hidden] {
+   file (see .rating-label, .note-view). */
+.book-view[hidden],
+.book-edit-form[hidden],
+.recipe-view[hidden],
+.recipe-edit-form[hidden],
+.med-view[hidden],
+.med-edit-form[hidden],
+.diagnosis-view[hidden],
+.diagnosis-edit-form[hidden],
+.link-view[hidden],
+.link-edit-form[hidden],
+.bill-view[hidden],
+.bill-edit-form[hidden],
+.recurring-income-view[hidden],
+.recurring-income-edit-form[hidden] {
   display: none;
 }
 
-.book-edit-form input, .book-edit-form textarea,
-.recipe-edit-form input, .recipe-edit-form textarea,
-.med-edit-form input, .med-edit-form textarea,
-.diagnosis-edit-form input, .diagnosis-edit-form textarea,
-.link-edit-form input, .link-edit-form textarea,
-.course-edit-form input, .course-edit-form textarea,
-.bill-edit-form input, .bill-edit-form select,
-.recurring-income-edit-form input, .recurring-income-edit-form select {
+.book-edit-form input,
+.book-edit-form textarea,
+.recipe-edit-form input,
+.recipe-edit-form textarea,
+.med-edit-form input,
+.med-edit-form textarea,
+.diagnosis-edit-form input,
+.diagnosis-edit-form textarea,
+.link-edit-form input,
+.link-edit-form textarea,
+.bill-edit-form input,
+.bill-edit-form select,
+.recurring-income-edit-form input,
+.recurring-income-edit-form select {
   width: 100%;
   padding: 9px 12px;
   border: 1px solid var(--border);
@@ -1107,15 +1118,21 @@ body::before {
   font-family: inherit;
 }
 
-.book-edit-form textarea, .recipe-edit-form textarea, .med-edit-form textarea,
-.diagnosis-edit-form textarea, .link-edit-form textarea, .course-edit-form textarea {
+.book-edit-form textarea,
+.recipe-edit-form textarea,
+.med-edit-form textarea,
+.diagnosis-edit-form textarea,
+.link-edit-form textarea {
   resize: vertical;
 }
 
-.book-edit-form button[type="submit"], .recipe-edit-form button[type="submit"],
-.med-edit-form button[type="submit"], .diagnosis-edit-form button[type="submit"],
-.link-edit-form button[type="submit"], .course-edit-form button[type="submit"],
-.bill-edit-form button[type="submit"], .recurring-income-edit-form button[type="submit"] {
+.book-edit-form button[type="submit"],
+.recipe-edit-form button[type="submit"],
+.med-edit-form button[type="submit"],
+.diagnosis-edit-form button[type="submit"],
+.link-edit-form button[type="submit"],
+.bill-edit-form button[type="submit"],
+.recurring-income-edit-form button[type="submit"] {
   padding: 5px 14px;
   border: none;
   border-radius: 13px;
@@ -1126,10 +1143,13 @@ body::before {
   font-size: 0.8rem;
 }
 
-.book-edit-form button[type="submit"]:hover, .recipe-edit-form button[type="submit"]:hover,
-.med-edit-form button[type="submit"]:hover, .diagnosis-edit-form button[type="submit"]:hover,
-.link-edit-form button[type="submit"]:hover, .course-edit-form button[type="submit"]:hover,
-.bill-edit-form button[type="submit"]:hover, .recurring-income-edit-form button[type="submit"]:hover {
+.book-edit-form button[type="submit"]:hover,
+.recipe-edit-form button[type="submit"]:hover,
+.med-edit-form button[type="submit"]:hover,
+.diagnosis-edit-form button[type="submit"]:hover,
+.link-edit-form button[type="submit"]:hover,
+.bill-edit-form button[type="submit"]:hover,
+.recurring-income-edit-form button[type="submit"]:hover {
   opacity: 0.9;
 }
 
@@ -1206,60 +1226,6 @@ body::before {
 }
 
 .link-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 6px;
-}
-
-/* Degree & Coursework */
-
-.course-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-bottom: 8px;
-}
-
-.course-title { font-size: 0.95rem; }
-
-.course-field {
-  font-size: 0.85rem;
-  color: var(--muted);
-}
-
-.grade-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.85rem;
-  color: var(--muted);
-  margin-top: 4px;
-}
-
-/* Same [hidden]-vs-display landmine guard as .rating-label. */
-.grade-label[hidden] {
-  display: none;
-}
-
-.grade-input {
-  width: 70px;
-  padding: 5px 8px;
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  background: var(--surface);
-  color: var(--text);
-  font-family: inherit;
-}
-
-.course-notes {
-  color: var(--muted);
-  font-size: 0.85rem;
-  font-style: italic;
-  margin: 0 0 8px;
-}
-
-.course-actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -2092,55 +2058,6 @@ body::before {
   border-color: var(--accent);
   color: var(--accent-contrast);
   font-weight: 600;
-}
-
-/* Course deadlines */
-
-.deadline-view {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.deadline-view[hidden], .deadline-edit-form[hidden] { display: none; }
-
-.deadline-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 220px; }
-
-.deadline-check { display: flex; align-items: center; gap: 8px; cursor: pointer; overflow-wrap: anywhere; }
-
-.deadline-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--muted); }
-
-.deadline-due.overdue { color: var(--accent-2); font-weight: 600; }
-.deadline-due.soon { color: var(--accent-rose); font-weight: 600; }
-
-.deadline-card.deadline-complete .deadline-title { text-decoration: line-through; color: var(--muted); }
-
-.deadline-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-
-.deadline-edit-form { display: flex; flex-direction: column; gap: 10px; }
-
-.deadline-edit-form input,
-.deadline-edit-form select {
-  width: 100%;
-  padding: 9px 12px;
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  background: var(--surface);
-  color: var(--text);
-  font-family: inherit;
-}
-
-.deadline-edit-form button[type="submit"] {
-  padding: 5px 14px;
-  border: none;
-  border-radius: 13px;
-  background: var(--accent);
-  color: var(--accent-contrast);
-  cursor: pointer;
-  font-weight: 600;
-  font-size: 0.8rem;
 }
 
 /* Journal search and trends */

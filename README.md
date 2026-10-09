@@ -2,7 +2,7 @@
 
 A personal, local-first organizer — books, recipes, medications, diagnoses, a to-do
 list, a shopping list, notes, a household budget/bills tracker, resume & portfolio
-links, and coursework, all in one place. (The authoritative current list of sections
+links, and a private journal, all in one place. (The authoritative current list of sections
 lives in the `TABS` constant in `app.js`.)
 
 ## Use it now
