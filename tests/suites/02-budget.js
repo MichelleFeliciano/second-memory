@@ -114,3 +114,6 @@ importData({ collections: { income: [{ ...incomeRec(dk(0), dk(0), 250, '2026-10-
 check('restoring a conflicting income entry replaces it, never adds a second', income.length === 1 && income[0].amount === 250, JSON.stringify(income.map((r) => r.amount)));
 importData({ collections: { income: [{ ...incomeRec(dk(0), dk(0), 999, '2026-10-01T10:00:00.000Z'), version: 3 }] } });
 check('an older conflicting income entry in a backup is ignored', income.length === 1 && income[0].amount === 250);
+
+// ---- the day boxes are explained as extra income ----
+check('the Budget tab says day amounts are extra income added to recurring income', /extra income/.test($('budget-income-note').textContent) && /added to your recurring income/.test($('budget-income-note').textContent));
