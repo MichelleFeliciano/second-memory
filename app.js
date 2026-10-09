@@ -1829,7 +1829,37 @@ const TODOS_KEY = 'secondMemory.todos.v1';
 
 let todos = migrateSyncFields(loadCollection(TODOS_KEY), TODOS_KEY, getDeviceId());
 
-function addTodo(task, dueDate) {
+const TODO_REPEATS = { daily: 'every day', weekly: 'every week', monthly: 'every month' };
+
+function cleanRepeat(value) {
+  return Object.prototype.hasOwnProperty.call(TODO_REPEATS, value) ? value : '';
+}
+
+// One step forward on a repeating schedule. Monthly steps keep the original day of the
+// month (the 31st becomes the 28th/30th in short months, then back to the 31st).
+function stepRepeatDate(dateKey, repeat, anchorDay) {
+  if (repeat === 'daily') return shiftDateKey(dateKey, 1);
+  if (repeat === 'weekly') return shiftDateKey(dateKey, 7);
+  const { y, m } = parseDateKey(dateKey);
+  const total = y * 12 + m + 1;
+  const ny = Math.floor(total / 12);
+  const nm = total % 12;
+  return dateKeyFromParts(ny, nm, Math.min(anchorDay, daysInMonth(ny, nm)));
+}
+
+// The next due date after a repeating to-do is completed: one step from its due date, and
+// never on or before today (a weekly chore finished two weeks late is next due in the future,
+// not in the past). With no due date, the schedule starts from today.
+function nextRepeatDate(dueDate, repeat) {
+  const today = todayKey();
+  const base = dueDate || today;
+  const anchorDay = parseDateKey(base).d;
+  let next = stepRepeatDate(base, repeat, anchorDay);
+  for (let i = 0; i < 1000 && next <= today; i++) next = stepRepeatDate(next, repeat, anchorDay);
+  return next;
+}
+
+function addTodo(task, dueDate, repeat) {
   const trimmedTask = task.trim();
   if (!trimmedTask) return;
   const now = new Date().toISOString();
@@ -1837,6 +1867,7 @@ function addTodo(task, dueDate) {
     id: makeId(),
     task: trimmedTask,
     completed: false,
+    repeat: cleanRepeat(repeat),
     dueDate: dueDate || null,
     dateAdded: now,
     updatedAt: now,
@@ -1850,14 +1881,51 @@ function addTodo(task, dueDate) {
   renderTodos();
 }
 
+function liveTodo(id) {
+  return id ? todos.find((t) => t.id === id && !t.deleted) : undefined;
+}
+
+// Completing a repeating to-do creates the next one (once). Un-completing it removes that
+// next one again, if it hasn't been touched, so ticking and un-ticking never piles up copies.
+// The undo entries are recorded original-first, new-one-last, so Undo steps back the new
+// to-do first and then the completion.
 function toggleTodoCompleted(id, completed) {
   const todo = todos.find((t) => t.id === id);
   if (!todo) return;
   const before = structuredClone(todo);
   todo.completed = completed;
+  let child = null;
+  let removed = null;
+  if (completed && cleanRepeat(todo.repeat) && !liveTodo(todo.spawnedId)) {
+    const now = new Date().toISOString();
+    child = {
+      id: makeId(),
+      task: todo.task,
+      completed: false,
+      repeat: todo.repeat,
+      dueDate: nextRepeatDate(todo.dueDate, todo.repeat),
+      dateAdded: now,
+      updatedAt: now,
+      deviceId: getDeviceId(),
+      deleted: false,
+      version: 0,
+    };
+    todos.push(child);
+    todo.spawnedId = child.id;
+  } else if (!completed && todo.spawnedId) {
+    const next = liveTodo(todo.spawnedId);
+    if (next && !next.completed) {
+      removed = { record: next, before: structuredClone(next) };
+      next.deleted = true;
+      stampSync(next);
+    }
+    delete todo.spawnedId;
+  }
   stampSync(todo);
   saveCollection(TODOS_KEY, todos);
   recordUndo('todos', id, before, structuredClone(todo));
+  if (child) recordUndo('todos', child.id, null, structuredClone(child));
+  if (removed) recordUndo('todos', removed.record.id, removed.before, structuredClone(removed.record));
   renderTodos();
 }
 
@@ -1891,6 +1959,7 @@ function updateTodo(id, fields) {
   const before = structuredClone(todo);
   todo.task = trimmedTask;
   todo.dueDate = fields.dueDate || null;
+  todo.repeat = cleanRepeat(fields.repeat);
   stampSync(todo);
   saveCollection(TODOS_KEY, todos);
   recordUndo('todos', id, before, structuredClone(todo));
@@ -1962,6 +2031,7 @@ function renderTodos() {
         id: openForm.closest('.todo-item').dataset.todoId,
         task: openForm.querySelector('.todo-edit-task').value,
         dueDate: openForm.querySelector('.todo-edit-due').value,
+        repeat: openForm.querySelector('.todo-edit-repeat').value,
       }
     : null;
 
@@ -1988,8 +2058,15 @@ function renderTodos() {
       dueEl.classList.toggle('overdue', isTodoOverdue(todo));
     }
 
+    const repeatEl = node.querySelector('.todo-repeat');
+    if (cleanRepeat(todo.repeat)) {
+      repeatEl.textContent = `\u21bb ${TODO_REPEATS[todo.repeat]}`;
+      repeatEl.hidden = false;
+    }
+
     const editTaskInput = node.querySelector('.todo-edit-task');
     const editDueInput = node.querySelector('.todo-edit-due');
+    const editRepeatInput = node.querySelector('.todo-edit-repeat');
 
     node.querySelector('.edit-btn').addEventListener('click', () => {
       const otherOpenForm = list.querySelector('.todo-edit-form:not([hidden])');
@@ -1999,6 +2076,7 @@ function renderTodos() {
       }
       editTaskInput.value = todo.task;
       editDueInput.value = todo.dueDate || '';
+      editRepeatInput.value = cleanRepeat(todo.repeat);
       viewSection.hidden = true;
       editForm.hidden = false;
     });
@@ -2015,7 +2093,7 @@ function renderTodos() {
       if (rejectBlank(editTaskInput, 'Enter a task.')) return;
       editForm.hidden = true;
       viewSection.hidden = false;
-      updateTodo(todo.id, { task: editTaskInput.value, dueDate: editDueInput.value });
+      updateTodo(todo.id, { task: editTaskInput.value, dueDate: editDueInput.value, repeat: editRepeatInput.value });
     });
 
     node.querySelector('.delete-btn').addEventListener('click', () => deleteTodo(todo.id));
@@ -2023,6 +2101,7 @@ function renderTodos() {
     if (openEdit && openEdit.id === todo.id) {
       editTaskInput.value = openEdit.task;
       editDueInput.value = openEdit.dueDate;
+      editRepeatInput.value = openEdit.repeat;
       viewSection.hidden = true;
       editForm.hidden = false;
     }
@@ -2040,9 +2119,11 @@ document.getElementById('todo-add-form').addEventListener('submit', (e) => {
   const taskInput = document.getElementById('todo-task-input');
   const dueInput = document.getElementById('todo-due-input');
   if (rejectBlank(taskInput, 'Enter a task.')) return;
-  addTodo(taskInput.value, dueInput.value);
+  const repeatInput = document.getElementById('todo-repeat-input');
+  addTodo(taskInput.value, dueInput.value, repeatInput.value);
   taskInput.value = '';
   dueInput.value = '';
+  repeatInput.value = '';
   taskInput.focus();
 });
 

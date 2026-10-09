@@ -506,6 +506,12 @@
         <label class="date-field">Due date
           <input type="date" id="todo-due-input" aria-label="Due date">
         </label>
+        <select id="todo-repeat-input" aria-label="Repeat">
+          <option value="">Doesn't repeat</option>
+          <option value="daily">Repeats every day</option>
+          <option value="weekly">Repeats every week</option>
+          <option value="monthly">Repeats every month</option>
+        </select>
         <button type="submit">Add to-do</button>
       </form>
 
@@ -898,6 +904,7 @@
         <span class="todo-task"></span>
       </label>
       <span class="todo-due" hidden></span>
+      <span class="todo-repeat badge" hidden></span>
       <button type="button" class="edit-btn">Edit</button>
       <button type="button" class="delete-btn" aria-label="Delete to-do">Delete</button>
     </div>
@@ -906,6 +913,12 @@
       <label class="date-field">Due date
         <input type="date" class="todo-edit-due" aria-label="Edit due date">
       </label>
+      <select class="todo-edit-repeat" aria-label="Edit repeat">
+          <option value="">Doesn't repeat</option>
+          <option value="daily">Repeats every day</option>
+          <option value="weekly">Repeats every week</option>
+          <option value="monthly">Repeats every month</option>
+      </select>
       <button type="submit">Save</button>
       <button type="button" class="cancel-btn">Cancel</button>
     </form>

@@ -2272,3 +2272,14 @@ body::before {
 }
 
 .recipe-open-shopping:hover { color: var(--accent); border-color: var(--accent); }
+
+/* Repeating to-dos */
+.todo-repeat[hidden] { display: none; }
+.todo-edit-form select {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+}
