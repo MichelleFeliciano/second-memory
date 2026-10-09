@@ -5,7 +5,7 @@ const next = () => $('journal-wizard').requestSubmit();
 
 // ---- privacy ----
 check('the journal is not part of sync', !SYNC_COLLECTIONS.some((c) => /journal/i.test(c.name)));
-check('the journal is not in the normal export', !('journal' in buildExportPayload().collections));
+check('the journal is not among the synced lists in the backup', !('journal' in buildExportPayload().collections));
 
 // ---- the guided flow for each kind of entry ----
 nav('journal');
@@ -167,3 +167,34 @@ check('restoring the same backup again adds nothing', journalEntries.length === 
 const dt3 = new DataTransfer(); dt3.items.add(new File(['{"journal":[{"id":"x","type":"nope","date":"d","answers":{}}, 5, null]}'], 'b.json')); input.files = dt3.files;
 input.dispatchEvent(new Event('change', { bubbles: true })); await sleep(200);
 check('malformed entries in a backup are skipped', journalEntries.length === 2);
+
+// ---- the full backup carries the journal and the pay-period settings ----
+journalEntries.length = 0;
+journalEntries.push(entry('fb1', 'daily', dk(-1), { on_mind: 'in the full backup' }), entry('fb2', 'therapy', dk(-3), { topics: 'also in it' }));
+saveJournalEntries();
+localStorage.setItem('secondMemory.paydaySettings.v1', JSON.stringify({ payDateKey: '2026-10-02', frequency: 'weekly' }));
+const full = JSON.parse(JSON.stringify(buildExportPayload()));
+check('the full backup includes the journal', full.local && full.local.journal.length === 2 && full.local.journal.some((e) => e.id === 'fb1'));
+check('...and the pay-period settings', full.local.paydaySettings && full.local.paydaySettings.payDateKey === '2026-10-02' && full.local.paydaySettings.frequency === 'weekly');
+check('journal entries are not mixed into the synced lists', !SYNC_COLLECTIONS.some((c) => c.get().some((r) => r.id === 'fb1')));
+exportData();
+check('downloading the backup says it includes the journal', /includes your journal/.test($('data-io-status').textContent), $('data-io-status').textContent);
+
+// a fresh device: nothing here yet
+journalEntries.length = 0; saveJournalEntries();
+localStorage.removeItem('secondMemory.paydaySettings.v1');
+importData(full);
+check('restoring the full backup brings the journal back', journalEntries.length === 2);
+check('...and the pay-period settings', loadPaydaySettings().payDateKey === '2026-10-02' && loadPaydaySettings().frequency === 'weekly' && $('payday-date-input').value === '2026-10-02');
+check('the restore says what came back', /2 journal entries/.test($('data-io-status').textContent) && /pay-period settings/.test($('data-io-status').textContent), $('data-io-status').textContent);
+importData(full);
+check('restoring it again adds nothing', journalEntries.length === 2 && /nothing new/.test($('data-io-status').textContent), $('data-io-status').textContent);
+savePaydaySettings({ payDateKey: '2026-11-01', frequency: 'monthly' });
+importData(full);
+check('it never overwrites pay-period settings this device already has', loadPaydaySettings().payDateKey === '2026-11-01' && loadPaydaySettings().frequency === 'monthly');
+importData({ collections: {}, local: { journal: 'nope', paydaySettings: { payDateKey: '2026-13-45', frequency: 'hourly' } } });
+check('a damaged local part is ignored without errors', journalEntries.length === 2 && loadPaydaySettings().payDateKey === '2026-11-01');
+importData({ collections: {}, local: { journal: [entry('ok1', 'daily', dk(0), { on_mind: 'x' }), { id: 5 }, null, { id: 'z', type: 'nope', date: 'd', answers: {} }] } });
+check('only valid journal entries are taken from a backup', journalEntries.length === 3 && journalEntries.some((e) => e.id === 'ok1'));
+importData({ collections: {} });
+check('an older backup without a local part still imports', true);

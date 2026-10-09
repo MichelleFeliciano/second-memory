@@ -5166,6 +5166,28 @@ function setJournalBackupStatus(text, tone) {
   el.classList.toggle('sync-failed', tone === 'failed');
 }
 
+function isValidJournalEntry(item) {
+  return !!item && typeof item.id === 'string' && !!JOURNAL_TEMPLATES[item.type]
+    && typeof item.date === 'string' && !!item.answers && typeof item.answers === 'object';
+}
+
+// Adds entries that are valid and not already here (matched by id). Returns how many were added.
+function mergeJournalEntries(incoming) {
+  const known = new Set(journalEntries.map((x) => x.id));
+  let added = 0;
+  incoming.forEach((item) => {
+    if (!isValidJournalEntry(item) || known.has(item.id)) return;
+    known.add(item.id);
+    journalEntries.push(item);
+    added += 1;
+  });
+  if (added > 0) {
+    saveJournalEntries();
+    renderJournal();
+  }
+  return added;
+}
+
 function downloadJournalBackup() {
   recordBackupTime(JOURNAL_BACKUP_AT_KEY);
   const json = JSON.stringify({ journal: journalEntries }, null, 2);
@@ -5206,20 +5228,7 @@ document.getElementById('journal-import-file').addEventListener('change', (e) =>
       setJournalBackupStatus("Restore failed \u2014 that file doesn't look like a journal backup.", 'failed');
       return;
     }
-    const known = new Set(journalEntries.map((x) => x.id));
-    let added = 0;
-    incoming.forEach((item) => {
-      const valid = item && typeof item.id === 'string' && JOURNAL_TEMPLATES[item.type]
-        && typeof item.date === 'string' && item.answers && typeof item.answers === 'object';
-      if (!valid || known.has(item.id)) return;
-      known.add(item.id);
-      journalEntries.push(item);
-      added += 1;
-    });
-    if (added > 0) {
-      saveJournalEntries();
-      renderJournal();
-    }
+    const added = mergeJournalEntries(incoming);
     setJournalBackupStatus(
       added > 0 ? `Restored ${added} entr${added === 1 ? 'y' : 'ies'}.` : 'Restore complete \u2014 nothing new to add.',
       'ok'
@@ -5499,7 +5508,7 @@ function renderBackupNotes() {
   const exportDays = daysSinceBackup(EXPORT_AT_KEY);
   if (hasAnyData && (exportDays === null || exportDays >= EXPORT_DUE_DAYS)) {
     reminders.push({
-      text: `You haven't downloaded a full backup of everything ${exportDays === null ? 'yet' : `in ${exportDays} days`}. Your synced data is also kept safe on the server.`,
+      text: `You haven't downloaded a full backup of everything ${exportDays === null ? 'yet' : `in ${exportDays} days`}. It includes your journal. Your synced data is also kept safe on the server.`,
       label: 'Download full backup',
       action: exportData,
     });
@@ -6502,10 +6511,15 @@ function initSyncUI() {
 // discard a record, treat a byte-for-byte replay as a no-op, and keep both
 // sides on a genuine conflict rather than picking a winner.
 
+// The full backup: everything that syncs, plus the two things that only live on this device (the
+// journal and the pay-period settings), kept under `local` so they stay out of syncing.
 function buildExportPayload() {
   const collections = {};
   SYNC_COLLECTIONS.forEach((c) => { collections[c.name] = c.get(); });
-  return { collections };
+  const local = { journal: journalEntries.slice() };
+  const payday = loadPaydaySettings();
+  if (payday.payDateKey) local.paydaySettings = payday;
+  return { collections, local };
 }
 
 function todayForFilename() {
@@ -6524,6 +6538,7 @@ function exportData() {
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10000); // revoking at once can cancel the download on iOS/Safari
+  setDataIoStatus('Backup downloaded. It includes your journal, so keep the file somewhere private.', 'ok');
   renderBackupNotes();
 }
 
@@ -6748,6 +6763,30 @@ function importData(parsed) {
     if (result.duplicated) parts.push(`${result.duplicated} merged as duplicates`);
     summaries.push(`${parts.join(', ')} in ${c.label}`);
   });
+
+  // The journal and pay-period settings (only present in a full backup made by this version or later).
+  const localPart = parsed && typeof parsed === 'object' && parsed.local && typeof parsed.local === 'object' ? parsed.local : null;
+  if (localPart) {
+    if (Array.isArray(localPart.journal)) {
+      const addedEntries = mergeJournalEntries(localPart.journal);
+      if (addedEntries) {
+        anyChanged = true;
+        summaries.push(`${addedEntries} journal entr${addedEntries === 1 ? 'y' : 'ies'}`);
+      }
+    }
+    const saved = localPart.paydaySettings;
+    if (saved && isRealDateKey(saved.payDateKey) && PAY_PERIOD_FREQUENCIES.includes(saved.frequency) && !loadPaydaySettings().payDateKey) {
+      // Only fills in settings this device doesn't have yet; it never overwrites your current ones.
+      savePaydaySettings({ payDateKey: saved.payDateKey, frequency: saved.frequency });
+      const dateInput = document.getElementById('payday-date-input');
+      const frequencyInput = document.getElementById('payday-frequency-input');
+      if (dateInput) dateInput.value = saved.payDateKey;
+      if (frequencyInput) frequencyInput.value = saved.frequency;
+      safeRender(renderBudget);
+      anyChanged = true;
+      summaries.push('pay-period settings');
+    }
+  }
 
   const skippedNote = skippedInvalid ? ` ${skippedInvalid} unreadable record${skippedInvalid === 1 ? ' was' : 's were'} skipped.` : '';
   if (!anyChanged) {
