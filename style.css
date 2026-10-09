@@ -2142,3 +2142,61 @@ body::before {
   font-weight: 600;
   font-size: 0.8rem;
 }
+
+/* Journal search and trends */
+
+.journal-search {
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 9px 14px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+}
+
+.journal-trends {
+  margin: 4px 0 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.journal-trends summary { cursor: pointer; font-weight: 600; }
+
+.journal-trend-summary,
+.journal-trend-feelings { margin: 8px 0 0; font-size: 0.85rem; color: var(--muted); }
+
+.journal-chart { margin-top: 8px; }
+.journal-chart svg { width: 100%; height: auto; display: block; }
+.journal-chart .trend-grid { stroke: var(--border-soft); stroke-width: 1; }
+.journal-chart .trend-label { fill: var(--muted); font-size: 11px; }
+.journal-chart .trend-line { fill: none; stroke-width: 2; }
+.journal-chart .trend-dot { stroke: var(--bg); stroke-width: 1.5; }
+
+.trend-daily.trend-line { stroke: var(--accent); }
+.trend-daily.trend-dot { fill: var(--accent); }
+.trend-therapy.trend-line { stroke: var(--accent-rose); }
+.trend-therapy.trend-dot { fill: var(--accent-rose); }
+
+.journal-trend-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 6px 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.journal-trend-legend[hidden] { display: none; }
+
+.trend-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 4px;
+  border-radius: 50%;
+}
+.trend-swatch.trend-daily { background: var(--accent); }
+.trend-swatch.trend-therapy { background: var(--accent-rose); }

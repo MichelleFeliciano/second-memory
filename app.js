@@ -5098,6 +5098,8 @@ const JOURNAL_TEMPLATES = {
 };
 
 let selectedJournalFilter = 'all';
+let journalSearchTerm = '';
+let selectedTrendRange = '90';
 
 // 'end' = jump to the newest entry (first load, new entry, filter change);
 // 'keep' = stay where the reader was (edit, delete, restore).
@@ -5287,6 +5289,7 @@ function renderJournal() {
   const visible = journalEntries
     .filter((e) => JOURNAL_TEMPLATES[e.type])
     .filter((e) => selectedJournalFilter === 'all' || e.type === selectedJournalFilter)
+    .filter((e) => matchesJournalSearch(e, journalSearchTerm))
     .sort((a, b) => {
       // Oldest on the left, newest on the right.
       const ka = `${a.date} ${a.dateAdded}`;
@@ -5347,6 +5350,11 @@ function renderJournal() {
   });
 
   document.getElementById('journal-empty-state').hidden = journalEntries.length !== 0;
+  const countEl = document.getElementById('journal-search-count');
+  const searching = journalSearchTerm.trim() !== '';
+  countEl.hidden = !searching;
+  if (searching) countEl.textContent = `${visible.length} entr${visible.length === 1 ? 'y matches' : 'ies match'} "${journalSearchTerm.trim()}"`;
+  renderJournalTrends();
   renderBackupNotes();
   renderJournalDateStrip(visible);
   document.getElementById('journal-nav').hidden = visible.length === 0;
@@ -5363,6 +5371,160 @@ function renderJournal() {
     updateJournalActiveDate();
   }
 }
+
+function matchesJournalSearch(entry, term) {
+  const needle = (term || '').trim().toLowerCase();
+  if (!needle) return true;
+  const template = JOURNAL_TEMPLATES[entry.type];
+  const haystack = [
+    template.label,
+    entry.date,
+    DATE_KEY_RE.test(entry.date) ? formatDateKeyLong(entry.date) : '',
+    ...Object.values(entry.answers || {}),
+  ].join(' ').toLowerCase();
+  return haystack.includes(needle);
+}
+
+document.getElementById('journal-search-input').addEventListener('input', (e) => {
+  journalSearchTerm = e.target.value;
+  journalScrollMode = 'end';
+  renderJournal();
+});
+
+// ---- Journal trends ----
+// Ratings over time (the 1-5 "how was your day" and "how do I feel after
+// therapy" answers) as an inline SVG line chart, plus the feelings you pick
+// most. Nothing leaves the device; this only reads the entries already here.
+
+const TREND_SERIES = [
+  { key: 'daily', type: 'daily', field: 'day_rating', label: 'Day rating' },
+  { key: 'therapy', type: 'therapy', field: 'mood_after', label: 'Mood after therapy' },
+];
+
+function trendSinceKey() {
+  if (selectedTrendRange === 'all') return '0000-00-00';
+  return shiftDateKey(todayKey(), -Number(selectedTrendRange));
+}
+
+function collectTrendPoints(series, sinceKey) {
+  return journalEntries
+    .filter((e) => e.type === series.type && DATE_KEY_RE.test(e.date) && e.date >= sinceKey)
+    .map((e) => ({ date: e.date, value: Number(e.answers && e.answers[series.field]) }))
+    .filter((pt) => Number.isFinite(pt.value) && pt.value >= 1 && pt.value <= 5)
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+}
+
+function averageOf(points) {
+  return points.reduce((sum, pt) => sum + pt.value, 0) / points.length;
+}
+
+// With at least 4 ratings, compare the average of the later half to the earlier half.
+function trendDirection(points) {
+  if (points.length < 4) return '';
+  const mid = Math.floor(points.length / 2);
+  const diff = averageOf(points.slice(-mid)) - averageOf(points.slice(0, mid));
+  if (diff >= 0.5) return ', trending up';
+  if (diff <= -0.5) return ', trending down';
+  return ', steady';
+}
+
+function svgEl(name, attrs) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', name);
+  Object.entries(attrs || {}).forEach(([k, v]) => el.setAttribute(k, String(v)));
+  return el;
+}
+
+function epochDays(dateKey) {
+  const { y, m, d } = parseDateKey(dateKey);
+  return Math.round(Date.UTC(y, m, d) / 86400000);
+}
+
+function drawTrendChart(container, seriesPoints) {
+  const W = 640, H = 200, left = 30, right = 14, top = 12, bottom = 28;
+  const all = seriesPoints.flatMap((s) => s.points);
+  const minDay = Math.min(...all.map((pt) => epochDays(pt.date)));
+  const maxDay = Math.max(...all.map((pt) => epochDays(pt.date)));
+  const x = (date) => (maxDay === minDay ? (left + W - right) / 2 : left + ((epochDays(date) - minDay) / (maxDay - minDay)) * (W - left - right));
+  const y = (value) => top + ((5 - value) / 4) * (H - top - bottom);
+
+  const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img' });
+  const summary = seriesPoints.map((s) => `${s.label}: ${s.points.map((pt) => `${pt.date} ${pt.value}`).join(', ')}`).join('. ');
+  svg.appendChild(svgEl('title', {})).textContent = `Ratings from 1 to 5 over time. ${summary}`;
+
+  for (let v = 1; v <= 5; v++) {
+    svg.appendChild(svgEl('line', { class: 'trend-grid', x1: left, x2: W - right, y1: y(v), y2: y(v) }));
+    const label = svgEl('text', { class: 'trend-label', x: left - 8, y: y(v) + 4, 'text-anchor': 'end' });
+    label.textContent = String(v);
+    svg.appendChild(label);
+  }
+  const firstDate = all.reduce((min, pt) => (pt.date < min ? pt.date : min), all[0].date);
+  const lastDate = all.reduce((max, pt) => (pt.date > max ? pt.date : max), all[0].date);
+  [[firstDate, maxDay === minDay ? 'middle' : 'start'], [lastDate, 'end']].forEach(([date, anchor], i) => {
+    if (i === 1 && maxDay === minDay) return;
+    const label = svgEl('text', { class: 'trend-label', x: i === 0 ? (maxDay === minDay ? x(date) : left) : W - right, y: H - 8, 'text-anchor': anchor });
+    label.textContent = formatDateKeyLong(date);
+    svg.appendChild(label);
+  });
+
+  seriesPoints.forEach((s) => {
+    if (s.points.length > 1) {
+      svg.appendChild(svgEl('polyline', { class: `trend-line trend-${s.key}`, points: s.points.map((pt) => `${x(pt.date)},${y(pt.value)}`).join(' ') }));
+    }
+    s.points.forEach((pt) => {
+      const dot = svgEl('circle', { class: `trend-dot trend-${s.key}`, cx: x(pt.date), cy: y(pt.value), r: 4.5 });
+      dot.appendChild(svgEl('title', {})).textContent = `${s.label}: ${pt.value} on ${formatDateKeyLong(pt.date)}`;
+      svg.appendChild(dot);
+    });
+  });
+
+  container.innerHTML = '';
+  container.appendChild(svg);
+}
+
+function renderJournalTrends() {
+  const details = document.getElementById('journal-trends');
+  if (!details) return;
+  renderChipFilter(
+    document.getElementById('journal-trend-range'),
+    [{ key: '30', label: '30 days' }, { key: '90', label: '90 days' }, { key: 'all', label: 'All time' }],
+    () => selectedTrendRange,
+    (key) => { selectedTrendRange = key; },
+    renderJournalTrends
+  );
+
+  const since = trendSinceKey();
+  const seriesPoints = TREND_SERIES
+    .map((s) => ({ ...s, points: collectTrendPoints(s, since) }))
+    .filter((s) => s.points.length > 0);
+  const chart = document.getElementById('journal-trend-chart');
+  const summaryEl = document.getElementById('journal-trend-summary');
+  const legend = document.getElementById('journal-trend-legend');
+  const feelingsEl = document.getElementById('journal-trend-feelings');
+
+  if (seriesPoints.length === 0) {
+    chart.innerHTML = '';
+    legend.hidden = true;
+    summaryEl.textContent = 'No ratings in this period yet. Answer the 1 to 5 questions in journal and therapy entries to see a trend.';
+  } else {
+    drawTrendChart(chart, seriesPoints);
+    legend.hidden = false;
+    summaryEl.textContent = seriesPoints
+      .map((s) => `${s.label}: average ${averageOf(s.points).toFixed(1)} across ${s.points.length} entr${s.points.length === 1 ? 'y' : 'ies'}${trendDirection(s.points)}`)
+      .join('. ') + '.';
+  }
+
+  const counts = new Map();
+  journalEntries
+    .filter((e) => DATE_KEY_RE.test(e.date) && e.date >= since)
+    .forEach((e) => {
+      const feeling = e.type === 'daily' ? e.answers && e.answers.feeling : e.type === 'dream' ? e.answers && e.answers.felt_waking : null;
+      if (feeling) counts.set(feeling, (counts.get(feeling) || 0) + 1);
+    });
+  const top = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+  feelingsEl.textContent = top.length ? `Feelings you chose most: ${top.map(([name, n]) => `${name} \u00d7${n}`).join(', ')}.` : '';
+}
+
+document.getElementById('journal-trends').addEventListener('toggle', renderJournalTrends);
 
 function journalChipLabel(entry) {
   if (!DATE_KEY_RE.test(entry.date)) return entry.date;

@@ -429,7 +429,21 @@
         </div>
       </form>
 
+      <input type="search" id="journal-search-input" class="journal-search" placeholder="Search your journal…" aria-label="Search journal entries">
       <div class="chip-row" id="journal-filters"></div>
+      <p class="sync-status-text" id="journal-search-count" role="status" hidden></p>
+
+      <details class="journal-trends" id="journal-trends">
+        <summary>Trends</summary>
+        <div class="chip-row" id="journal-trend-range"></div>
+        <p class="journal-trend-summary" id="journal-trend-summary"></p>
+        <div id="journal-trend-chart" class="journal-chart"></div>
+        <p class="journal-trend-legend" id="journal-trend-legend" hidden>
+          <span><i class="trend-swatch trend-daily"></i> Day rating (journal)</span>
+          <span><i class="trend-swatch trend-therapy"></i> Mood after therapy</span>
+        </p>
+        <p class="journal-trend-feelings" id="journal-trend-feelings"></p>
+      </details>
 
       <div class="journal-nav" id="journal-nav" hidden>
         <button type="button" id="journal-scroll-prev" class="journal-secondary-btn" aria-label="Earlier entries">&lsaquo; Earlier</button>
