@@ -687,6 +687,7 @@ body::before {
 .shopping-item,
 .note-card,
 .appt-card,
+.deadline-card,
 .link-card,
 .course-card,
 .bill-card,
@@ -709,6 +710,7 @@ body::before {
 .shopping-item:hover,
 .note-card:hover,
 .appt-card:hover,
+.deadline-card:hover,
 .link-card:hover,
 .course-card:hover,
 .bill-card:hover,
@@ -2090,4 +2092,53 @@ body::before {
   border-color: var(--accent);
   color: var(--accent-contrast);
   font-weight: 600;
+}
+
+/* Course deadlines */
+
+.deadline-view {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.deadline-view[hidden], .deadline-edit-form[hidden] { display: none; }
+
+.deadline-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 220px; }
+
+.deadline-check { display: flex; align-items: center; gap: 8px; cursor: pointer; overflow-wrap: anywhere; }
+
+.deadline-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--muted); }
+
+.deadline-due.overdue { color: var(--accent-2); font-weight: 600; }
+.deadline-due.soon { color: var(--accent-rose); font-weight: 600; }
+
+.deadline-card.deadline-done .deadline-title { text-decoration: line-through; color: var(--muted); }
+
+.deadline-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.deadline-edit-form { display: flex; flex-direction: column; gap: 10px; }
+
+.deadline-edit-form input,
+.deadline-edit-form select {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+}
+
+.deadline-edit-form button[type="submit"] {
+  padding: 5px 14px;
+  border: none;
+  border-radius: 13px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.8rem;
 }

@@ -3021,6 +3021,8 @@ function renderCourses() {
   });
 
   document.getElementById('coursework-empty-state').hidden = nonDeleted.length !== 0;
+
+  safeRender(renderDeadlines); // course names and the course dropdowns follow the courses
 }
 
 document.getElementById('coursework-add-form').addEventListener('submit', (e) => {
@@ -3063,6 +3065,286 @@ document.getElementById('coursework-search-input').addEventListener('input', ren
 document.getElementById('coursework-sort-input').addEventListener('change', (e) => {
   selectedCoursesSort = e.target.value;
   renderCourses();
+});
+
+// ---- Course deadlines ----
+// A synced collection of its own (assignments, exams, quizzes...), tied to a
+// course by id. Shown in the Coursework tab and, when due soon or overdue, on
+// Home. Rendered by renderDeadlines(), which renderCourses() also calls so the
+// course names/dropdowns stay current.
+
+const DEADLINES_KEY = 'secondMemory.deadlines.v1';
+const DEADLINE_KINDS = { assignment: 'Assignment', exam: 'Exam', quiz: 'Quiz', project: 'Project', reading: 'Reading', other: 'Other' };
+
+let deadlines = migrateSyncFields(loadCollection(DEADLINES_KEY), DEADLINES_KEY, getDeviceId());
+let selectedDeadlineFilter = 'upcoming';
+
+function courseLabelFor(courseId) {
+  const course = courses.find((c) => c.id === courseId);
+  if (!course) return '';
+  return course.code || course.title;
+}
+
+function validateDeadlineFields(fields) {
+  const title = (fields.title || '').trim();
+  if (!title) return { ok: false, error: 'Say what is due.' };
+  const dueDate = (fields.dueDate || '').trim();
+  if (!DATE_KEY_RE.test(dueDate)) return { ok: false, error: 'A due date is required.' };
+  const kind = Object.prototype.hasOwnProperty.call(DEADLINE_KINDS, fields.kind) ? fields.kind : 'assignment';
+  return { ok: true, title, dueDate, kind, courseId: fields.courseId || '' };
+}
+
+function addDeadline(fields) {
+  const result = validateDeadlineFields(fields);
+  if (!result.ok) return result;
+  const now = new Date().toISOString();
+  const record = {
+    id: makeId(),
+    courseId: result.courseId,
+    title: result.title,
+    kind: result.kind,
+    dueDate: result.dueDate,
+    done: false,
+    dateAdded: now,
+    updatedAt: now,
+    deviceId: getDeviceId(),
+    deleted: false,
+    version: 0,
+  };
+  deadlines.push(record);
+  saveCollection(DEADLINES_KEY, deadlines);
+  recordUndo('deadlines', record.id, null, structuredClone(record));
+  renderDeadlines();
+  return { ok: true };
+}
+
+function updateDeadline(id, fields) {
+  const record = deadlines.find((d) => d.id === id);
+  if (!record) return { ok: false, error: 'Deadline not found.' };
+  const result = validateDeadlineFields(fields);
+  if (!result.ok) return result;
+  const before = structuredClone(record);
+  record.title = result.title;
+  record.kind = result.kind;
+  record.dueDate = result.dueDate;
+  record.courseId = result.courseId;
+  stampSync(record);
+  saveCollection(DEADLINES_KEY, deadlines);
+  recordUndo('deadlines', id, before, structuredClone(record));
+  renderDeadlines();
+  return { ok: true };
+}
+
+function setDeadlineDone(id, done) {
+  const record = deadlines.find((d) => d.id === id);
+  if (!record || record.done === done) return;
+  const before = structuredClone(record);
+  record.done = done;
+  stampSync(record);
+  saveCollection(DEADLINES_KEY, deadlines);
+  recordUndo('deadlines', id, before, structuredClone(record));
+  renderDeadlines();
+}
+
+function deleteDeadline(id) {
+  const record = deadlines.find((d) => d.id === id);
+  if (!record) return;
+  const before = structuredClone(record);
+  record.deleted = true;
+  stampSync(record);
+  saveCollection(DEADLINES_KEY, deadlines);
+  recordUndo('deadlines', id, before, structuredClone(record));
+  renderDeadlines();
+}
+
+function restoreDeadline(id) {
+  const record = deadlines.find((d) => d.id === id);
+  if (!record || !record.deleted) return;
+  const before = structuredClone(record);
+  record.deleted = false;
+  stampSync(record);
+  saveCollection(DEADLINES_KEY, deadlines);
+  recordUndo('deadlines', id, before, structuredClone(record));
+  renderDeadlines();
+}
+
+function deadlineWhenLabel(dueDate) {
+  const days = daysUntilDateKey(dueDate);
+  if (days < 0) return { text: `overdue by ${-days} day${days === -1 ? '' : 's'}`, cls: 'overdue' };
+  if (days === 0) return { text: 'due today', cls: 'soon' };
+  if (days === 1) return { text: 'due tomorrow', cls: 'soon' };
+  return { text: `due ${formatDateKeyLong(dueDate)} (in ${days} days)`, cls: days <= HOME_DUE_SOON_DAYS ? 'soon' : '' };
+}
+
+function fillCourseOptions(select, selectedId) {
+  select.innerHTML = '';
+  const none = document.createElement('option');
+  none.value = '';
+  none.textContent = 'No course';
+  select.appendChild(none);
+  courses
+    .filter((c) => !c.deleted || c.id === selectedId)
+    .sort((a, b) => (a.code || a.title).localeCompare(b.code || b.title))
+    .forEach((c) => {
+      const option = document.createElement('option');
+      option.value = c.id;
+      option.textContent = c.code ? `${c.code} — ${c.title}` : c.title;
+      select.appendChild(option);
+    });
+  select.value = selectedId || '';
+}
+
+function renderDeadlines() {
+  const list = document.getElementById('deadlines-list');
+  if (!list) return;
+
+  const openForm = list.querySelector('.deadline-edit-form:not([hidden])');
+  const openEdit = openForm
+    ? {
+        id: openForm.closest('.deadline-card').dataset.deadlineId,
+        course: openForm.querySelector('.deadline-edit-course').value,
+        kind: openForm.querySelector('.deadline-edit-kind').value,
+        title: openForm.querySelector('.deadline-edit-title').value,
+        date: openForm.querySelector('.deadline-edit-date').value,
+      }
+    : null;
+
+  // Keep whatever the reader has chosen in the add form's course dropdown.
+  const addSelect = document.getElementById('deadlines-course-input');
+  fillCourseOptions(addSelect, addSelect.value);
+
+  renderChipFilter(
+    document.getElementById('deadlines-filters'),
+    [{ key: 'upcoming', label: 'Upcoming' }, { key: 'done', label: 'Done' }, { key: 'all', label: 'All' }],
+    () => selectedDeadlineFilter,
+    (key) => { selectedDeadlineFilter = key; },
+    renderDeadlines
+  );
+
+  const live = deadlines.filter((d) => !d.deleted);
+  const visible = live
+    .filter((d) => selectedDeadlineFilter === 'all' || (selectedDeadlineFilter === 'done' ? d.done : !d.done))
+    .sort((a, b) => {
+      if (a.done !== b.done) return a.done ? 1 : -1;
+      const byDate = a.dueDate < b.dueDate ? -1 : a.dueDate > b.dueDate ? 1 : 0;
+      return a.done ? -byDate : byDate;
+    });
+
+  list.innerHTML = '';
+  const template = document.getElementById('deadlines-card-template');
+  visible.forEach((record) => {
+    const node = template.content.cloneNode(true);
+    const card = node.querySelector('.deadline-card');
+    card.dataset.deadlineId = record.id;
+    card.classList.toggle('deadline-done', !!record.done);
+    const viewSection = node.querySelector('.deadline-view');
+    const editForm = node.querySelector('.deadline-edit-form');
+
+    node.querySelector('.deadline-title').textContent = record.title;
+    node.querySelector('.deadline-kind').textContent = DEADLINE_KINDS[record.kind] || 'Other';
+    node.querySelector('.deadline-course').textContent = courseLabelFor(record.courseId);
+    const dueEl = node.querySelector('.deadline-due');
+    if (record.done) {
+      dueEl.textContent = `was due ${formatDateKeyLong(record.dueDate)}`;
+    } else {
+      const when = deadlineWhenLabel(record.dueDate);
+      dueEl.textContent = when.text;
+      if (when.cls) dueEl.classList.add(when.cls);
+    }
+
+    const doneBox = node.querySelector('.deadline-done');
+    doneBox.checked = !!record.done;
+    doneBox.addEventListener('change', () => setDeadlineDone(record.id, doneBox.checked));
+
+    const editCourse = node.querySelector('.deadline-edit-course');
+    const editKind = node.querySelector('.deadline-edit-kind');
+    const editTitle = node.querySelector('.deadline-edit-title');
+    const editDate = node.querySelector('.deadline-edit-date');
+    const editError = node.querySelector('.deadline-edit-error');
+    Object.entries(DEADLINE_KINDS).forEach(([value, label]) => {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = label;
+      editKind.appendChild(option);
+    });
+
+    node.querySelector('.edit-btn').addEventListener('click', () => {
+      const otherOpen = list.querySelector('.deadline-edit-form:not([hidden])');
+      if (otherOpen && otherOpen !== editForm) {
+        otherOpen.hidden = true;
+        otherOpen.closest('.deadline-card').querySelector('.deadline-view').hidden = false;
+      }
+      fillCourseOptions(editCourse, record.courseId);
+      editKind.value = record.kind;
+      editTitle.value = record.title;
+      editDate.value = record.dueDate;
+      editError.hidden = true;
+      viewSection.hidden = true;
+      editForm.hidden = false;
+    });
+    node.querySelector('.cancel-btn').addEventListener('click', () => {
+      editForm.hidden = true;
+      viewSection.hidden = false;
+    });
+    editForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      // Hide first (see the Medications edit form) so a successful save's own
+      // re-render doesn't reopen this form; re-show it on a validation error.
+      editForm.hidden = true;
+      viewSection.hidden = false;
+      const result = updateDeadline(record.id, {
+        courseId: editCourse.value,
+        kind: editKind.value,
+        title: editTitle.value,
+        dueDate: editDate.value,
+      });
+      if (!result.ok) {
+        viewSection.hidden = true;
+        editForm.hidden = false;
+        editError.textContent = result.error;
+        editError.hidden = false;
+      }
+    });
+    node.querySelector('.delete-btn').addEventListener('click', () => deleteDeadline(record.id));
+
+    if (openEdit && openEdit.id === record.id) {
+      fillCourseOptions(editCourse, openEdit.course);
+      editKind.value = openEdit.kind;
+      editTitle.value = openEdit.title;
+      editDate.value = openEdit.date;
+      viewSection.hidden = true;
+      editForm.hidden = false;
+    }
+
+    list.appendChild(node);
+  });
+
+  document.getElementById('deadlines-empty-state').hidden = visible.length !== 0;
+  renderHome();
+}
+
+document.getElementById('deadlines-add-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const titleInput = document.getElementById('deadlines-title-input');
+  const dateInput = document.getElementById('deadlines-date-input');
+  const errorEl = document.getElementById('deadlines-form-error');
+  const result = addDeadline({
+    courseId: document.getElementById('deadlines-course-input').value,
+    kind: document.getElementById('deadlines-kind-input').value,
+    title: titleInput.value,
+    dueDate: dateInput.value,
+  });
+  if (!result.ok) {
+    errorEl.textContent = result.error;
+    errorEl.hidden = false;
+    return;
+  }
+  errorEl.hidden = true;
+  selectedDeadlineFilter = selectedDeadlineFilter === 'done' ? 'upcoming' : selectedDeadlineFilter;
+  titleInput.value = '';
+  dateInput.value = '';
+  titleInput.focus();
+  renderDeadlines();
 });
 
 // ---- Budget (Bills + rolling 5-week calendar) ----
@@ -5433,6 +5715,12 @@ function computeHomeRefills(nonDeletedMeds) {
     .sort(compareByField((m) => m.refillDate, 1, { text: false }));
 }
 
+function computeHomeDeadlines(nonDeletedDeadlines) {
+  return nonDeletedDeadlines
+    .filter((d) => !d.done && daysUntilDateKey(d.dueDate) <= HOME_DUE_SOON_DAYS)
+    .sort((a, b) => (a.dueDate < b.dueDate ? -1 : a.dueDate > b.dueDate ? 1 : 0));
+}
+
 function computeHomeAppointments(nonDeletedAppointments) {
   return nonDeletedAppointments
     .filter((a) => {
@@ -5487,11 +5775,12 @@ function renderHome() {
   const currentlyReading = computeCurrentlyReading(nonDeletedBooks);
   const homeRefills = computeHomeRefills(medications.filter((m) => !m.deleted));
   const homeAppointments = computeHomeAppointments(appointments.filter((a) => !a.deleted));
+  const homeDeadlines = computeHomeDeadlines(deadlines.filter((d) => !d.deleted));
 
   renderReminderBanner(overdueBills, dueSoonBills);
 
   const actionableCount = overdueBills.length + dueSoonBills.length + overdueTodos.length + dueSoonTodos.length
-    + homeRefills.length + homeAppointments.length;
+    + homeRefills.length + homeAppointments.length + homeDeadlines.length;
 
   const statsEl = document.getElementById('home-stats');
   const emptyEl = document.getElementById('home-empty-state');
@@ -5504,6 +5793,8 @@ function renderHome() {
 
   const refillsPanel = document.getElementById('home-refills-panel');
   const appointmentsPanel = document.getElementById('home-appointments-panel');
+  const deadlinesPanel = document.getElementById('home-deadlines-panel');
+  const deadlinesList = document.getElementById('home-deadlines-list');
   const refillsList = document.getElementById('home-refills-list');
   const appointmentsList = document.getElementById('home-appointments-list');
 
@@ -5512,6 +5803,7 @@ function renderHome() {
   readingList.innerHTML = '';
   refillsList.innerHTML = '';
   appointmentsList.innerHTML = '';
+  deadlinesList.innerHTML = '';
 
   function makeHomeRow(onClick, buildContent) {
     const li = document.createElement('li');
@@ -5590,6 +5882,21 @@ function renderHome() {
     }));
   });
 
+  deadlinesPanel.hidden = homeDeadlines.length === 0;
+  homeDeadlines.forEach((record) => {
+    deadlinesList.appendChild(makeHomeRow(() => setActiveTab('coursework'), (btn) => {
+      const title = document.createElement('strong');
+      title.className = 'deadline-title';
+      const courseName = courseLabelFor(record.courseId);
+      title.textContent = courseName ? `${courseName}: ${record.title}` : record.title;
+      const when = document.createElement('span');
+      const label = deadlineWhenLabel(record.dueDate);
+      when.className = `bill-due${label.cls === 'overdue' ? ' overdue' : ''}`;
+      when.textContent = label.text.replace(/ \(in \d+ days\)$/, '').replace(/^due /, '');
+      btn.append(title, when);
+    }));
+  });
+
   appointmentsPanel.hidden = homeAppointments.length === 0;
   homeAppointments.forEach((appt) => {
     appointmentsList.appendChild(makeHomeRow(() => goToTab('appointments'), (btn) => {
@@ -5655,6 +5962,7 @@ const SYNC_COLLECTIONS = [
   { name: 'recipes', label: 'Recipes', key: RECIPES_KEY, get: () => recipes, set: (v) => { recipes = v; }, render: renderRecipes, delete: deleteRecipe, restore: restoreRecipe },
   { name: 'medications', label: 'Medications', key: MEDICATIONS_KEY, get: () => medications, set: (v) => { medications = v; }, render: renderMedications, delete: deleteMedication, restore: restoreMedication },
   { name: 'appointments', label: 'Appointments', key: APPOINTMENTS_KEY, get: () => appointments, set: (v) => { appointments = v; }, render: renderAppointments, delete: deleteAppointment, restore: restoreAppointment },
+  { name: 'deadlines', label: 'Deadlines', key: DEADLINES_KEY, get: () => deadlines, set: (v) => { deadlines = v; }, render: renderDeadlines, delete: deleteDeadline, restore: restoreDeadline },
   { name: 'diagnoses', label: 'Diagnoses', key: DIAGNOSES_KEY, get: () => diagnoses, set: (v) => { diagnoses = v; }, render: renderDiagnoses, delete: deleteDiagnosis, restore: restoreDiagnosis },
   { name: 'todos', label: 'To-Do', key: TODOS_KEY, get: () => todos, set: (v) => { todos = v; }, render: renderTodos, delete: deleteTodo, restore: restoreTodo },
   { name: 'shoppingList', label: 'Shopping List', key: SHOPPING_KEY, get: () => shoppingItems, set: (v) => { shoppingItems = v; }, render: renderShoppingList, delete: deleteShoppingItem, restore: restoreShoppingItem },
@@ -6328,6 +6636,7 @@ function isValidImportRecord(collectionName, rec) {
   if (collectionName === 'recurringIncome') return isNum(rec.amount) && isDate(rec.dueDate) && IMPORT_FREQUENCIES.includes(rec.frequency) && rec.frequency !== 'one_time';
   if (collectionName === 'income') return isNum(rec.amount) && isDate(rec.dateKey);
   if (collectionName === 'appointments') return isDate(rec.date);
+  if (collectionName === 'deadlines') return isDate(rec.dueDate);
   return true;
 }
 

@@ -233,6 +233,10 @@
           <h3>Medication Refills</h3>
           <ul class="card-list" id="home-refills-list"></ul>
         </div>
+        <div class="column" id="home-deadlines-panel" hidden>
+          <h3>Course Deadlines</h3>
+          <ul class="card-list" id="home-deadlines-list"></ul>
+        </div>
         <div class="column" id="home-appointments-panel" hidden>
           <h3>Appointments</h3>
           <ul class="card-list" id="home-appointments-list"></ul>
@@ -707,6 +711,34 @@
 
       <p class="stats-line" id="coursework-stats"></p>
 
+      <div class="collection-toolbar">
+        <h3 class="subsection-heading">Deadlines</h3>
+      </div>
+      <form id="deadlines-add-form" class="add-form add-form-stacked">
+        <select id="deadlines-course-input" aria-label="Course for this deadline"></select>
+        <select id="deadlines-kind-input" aria-label="Kind of deadline">
+          <option value="assignment">Assignment</option>
+          <option value="exam">Exam</option>
+          <option value="quiz">Quiz</option>
+          <option value="project">Project</option>
+          <option value="reading">Reading</option>
+          <option value="other">Other</option>
+        </select>
+        <input type="text" id="deadlines-title-input" placeholder="What's due (e.g. Homework 3)" required aria-label="What is due">
+        <label class="date-field">Due date
+          <input type="date" id="deadlines-date-input" required aria-label="Due date">
+        </label>
+        <p class="form-error" id="deadlines-form-error" hidden></p>
+        <button type="submit">Add deadline</button>
+      </form>
+      <div class="chip-row" id="deadlines-filters"></div>
+      <ul class="card-list flat-list" id="deadlines-list"></ul>
+      <p class="empty-state" id="deadlines-empty-state" hidden>No deadlines here.</p>
+
+      <div class="collection-toolbar">
+        <h3 class="subsection-heading">Courses</h3>
+      </div>
+
       <form id="coursework-add-form" class="add-form add-form-stacked">
         <input type="text" id="coursework-title-input" placeholder="Course title" required aria-label="Course title">
         <input type="text" id="coursework-code-input" placeholder="Course code (optional)" aria-label="Course code">
@@ -858,6 +890,39 @@
       <textarea class="med-edit-notes" placeholder="Notes (optional)" aria-label="Edit medication notes" rows="2"></textarea>
       <p class="form-error med-edit-error" hidden></p>
       <div class="med-actions">
+        <button type="submit">Save</button>
+        <button type="button" class="cancel-btn">Cancel</button>
+      </div>
+    </form>
+  </li>
+</template>
+
+<template id="deadlines-card-template">
+  <li class="deadline-card">
+    <div class="deadline-view">
+      <div class="deadline-main">
+        <label class="deadline-check">
+          <input type="checkbox" class="deadline-done" aria-label="Mark done">
+          <strong class="deadline-title"></strong>
+        </label>
+        <div class="deadline-meta">
+          <span class="deadline-kind badge"></span>
+          <span class="deadline-course"></span>
+          <span class="deadline-due"></span>
+        </div>
+      </div>
+      <div class="deadline-actions">
+        <button type="button" class="edit-btn">Edit</button>
+        <button type="button" class="delete-btn" aria-label="Delete deadline">Delete</button>
+      </div>
+    </div>
+    <form class="deadline-edit-form" hidden>
+      <select class="deadline-edit-course" aria-label="Edit course"></select>
+      <select class="deadline-edit-kind" aria-label="Edit kind"></select>
+      <input type="text" class="deadline-edit-title" placeholder="What's due" required aria-label="Edit what is due">
+      <input type="date" class="deadline-edit-date" required aria-label="Edit due date">
+      <p class="form-error deadline-edit-error" hidden></p>
+      <div class="deadline-actions">
         <button type="submit">Save</button>
         <button type="button" class="cancel-btn">Cancel</button>
       </div>
