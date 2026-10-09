@@ -2073,3 +2073,21 @@ body::before {
   max-height: 70vh;
   overflow-y: auto;
 }
+
+/* "N changes not synced" note under the sync status, and the Sync now button
+   highlighting itself when there is something to send. */
+.sync-pending {
+  margin: 6px 0 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--accent-rose);
+}
+
+.sync-pending[hidden] { display: none; }
+
+#sync-now-btn.sync-needed {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
+}

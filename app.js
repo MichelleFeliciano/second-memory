@@ -40,6 +40,7 @@ function reportStorageProblem() {
 function saveCollection(key, items) {
   try {
     localStorage.setItem(key, JSON.stringify(items));
+    scheduleSyncPending();
     return true;
   } catch {
     reportStorageProblem();
@@ -5796,6 +5797,39 @@ function setSyncStatus(text, tone) {
   el.classList.toggle('sync-failed', tone === 'failed');
 }
 
+// ---- Unsynced-changes indicator ----
+// Sync is manual, so the sidebar says how many records differ from what the
+// server last confirmed (the same comparison runSync uses to decide what to
+// send) and the Sync now button highlights itself while there is work to send.
+
+function countUnsyncedChanges() {
+  const snapshot = loadSyncSnapshot();
+  if (!snapshot) return null; // never synced on this device: the status line already says so
+  let count = 0;
+  SYNC_COLLECTIONS.forEach((c) => {
+    const known = snapshot[c.name] || {};
+    c.get().forEach((item) => { if (known[item.id] !== JSON.stringify(item)) count += 1; });
+  });
+  return count;
+}
+
+function updateSyncPending() {
+  const el = document.getElementById('sync-pending');
+  const btn = document.getElementById('sync-now-btn');
+  if (!el || !btn) return;
+  const count = loadSyncConfig() ? countUnsyncedChanges() : null;
+  const show = count !== null && count > 0;
+  el.hidden = !show;
+  if (show) el.textContent = `${count} change${count === 1 ? '' : 's'} not synced. Tap Sync now.`;
+  btn.classList.toggle('sync-needed', show);
+}
+
+var syncPendingTimer = null; // var, not let: saveCollection runs before this line during startup
+function scheduleSyncPending() {
+  clearTimeout(syncPendingTimer);
+  syncPendingTimer = setTimeout(() => safeRender(updateSyncPending), 250);
+}
+
 // Per-device record of what the server last told us, so each sync can send
 // only records this device actually changed. Re-sending every record on every
 // tick let a stale device overwrite or "fork" other devices' newer edits and
@@ -6047,6 +6081,7 @@ async function runSync() {
   } finally {
     syncInFlight = false;
     if (syncNowBtn) syncNowBtn.disabled = false;
+    updateSyncPending();
   }
 }
 
@@ -6093,6 +6128,7 @@ function initSyncUI() {
   // opening the app, or when the connection returns. Press Sync now.
   document.getElementById('sync-now-btn').addEventListener('click', runSync);
   if (config) setSyncStatus('Not synced yet — tap Sync now', null);
+  updateSyncPending();
 }
 
 // ---- Data export / import ----
