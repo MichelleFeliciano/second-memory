@@ -2997,4 +2997,7 @@ html[data-locked] .lock-backdrop { visibility: hidden; }
   /* The weight chart is drawn in a 600-unit box that shrinks to the screen, so its labels need to start big. */
   .weight-chart .w-label,
   .weight-chart .w-goal-label { font-size: 26px; }
+
+  /* Same for the journal trend chart (a 640-unit box). */
+  .journal-chart .trend-label { font-size: 24px; }
 }

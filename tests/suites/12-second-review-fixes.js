@@ -103,3 +103,15 @@ check('the stale-sync clock is reset by any sync that reached the server', (() =
   const beforeBranches = src.indexOf('recordBackupTime(LAST_SYNC_AT_KEY)');
   return beforeBranches > -1 && beforeBranches < src.indexOf('const conflicts');
 })());
+
+// ---- third review: missing optional fields and bad optional values ----
+bills.length = 0; income.length = 0; shoppingItems.length = 0;
+bills.push({ ...r2, id: 'bc1', name: 'Rent', amount: 900, dueDate: dk(5), frequency: 'monthly', paidDates: [] });
+nav('budget'); renderBudget();
+check('a bill with no category is not found by searching "undefined"', matchesBillSearch(bills[0], 'undefined') === false);
+document.querySelector('#budget-list .edit-btn').click();
+check('Edit opens for a bill with no category without showing "undefined"', document.querySelector('#budget-list .bill-edit-category').value === '');
+bills.length = 0;
+check('the import check refuses a book with a bad rating or author', !isValidImportRecord('books', { id: 'x', title: 'T', status: 'owned_read', rating: -1 }) && !isValidImportRecord('books', { id: 'x', title: 'T', status: 'owned_read', rating: 1e9 }) && !isValidImportRecord('books', { id: 'x', title: 'T', status: 'owned_read', author: 123 }) && isValidImportRecord('books', { id: 'x', title: 'T', status: 'owned_read', rating: 4, author: 'A' }) && isValidImportRecord('books', { id: 'x', title: 'T', status: 'owned_unread', rating: null }));
+check('backup file names use the local date', todayForFilename() === todayKey());
+check('the current tab is announced to screen readers', document.querySelectorAll('.nav-item[aria-current="page"]').length === 1);

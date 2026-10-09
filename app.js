@@ -418,7 +418,9 @@ function setActiveTab(tab) {
   const showingJournal = activeTab === 'journal';
   TABS.forEach((t) => {
     document.getElementById(`${t}-collection`).hidden = t !== activeTab;
-    document.querySelector(`.nav-item[data-tab="${t}"]`).classList.toggle('active', t === activeTab);
+    const navItem = document.querySelector(`.nav-item[data-tab="${t}"]`);
+    navItem.classList.toggle('active', t === activeTab);
+    if (t === activeTab) navItem.setAttribute('aria-current', 'page'); else navItem.removeAttribute('aria-current');
   });
   saveUiState({ activeTab });
   if (showingJournal) renderJournal(); // the tab is visible now, so widths (and the scroll position) are real
@@ -668,13 +670,22 @@ document.getElementById('reading-goal-form').addEventListener('submit', (e) => {
     return;
   }
   errorEl.hidden = true;
-  saveReadingGoal(new Date().getFullYear(), value);
+  if (!saveReadingGoal(new Date().getFullYear(), value)) {
+    errorEl.textContent = 'Could not save the goal (the browser refused to store it).';
+    errorEl.hidden = false;
+    return;
+  }
   renderReadingGoal(books.filter((b) => !b.deleted));
 });
 
 document.getElementById('reading-goal-clear').addEventListener('click', () => {
-  document.getElementById('reading-goal-error').hidden = true;
-  saveReadingGoal(new Date().getFullYear(), null);
+  const errorEl = document.getElementById('reading-goal-error');
+  errorEl.hidden = true;
+  if (!saveReadingGoal(new Date().getFullYear(), null)) {
+    errorEl.textContent = 'Could not clear the goal (the browser refused to store it).';
+    errorEl.hidden = false;
+    return;
+  }
   document.getElementById('reading-goal-input').value = '';
   renderReadingGoal(books.filter((b) => !b.deleted));
 });
@@ -1209,6 +1220,7 @@ function renderRecipes() {
       // Scale buttons: pick a multiple; the choice is remembered while the app is open.
       node.querySelectorAll('.recipe-scale .chip').forEach((chip) => {
         chip.classList.toggle('chip-active', Number(chip.dataset.scale) === factor);
+        chip.setAttribute('aria-pressed', String(Number(chip.dataset.scale) === factor));
         chip.addEventListener('click', () => {
           recipeScales.set(recipe.id, Number(chip.dataset.scale));
           renderRecipes();
@@ -2152,6 +2164,7 @@ function renderWeightChart() {
 
   document.querySelectorAll('#weight-range-row .chip').forEach((chip) => {
     chip.classList.toggle('chip-active', chip.dataset.range === selectedWeightRange);
+    chip.setAttribute('aria-pressed', String(chip.dataset.range === selectedWeightRange));
   });
 
   // One line under the chart: change over 30 days, and distance to the goal.
@@ -2866,7 +2879,7 @@ function updateShoppingItem(id, fields) {
 // True if the search text appears in the item name, category or quantity.
 function matchesShoppingSearch(item, term) {
   if (!term) return true;
-  const haystack = `${item.item} ${item.category} ${item.quantity}`.toLowerCase();
+  const haystack = `${item.item} ${item.category || ''} ${item.quantity || ''}`.toLowerCase();
   return haystack.includes(term.toLowerCase());
 }
 
@@ -2991,7 +3004,7 @@ function renderShoppingList() {
       }
       editItemInput.value = item.item;
       editQuantityInput.value = item.quantity;
-      editCategoryInput.value = item.category;
+      editCategoryInput.value = item.category || '';
       viewSection.hidden = true;
       editForm.hidden = false;
     });
@@ -4299,7 +4312,7 @@ document.getElementById('paid-history-next').addEventListener('click', () => shi
 // True if the search text appears in the bill's name or category.
 function matchesBillSearch(bill, term) {
   if (!term) return true;
-  const haystack = `${bill.name} ${bill.category}`.toLowerCase();
+  const haystack = `${bill.name} ${bill.category || ''}`.toLowerCase();
   return haystack.includes(term.toLowerCase());
 }
 
@@ -4990,7 +5003,7 @@ function renderBudgetList(nonDeletedBills, openEdit) {
       editAmountInput.value = String(bill.amount);
       editDueDateInput.value = bill.dueDate;
       editFrequencyInput.value = bill.frequency;
-      editCategoryInput.value = bill.category;
+      editCategoryInput.value = bill.category || '';
       editAutopayInput.checked = !!bill.autopay;
       editError.hidden = true;
       viewSection.hidden = true;
@@ -5101,7 +5114,7 @@ function renderRecurringIncomeList(nonDeletedRecurringIncome, openEdit) {
       editAmountInput.value = String(source.amount);
       editStartDateInput.value = source.dueDate;
       editFrequencyInput.value = source.frequency;
-      editCategoryInput.value = source.category;
+      editCategoryInput.value = source.category || '';
       editError.hidden = true;
       viewSection.hidden = true;
       editForm.hidden = false;
@@ -5578,12 +5591,15 @@ function renderJournalStep() {
         btn.className = 'journal-choice';
         btn.textContent = choice;
         btn.classList.toggle('journal-choice-active', String(current) === choice);
+        btn.setAttribute('aria-pressed', String(String(current) === choice));
         btn.addEventListener('click', () => {
           // Tapping the selected option again clears it.
           if (String(journalDraft.answers[question.id]) === choice) delete journalDraft.answers[question.id];
           else journalDraft.answers[question.id] = choice;
           row.querySelectorAll('.journal-choice').forEach((b) => {
-            b.classList.toggle('journal-choice-active', String(journalDraft.answers[question.id]) === b.textContent);
+            const on = String(journalDraft.answers[question.id]) === b.textContent;
+            b.classList.toggle('journal-choice-active', on);
+            b.setAttribute('aria-pressed', String(on));
           });
         });
         row.appendChild(btn);
@@ -7536,7 +7552,7 @@ function buildExportPayload() {
 
 // Today's date as YYYY-MM-DD for backup file names.
 function todayForFilename() {
-  return new Date().toISOString().slice(0, 10);
+  return todayKey(); // local date, like the rest of the app (not the UTC date)
 }
 
 // Downloads the full backup (all lists plus the journal and payday settings) as one JSON file.
@@ -7747,14 +7763,14 @@ function isValidImportRecord(collectionName, rec) {
   const textOrMissing = (v) => v === undefined || v === null || typeof v === 'string';
   const listOrMissing = (v) => v === undefined || (Array.isArray(v) && v.every((x) => typeof x === 'string'));
   if (collectionName === 'bills') return isText(rec.name) && textOrMissing(rec.category) && listOrMissing(rec.paidDates) && isNum(rec.amount) && isDate(rec.dueDate) && IMPORT_FREQUENCIES.includes(rec.frequency) && (rec.autopay === undefined || typeof rec.autopay === 'boolean');
-  if (collectionName === 'books') return isText(rec.title) && BOOK_STATUSES.includes(rec.status) && (rec.dateFinished == null || isDate(rec.dateFinished));
+  if (collectionName === 'books') return isText(rec.title) && textOrMissing(rec.author) && BOOK_STATUSES.includes(rec.status) && (rec.rating == null || (Number.isInteger(rec.rating) && rec.rating >= 0 && rec.rating <= 5)) && (rec.dateFinished == null || isDate(rec.dateFinished));
   if (collectionName === 'recipes') return isText(rec.title) && listOrMissing(rec.ingredients) && listOrMissing(rec.steps);
   if (collectionName === 'diagnoses') return isText(rec.condition) && DIAGNOSIS_STATUSES.includes(rec.status);
   if (collectionName === 'todos') return isText(rec.task);
-  if (collectionName === 'shoppingList') return isText(rec.item);
+  if (collectionName === 'shoppingList') return isText(rec.item) && textOrMissing(rec.category) && textOrMissing(rec.quantity);
   if (collectionName === 'notes') return textOrMissing(rec.title) && textOrMissing(rec.body);
   if (collectionName === 'links') return textOrMissing(rec.label) && textOrMissing(rec.url);
-  if (collectionName === 'recurringIncome') return isText(rec.name) && isNum(rec.amount) && isDate(rec.dueDate) && IMPORT_FREQUENCIES.includes(rec.frequency) && rec.frequency !== 'one_time';
+  if (collectionName === 'recurringIncome') return isText(rec.name) && textOrMissing(rec.category) && isNum(rec.amount) && isDate(rec.dueDate) && IMPORT_FREQUENCIES.includes(rec.frequency) && rec.frequency !== 'one_time';
   if (collectionName === 'income') return isNum(rec.amount) && isDate(rec.dateKey);
   if (collectionName === 'medications') return isText(rec.name) && (rec.takenDates === undefined || Array.isArray(rec.takenDates));
   if (collectionName === 'weights') return isNum(rec.weight) && rec.weight > 0 && rec.weight <= WEIGHT_MAX && isDate(rec.date);
@@ -7910,7 +7926,7 @@ document.addEventListener('visibilitychange', () => {
 
 // The build number shown in the Menu. Keep it equal to the number in CACHE_NAME in sw.js
 // (a test checks this), so "which version am I on?" has a one-glance answer.
-const APP_VERSION = 66;
+const APP_VERSION = 67;
 const THEME_KEY = 'secondMemory.theme.v1';
 const THEMES = ['auto', 'light', 'dark'];
 
