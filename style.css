@@ -2488,3 +2488,62 @@ select[id$="-sort-input"],
     flex: 1 1 100%;
   }
 }
+
+/* Reminder banners on phones: the message gets the full width and its buttons sit underneath,
+   instead of the text being squeezed into a thin column beside them. */
+@media (max-width: 700px) {
+  .reminder-banner {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  .reminder-banner-text {
+    flex: 1 1 100%;
+  }
+}
+
+/* Home rows: put the name and its detail (amount, due date) on separate lines, like the
+   bill and to-do cards, instead of running them together in a narrow column. */
+.home-item-link {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  overflow-wrap: anywhere;
+}
+
+.home-item-link .bill-name,
+.home-item-link .bill-due,
+.home-item-link .todo-task,
+.home-item-link .todo-due {
+  display: block;
+}
+
+/* Budget cards: a category label should be only as wide as its text, not stretched across the card. */
+.bill-info,
+.recurring-income-info {
+  align-items: flex-start;
+}
+
+.bill-info .badge,
+.recurring-income-info .badge {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  border-radius: 14px;
+}
+
+/* Space between the paid-history note and the Bills heading below it */
+#paid-history-empty + .collection-toolbar { margin-top: 28px; }
+
+/* A very long filter-chip label wraps inside the screen instead of poking past it. */
+.chip {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+.bill-info > *,
+.recurring-income-info > * {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
