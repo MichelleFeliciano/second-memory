@@ -4607,7 +4607,7 @@ function hasJournalAnswer(value) {
 }
 
 function saveJournalEntries() {
-  saveCollection(JOURNAL_KEY, journalEntries);
+  return saveCollection(JOURNAL_KEY, journalEntries);
 }
 
 function openJournalWizard(type, existing) {
@@ -4740,7 +4740,8 @@ function finishJournalEntry() {
     journalEntries.push({ id: makeId(), type, date, answers: cleaned, dateAdded: now, updatedAt: now });
   }
   try {
-    saveJournalEntries();
+    // saveCollection reports a full or blocked browser by returning false (and showing its own warning).
+    if (!saveJournalEntries()) throw new Error('journal could not be saved');
   } catch {
     journalEntries = JSON.parse(backup);
     const errorEl = document.getElementById('journal-error');
@@ -6294,6 +6295,15 @@ function reconcileServerReply(c, incoming, preFlightMap) {
       return;
     }
     if ((server.version || 0) < (local.version || 0)) {
+      // The server's number is lower than ours. After a server restore or wipe it starts every
+      // re-sent record again at version 1: if the content is the same, just take the server's copy
+      // (otherwise it would never count as confirmed). Different content means the server really is
+      // behind, so keep ours and send it again.
+      if (contentMatchesIgnoringVersion(local, server, c.name) && JSON.stringify(local) === preFlightMap[local.id]) {
+        result.push(server);
+        known[server.id] = JSON.stringify(server);
+        return;
+      }
       result.push(local);
       return;
     }

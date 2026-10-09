@@ -39,3 +39,19 @@ and restart the service, then re-enter the new passphrase on each device.
   `SYNC_TOKEN` from the environment, stores data on a persistent disk at `DATA_DIR`,
   defaulting to `/var/data`)
 - `requirements.txt` — empty on purpose; the sync server is Python stdlib only
+- `tests/` — the automated tests (see below)
+
+## Running the tests
+
+Run these after any change. They never touch your saved data or the real sync server.
+
+- **The app:** from the project folder run `python -m http.server`, then open
+  `http://localhost:8000/tests/tests.html`. It loads the real app in hidden frames that use
+  memory-only storage and have no network, and runs every suite (tabs, lists, budget maths,
+  journal, repeating to-dos, search, and the app's side of syncing). The page title ends in
+  `OK` when everything passes.
+- **The sync server:** `python -m unittest discover -s tests` (standard library only).
+
+Each file in `tests/suites/` is a plain script that is run inside a fresh copy of the app, so
+it can use the app's own functions and variables directly. To add a check, add a
+`check('what should be true', condition)` line to the matching suite.
