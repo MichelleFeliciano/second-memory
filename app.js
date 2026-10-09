@@ -5726,6 +5726,218 @@ document.getElementById('journal-import-file').addEventListener('change', (e) =>
   reader.readAsText(file);
 });
 
+// ---- Therapy summary ----
+// A read/copy/print view of the most recent therapy session entries, plus what
+// you wrote in your daily journal since the last session, to bring to the next
+// one. Built only from entries already on this device; printing uses the
+// browser's own Print / Save as PDF.
+
+const SUMMARY_LABELS = {
+  topics: 'What we talked about',
+  insight: 'Biggest insight',
+  hard: 'What felt hard',
+  mood_after: 'How I felt after (1 to 5)',
+  homework: 'Homework / things to try',
+  next: 'To bring up next time',
+};
+
+function therapySessions(limit) {
+  return journalEntries
+    .filter((e) => e.type === 'therapy' && DATE_KEY_RE.test(e.date))
+    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : (a.dateAdded < b.dateAdded ? 1 : -1)))
+    .slice(0, limit);
+}
+
+function sessionLines(entry) {
+  return Object.keys(SUMMARY_LABELS)
+    .filter((id) => hasJournalAnswer(entry.answers && entry.answers[id]))
+    .map((id) => ({
+      label: SUMMARY_LABELS[id],
+      text: id === 'mood_after' ? `${entry.answers[id]} / 5` : String(entry.answers[id]),
+    }));
+}
+
+// Daily journal entries written after the most recent session: how the days went
+// and what was hard, so nothing is forgotten between appointments.
+function sinceLastSession(latestSessionDate) {
+  const entries = journalEntries
+    .filter((e) => e.type === 'daily' && DATE_KEY_RE.test(e.date) && e.date > latestSessionDate)
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const ratings = entries.map((e) => Number(e.answers && e.answers.day_rating)).filter((n) => Number.isFinite(n) && n >= 1 && n <= 5);
+  return {
+    entries,
+    averageRating: ratings.length ? ratings.reduce((a, b) => a + b, 0) / ratings.length : null,
+    hard: entries
+      .filter((e) => hasJournalAnswer(e.answers && e.answers.hard))
+      .map((e) => ({ date: e.date, text: String(e.answers.hard) })),
+  };
+}
+
+// The "to bring up next time" note from the most recent session that has one. If the very
+// latest session left it blank, an older note is still shown, labelled with its date.
+function latestBringUpNote(sessions) {
+  const withNote = sessions.find((s) => hasJournalAnswer(s.answers && s.answers.next));
+  if (!withNote) return null;
+  return { text: String(withNote.answers.next), date: withNote.date, fromLatest: withNote === sessions[0] };
+}
+
+function bringUpHeading(note) {
+  return note.fromLatest ? 'To bring up next time' : `To bring up next time (from ${formatDateKeyLong(note.date)})`;
+}
+
+function buildTherapySummaryData(limit) {
+  const sessions = therapySessions(limit);
+  const since = sessions.length ? sinceLastSession(sessions[0].date) : null;
+  return { sessions, since };
+}
+
+function buildTherapySummaryText({ sessions, since }) {
+  if (sessions.length === 0) return 'No therapy sessions logged yet.';
+  const lines = [`Therapy summary (${sessions.length} most recent session${sessions.length === 1 ? '' : 's'})`, `Prepared ${formatDateKeyLong(todayKey())}`, ''];
+  const note = latestBringUpNote(sessions);
+  if (note) lines.push(bringUpHeading(note).toUpperCase(), note.text, '');
+  if (since && since.entries.length) {
+    lines.push(`SINCE THE LAST SESSION (${formatDateKeyLong(sessions[0].date)})`);
+    lines.push(`${since.entries.length} journal entr${since.entries.length === 1 ? 'y' : 'ies'}` + (since.averageRating !== null ? `, average day rating ${since.averageRating.toFixed(1)} / 5` : ''));
+    since.hard.forEach((h) => lines.push(`- ${formatDateKeyLong(h.date)}: ${h.text}`));
+    lines.push('');
+  }
+  sessions.forEach((s) => {
+    lines.push(`SESSION: ${formatDateKeyLong(s.date)}`);
+    sessionLines(s).forEach((l) => lines.push(`${l.label}: ${l.text}`));
+    lines.push('');
+  });
+  return lines.join('\n').trim();
+}
+
+function renderTherapySummary() {
+  const body = document.getElementById('therapy-summary-body');
+  const limit = Number(document.getElementById('therapy-summary-count').value) || 5;
+  const data = buildTherapySummaryData(limit);
+  body.innerHTML = '';
+
+  const title = document.createElement('h2');
+  title.id = 'therapy-summary-title';
+  title.textContent = 'Therapy summary';
+  body.appendChild(title);
+  const meta = document.createElement('p');
+  meta.className = 'summary-meta';
+  meta.textContent = `Prepared ${formatDateKeyLong(todayKey())}`;
+  body.appendChild(meta);
+
+  const hasSessions = data.sessions.length > 0;
+  document.getElementById('therapy-summary-print').disabled = !hasSessions;
+  document.getElementById('therapy-summary-copy').disabled = !hasSessions;
+  if (!hasSessions) {
+    const none = document.createElement('p');
+    none.textContent = 'No therapy sessions logged yet. Add a therapy session entry first, then come back here.';
+    body.appendChild(none);
+    return;
+  }
+
+  const note = latestBringUpNote(data.sessions);
+  if (note) {
+    const h = document.createElement('h3');
+    h.textContent = bringUpHeading(note);
+    const t = document.createElement('p');
+    t.style.whiteSpace = 'pre-wrap';
+    t.textContent = note.text;
+    body.append(h, t);
+  }
+
+  if (data.since && data.since.entries.length) {
+    const h = document.createElement('h3');
+    h.textContent = `Since the last session (${formatDateKeyLong(data.sessions[0].date)})`;
+    const summary = document.createElement('p');
+    summary.className = 'summary-meta';
+    summary.textContent = `${data.since.entries.length} journal entr${data.since.entries.length === 1 ? 'y' : 'ies'}` +
+      (data.since.averageRating !== null ? `, average day rating ${data.since.averageRating.toFixed(1)} / 5` : '');
+    body.append(h, summary);
+    if (data.since.hard.length) {
+      const list = document.createElement('ul');
+      data.since.hard.forEach((item) => {
+        const li = document.createElement('li');
+        li.textContent = `${formatDateKeyLong(item.date)}: ${item.text}`;
+        list.appendChild(li);
+      });
+      body.appendChild(list);
+    }
+  }
+
+  data.sessions.forEach((session) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'summary-session';
+    const h = document.createElement('h3');
+    h.textContent = formatDateKeyLong(session.date);
+    wrap.appendChild(h);
+    const dl = document.createElement('dl');
+    sessionLines(session).forEach((l) => {
+      const dt = document.createElement('dt');
+      dt.textContent = l.label;
+      const dd = document.createElement('dd');
+      dd.textContent = l.text;
+      dl.append(dt, dd);
+    });
+    wrap.appendChild(dl);
+    body.appendChild(wrap);
+  });
+}
+
+let summaryReturnFocus = null;
+
+function setSummaryStatus(text) {
+  const el = document.getElementById('therapy-summary-status');
+  el.textContent = text;
+  el.hidden = !text;
+}
+
+function openTherapySummary() {
+  summaryReturnFocus = document.getElementById('therapy-summary-btn');
+  setSummaryStatus('');
+  renderTherapySummary();
+  document.getElementById('therapy-summary').hidden = false;
+  document.body.classList.add('summary-open');
+  document.getElementById('therapy-summary-close').focus();
+}
+
+function closeTherapySummary() {
+  document.getElementById('therapy-summary').hidden = true;
+  document.body.classList.remove('summary-open');
+  if (summaryReturnFocus && document.contains(summaryReturnFocus)) summaryReturnFocus.focus();
+}
+
+document.getElementById('therapy-summary-btn').addEventListener('click', openTherapySummary);
+document.getElementById('therapy-summary-close').addEventListener('click', closeTherapySummary);
+document.getElementById('therapy-summary-count').addEventListener('change', renderTherapySummary);
+document.getElementById('therapy-summary-print').addEventListener('click', () => window.print());
+document.getElementById('therapy-summary-copy').addEventListener('click', async () => {
+  const text = buildTherapySummaryText(buildTherapySummaryData(Number(document.getElementById('therapy-summary-count').value) || 5));
+  try {
+    await navigator.clipboard.writeText(text);
+    setSummaryStatus('Copied. Paste it into a message or note.');
+  } catch {
+    // Clipboard access can be blocked: fall back to selecting the text so Copy works by hand.
+    const range = document.createRange();
+    range.selectNodeContents(document.getElementById('therapy-summary-body'));
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    setSummaryStatus('Your browser blocked copying. The summary is selected: press Ctrl+C (or Cmd+C).');
+  }
+});
+
+// Esc closes; Tab stays inside the sheet while it is open.
+document.getElementById('therapy-summary').addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { closeTherapySummary(); return; }
+  if (e.key !== 'Tab') return;
+  const focusable = [...document.querySelectorAll('#therapy-summary select, #therapy-summary button:not(:disabled)')];
+  if (focusable.length === 0) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
+
 // ---- Backup reminders ----
 // The server keeps daily restore points of everything that syncs. These are
 // the two things only this device holds: the journal, and a full download.

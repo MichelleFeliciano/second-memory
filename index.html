@@ -413,6 +413,7 @@
         <button type="button" class="journal-start-btn" data-journal-type="daily">New journal entry</button>
         <button type="button" class="journal-start-btn" data-journal-type="dream">New dream entry</button>
         <button type="button" class="journal-start-btn" data-journal-type="therapy">New therapy session entry</button>
+        <button type="button" class="journal-summary-btn" id="therapy-summary-btn">Therapy summary</button>
       </div>
 
       <form id="journal-wizard" class="journal-wizard" hidden>
@@ -1217,6 +1218,25 @@
     </form>
   </li>
 </template>
+
+<div class="summary-overlay" id="therapy-summary" role="dialog" aria-modal="true" aria-labelledby="therapy-summary-title" hidden>
+  <div class="summary-sheet">
+    <div class="summary-toolbar summary-no-print">
+      <label class="summary-count-label">Sessions
+        <select id="therapy-summary-count" aria-label="How many recent sessions to include">
+          <option value="3">Last 3</option>
+          <option value="5" selected>Last 5</option>
+          <option value="10">Last 10</option>
+        </select>
+      </label>
+      <button type="button" id="therapy-summary-print" class="summary-btn">Print or save as PDF</button>
+      <button type="button" id="therapy-summary-copy" class="summary-btn">Copy text</button>
+      <button type="button" id="therapy-summary-close" class="summary-btn">Close</button>
+    </div>
+    <p class="summary-status summary-no-print" id="therapy-summary-status" role="status" hidden></p>
+    <div id="therapy-summary-body" class="summary-body"></div>
+  </div>
+</div>
 
 <script src="app.js"></script>
 </body>
