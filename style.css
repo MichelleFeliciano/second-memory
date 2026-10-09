@@ -2396,3 +2396,66 @@ body::before {
   font-weight: 600;
   font-size: 0.8rem;
 }
+
+/* Phone polish: date fields.
+   iPhone Safari gives date inputs their own minimum width and centres the date text, so
+   they could poke out of their box. Dropping the native look and letting them shrink fixes it. */
+input[type="date"] {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 2.6em;
+  text-align: left;
+}
+
+input[type="date"]::-webkit-date-and-time-value {
+  text-align: left;
+  min-width: 0;
+}
+
+.date-field { min-width: 0; }
+
+@media (max-width: 700px) {
+  /* Weight: two figures per row instead of one tall column */
+  .weight-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .weight-stat { padding: 12px; }
+  .weight-stat-value { font-size: 1.25rem; }
+}
+
+/* The appointment time field was missing the look the date field has. */
+.date-field input[type="time"] {
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  width: 100%;
+  flex: none;
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 2.6em;
+  text-align: left;
+}
+
+@media (max-width: 700px) {
+  input[type="time"] { font-size: 16px; }
+}
+
+/* The "Sort:" dropdowns above each list used the browser's plain look; match the search box. */
+select[id$="-sort-input"],
+#therapy-summary-count {
+  max-width: 100%;
+  padding: 9px 14px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background-color: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+  margin-bottom: 12px;
+}
