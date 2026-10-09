@@ -15,16 +15,15 @@
      13. Edit forms shared by most cards
      14. Resume and Portfolio
      15. Budget: bill cards, calendar, day cells, phone day sheet
-     16. Appointments
-     17. Reminder banner
-     18. Paid history
-     19. Journal: wizard, cards, timeline, search, trends
-     20. Storage warning and sync "changes not synced" note
-     21. Home: rows with a one-tap action, search everything
-     22. Therapy summary sheet and print styles
-     23. Recipe to shopping list, repeating to-dos
-     24. Weight
-     25. Phone polish (later fixes): small patches added over time for narrow screens
+     16. Reminder banner
+     17. Paid history
+     18. Journal: wizard, cards, timeline, search, trends
+     19. Storage warning and sync "changes not synced" note
+     20. Home: rows with a one-tap action, search everything
+     21. Therapy summary sheet and print styles
+     22. Recipe to shopping list, repeating to-dos
+     23. Weight
+     24. Phone polish (later fixes): small patches added over time for narrow screens
    Several phone rules sit in later @media (max-width: 700px) blocks because they
    must come after the base rules they override. */
 
@@ -754,7 +753,6 @@ body::before {
 .todo-item,
 .shopping-item,
 .note-card,
-.appt-card,
 .weight-card,
 .link-card,
 .bill-card,
@@ -776,7 +774,6 @@ body::before {
 .todo-item:hover,
 .shopping-item:hover,
 .note-card:hover,
-.appt-card:hover,
 .weight-card:hover,
 .link-card:hover,
 .bill-card:hover,
@@ -1772,66 +1769,7 @@ body::before {
   }
 }
 
-/* Appointments */
-
-.appt-view,
-.appt-edit-form {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.appt-view[hidden],
-.appt-edit-form[hidden] {
-  display: none;
-}
-
-.appt-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.appt-when { color: var(--accent); font-size: 0.85rem; }
-.appt-field { color: var(--muted); font-size: 0.85rem; }
-
-.appt-notes {
-  margin: 0;
-  color: var(--muted);
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
-}
-
-.appt-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.appt-edit-form input,
-.appt-edit-form textarea {
-  width: 100%;
-  padding: 9px 12px;
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  background: var(--surface);
-  color: var(--text);
-  font-family: inherit;
-}
-
-.appt-edit-form button[type="submit"] {
-  padding: 5px 14px;
-  border: none;
-  border-radius: 13px;
-  background: var(--accent);
-  color: var(--accent-contrast);
-  cursor: pointer;
-  font-weight: 600;
-  font-size: 0.8rem;
-}
-
-/* Small headings like "Upcoming" and "Past" (also Weight "History"). */
+/* Small sub-headings inside a tab (for example Weight "History"). */
 .subsection-heading {
   margin: 20px 0 8px;
   font-size: 1rem;
@@ -2552,29 +2490,6 @@ input[type="date"]::-webkit-date-and-time-value {
   .weight-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .weight-stat { padding: 12px; }
   .weight-stat-value { font-size: 1.25rem; }
-}
-
-/* The appointment time field was missing the look the date field has. */
-.date-field input[type="time"] {
-  padding: 9px 12px;
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  background: var(--bg);
-  color: var(--text);
-  font-family: inherit;
-  width: 100%;
-  flex: none;
-  -webkit-appearance: none;
-  appearance: none;
-  display: block;
-  min-width: 0;
-  max-width: 100%;
-  min-height: 2.6em;
-  text-align: left;
-}
-
-@media (max-width: 700px) {
-  input[type="time"] { font-size: 16px; }
 }
 
 /* The "Sort:" dropdowns above each list used the browser's plain look; match the search box. */

@@ -59,7 +59,7 @@ BACKUP_NAME_RE = re.compile(r"^sync_data-(\d{4}-\d{2}-\d{2})\.json$")
 COLLECTION_NAMES = [
     "books", "recipes", "medications", "diagnoses", "todos",
     "shoppingList", "notes", "links", "bills", "income",
-    "recurringIncome", "appointments", "weights",
+    "recurringIncome", "weights",
 ]
 
 # The app's HTML/JS is now hosted separately from this server (GitHub Pages,
@@ -107,7 +107,7 @@ def load_dataset():
     for name in COLLECTION_NAMES:
         if not isinstance(data.get(name), list):
             data[name] = []
-    # Lists the app no longer has (coursework was removed) are dropped, so the
+    # Lists the app no longer has (coursework and appointments were removed) are dropped, so the
     # next save no longer carries them. Older daily restore points keep them
     # until they age out after BACKUP_KEEP days.
     for stale in [key for key in data if key not in COLLECTION_NAMES]:

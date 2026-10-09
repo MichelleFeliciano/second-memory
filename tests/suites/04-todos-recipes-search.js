@@ -88,7 +88,6 @@ todos.push({ ...b2, id: 't1', task: 'Plant garlic', completed: true, dueDate: nu
 notes.push({ ...b2, id: 'n1', title: 'Ideas', body: 'Remember to buy garlic and basil at the market for the weekend', dateModified: now });
 notes.push({ ...b2, id: 'n2', title: 'Gone', body: 'garlic (deleted)', deleted: true, dateModified: now });
 medications.push({ ...b2, id: 'm1', name: 'Zyrtec', dosage: '10mg', frequency: 'daily', prescribingDoctor: 'Dr. Garlic', endDate: null, notes: '' });
-appointments.push({ ...b2, id: 'a1', title: 'Dentist', date: dk(3), time: '', provider: 'Dr. Smith', location: 'Garlic St clinic', notes: '' });
 diagnoses.push({ ...b2, id: 'd1', condition: 'Garlic allergy', dateDiagnosed: null, provider: '', status: 'active', notes: '' });
 bills.push({ ...b2, id: 'bl1', name: 'Garlic Co', amount: 5, frequency: 'monthly', dueDate: dk(2), category: 'Food', paidDates: [] });
 links.push({ ...b2, id: 'l1', label: 'Garlic farm', url: 'https://garlic.example', notes: '' });
@@ -96,7 +95,7 @@ journalEntries.push({ id: 'j1', type: 'daily', date: dk(-1), answers: { on_mind:
 renderHome(); nav('home'); await sleep(60);
 const find = (term) => { set('global-search-input', term); $('global-search-input').dispatchEvent(new Event('input', { bubbles: true })); return [...document.querySelectorAll('#global-search-results h3')].map((h) => h.textContent); };
 let groups = find('garlic');
-check('all ten lists are searched', groups.length === 10, groups.join(' | '));
+check('all nine lists are searched', groups.length === 9, groups.join(' | '));
 check('deleted records never show up', groups.includes('Notes (1)'));
 check('several matches in one list are counted', groups.includes('Recipes (2)'));
 check('the journal is left out by default', !groups.some((g) => /Journal/.test(g)) && !/hard talk/.test($('global-search-results').textContent));
@@ -113,7 +112,7 @@ nav('home'); await sleep(40);
 find('a'); check('one letter asks for more', /at least 2/.test($('global-search-results').textContent));
 find('zzzzqq'); check('no matches says so', /Nothing found for "zzzzqq"/.test($('global-search-results').textContent));
 find('<img src=x onerror="window.__xss=1">'); check('markup typed into the box stays text', window.__xss === 0 && !$('global-search-results').querySelector('img'));
-check('search ignores case', find('GARLIC').length === 10);
+check('search ignores case', find('GARLIC').length === 9);
 for (let i = 0; i < 7; i++) shoppingItems.push({ ...b2, id: 'sx' + i, item: 'Garlic bulb ' + i, quantity: '', checked: false, category: '' });
 find('garlic');
 const more = [...document.querySelectorAll('#global-search-results .search-more')].find((b) => /Shopping/.test(b.textContent));

@@ -4,7 +4,7 @@
 // How this file is organised (top to bottom, one section per area):
 //   Shared helpers, filter/sort helpers, keyboard-focus keeping, device identity & sync
 //   metadata, undo/redo, UI state (active tab), then one section per list: Books, Recipes,
-//   Medications, Appointments, Weight, Diagnoses, To-Do, Shopping List, Notes, Resume &
+//   Medications, Weight, Diagnoses, To-Do, Shopping List, Notes, Resume &
 //   Portfolio, Budget (bills, income, recurring income, paid history, pay period, calendar),
 //   Journal (plus trends, therapy summary, backup reminders), Search everything, Home,
 //   Device Sync, undo/redo application, data export/import, day rollover, and Init.
@@ -29,8 +29,8 @@ function makeId() {
     `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-// Coursework was removed from the app. Clear whatever it left on this device.
-['secondMemory.courses.v1', 'secondMemory.deadlines.v1'].forEach((key) => {
+// Coursework and Appointments were removed from the app. Clear whatever they left on this device.
+['secondMemory.courses.v1', 'secondMemory.deadlines.v1', 'secondMemory.appointments.v1'].forEach((key) => {
   try { localStorage.removeItem(key); } catch { /* storage unavailable: nothing to clear */ }
 });
 
@@ -281,7 +281,6 @@ function goToTab(tab) {
 renderBooks = withFocusRestore(renderBooks);
 renderRecipes = withFocusRestore(renderRecipes);
 renderMedications = withFocusRestore(renderMedications);
-renderAppointments = withFocusRestore(renderAppointments);
 renderWeights = withFocusRestore(renderWeights);
 renderDiagnoses = withFocusRestore(renderDiagnoses);
 renderTodos = withFocusRestore(renderTodos);
@@ -392,7 +391,7 @@ function recordUndo(collectionName, id, before, after) {
 
 const UI_STORAGE_KEY = 'secondMemory.ui.v1';
 // Every screen id; each has a matching "<id>-collection" section and a sidebar button.
-const TABS = ['home', 'books', 'recipes', 'medications', 'diagnoses', 'appointments', 'weight', 'journal', 'todo', 'shopping', 'notes', 'budget', 'resume'];
+const TABS = ['home', 'books', 'recipes', 'medications', 'diagnoses', 'weight', 'journal', 'todo', 'shopping', 'notes', 'budget', 'resume'];
 
 // Reads the saved screen state (which tab was open), tolerating missing or damaged data.
 function loadUiState() {
@@ -1416,262 +1415,6 @@ document.getElementById('medications-search-input').addEventListener('input', re
 document.getElementById('medications-sort-input').addEventListener('change', (e) => {
   selectedMedicationsSort = e.target.value;
   renderMedications();
-});
-
-// ---- Appointments ----
-
-const APPOINTMENTS_KEY = 'secondMemory.appointments.v1';
-// Date keys are 'YYYY-MM-DD' and times are 24-hour 'HH:MM'.
-const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
-const TIME_RE = /^\d{2}:\d{2}$/;
-
-let appointments = migrateSyncFields(loadCollection(APPOINTMENTS_KEY), APPOINTMENTS_KEY, getDeviceId());
-
-// Checks and cleans the form values: title and a real-looking date are required, time is optional.
-function validateAppointmentFields(fields) {
-  const title = fields.title.trim();
-  if (!title) return { ok: false, error: 'Title is required.' };
-  const date = (fields.date || '').trim();
-  if (!DATE_KEY_RE.test(date)) return { ok: false, error: 'Date is required.' };
-  const time = (fields.time || '').trim();
-  if (time && !TIME_RE.test(time)) return { ok: false, error: 'Time is not valid.' };
-  return {
-    ok: true,
-    title,
-    date,
-    time,
-    provider: fields.provider.trim(),
-    location: fields.location.trim(),
-    notes: fields.notes.trim(),
-  };
-}
-
-// Adds an appointment. Returns { ok } or { ok: false, error } if the fields don't validate.
-function addAppointment(fields) {
-  const result = validateAppointmentFields(fields);
-  if (!result.ok) return result;
-  const now = new Date().toISOString();
-  const appt = {
-    id: makeId(),
-    title: result.title,
-    date: result.date,
-    time: result.time,
-    provider: result.provider,
-    location: result.location,
-    notes: result.notes,
-    dateAdded: now,
-    updatedAt: now,
-    deviceId: getDeviceId(),
-    deleted: false,
-    version: 0,
-  };
-  appointments.push(appt);
-  saveCollection(APPOINTMENTS_KEY, appointments);
-  recordUndo('appointments', appt.id, null, structuredClone(appt));
-  renderAppointments();
-  return { ok: true };
-}
-
-// Saves edits to an appointment, re-validating the fields first.
-function updateAppointment(id, fields) {
-  const appt = appointments.find((a) => a.id === id);
-  if (!appt) return { ok: false, error: 'Appointment not found.' };
-  const result = validateAppointmentFields(fields);
-  if (!result.ok) return result;
-  const before = structuredClone(appt);
-  appt.title = result.title;
-  appt.date = result.date;
-  appt.time = result.time;
-  appt.provider = result.provider;
-  appt.location = result.location;
-  appt.notes = result.notes;
-  stampSync(appt);
-  saveCollection(APPOINTMENTS_KEY, appointments);
-  recordUndo('appointments', id, before, structuredClone(appt));
-  renderAppointments();
-  return { ok: true };
-}
-
-// Soft-deletes an appointment (keeps a tombstone so syncing can tell it was deleted).
-function deleteAppointment(id) {
-  const appt = appointments.find((a) => a.id === id);
-  if (!appt) return;
-  const before = structuredClone(appt);
-  appt.deleted = true;
-  stampSync(appt);
-  saveCollection(APPOINTMENTS_KEY, appointments);
-  recordUndo('appointments', id, before, structuredClone(appt));
-  renderAppointments();
-}
-
-// Brings a deleted appointment back (used by undo).
-function restoreAppointment(id) {
-  const appt = appointments.find((a) => a.id === id);
-  if (!appt || !appt.deleted) return;
-  const before = structuredClone(appt);
-  appt.deleted = false;
-  stampSync(appt);
-  saveCollection(APPOINTMENTS_KEY, appointments);
-  recordUndo('appointments', id, before, structuredClone(appt));
-  renderAppointments();
-}
-
-// "14:05" becomes "2:05 PM"; anything that isn't HH:MM gives an empty string.
-function formatTime12h(time) {
-  if (!TIME_RE.test(time || '')) return '';
-  const [h, m] = time.split(':').map(Number);
-  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
-}
-
-// Readable date, plus " at <time>" when the appointment has a time.
-function formatAppointmentWhen(appt) {
-  const time = formatTime12h(appt.time);
-  return time ? `${formatDateKeyLong(appt.date)} at ${time}` : formatDateKeyLong(appt.date);
-}
-
-// Sort order: earliest date first, then earliest time (no time sorts before timed ones that day).
-function compareAppointments(a, b) {
-  const ka = `${a.date} ${a.time || ''}`;
-  const kb = `${b.date} ${b.time || ''}`;
-  return ka < kb ? -1 : ka > kb ? 1 : 0;
-}
-
-// Builds the cards for one appointment list; openEdit re-opens an edit form that was open before the redraw.
-function renderAppointmentCards(list, items, openEdit) {
-  const template = document.getElementById('appointments-card-template');
-  list.innerHTML = '';
-
-  items.forEach((appt) => {
-    const node = template.content.cloneNode(true);
-    node.querySelector('.appt-card').dataset.apptId = appt.id;
-    const viewSection = node.querySelector('.appt-view');
-    const editForm = node.querySelector('.appt-edit-form');
-
-    node.querySelector('.appt-title').textContent = appt.title;
-    node.querySelector('.appt-when').textContent = formatAppointmentWhen(appt);
-    const providerEl = node.querySelector('.appt-provider');
-    if (appt.provider) { providerEl.textContent = appt.provider; providerEl.hidden = false; }
-    const locationEl = node.querySelector('.appt-location');
-    if (appt.location) { locationEl.textContent = appt.location; locationEl.hidden = false; }
-    const notesEl = node.querySelector('.appt-notes');
-    if (appt.notes) { notesEl.textContent = appt.notes; notesEl.hidden = false; }
-
-    const editTitle = node.querySelector('.appt-edit-title');
-    const editDate = node.querySelector('.appt-edit-date');
-    const editTime = node.querySelector('.appt-edit-time');
-    const editProvider = node.querySelector('.appt-edit-provider');
-    const editLocation = node.querySelector('.appt-edit-location');
-    const editNotes = node.querySelector('.appt-edit-notes');
-    const editError = node.querySelector('.appt-edit-error');
-
-    node.querySelector('.edit-btn').addEventListener('click', () => {
-      const otherOpenForm = document.querySelector('#appointments-collection .appt-edit-form:not([hidden])');
-      if (otherOpenForm && otherOpenForm !== editForm) {
-        otherOpenForm.hidden = true;
-        otherOpenForm.closest('.appt-card').querySelector('.appt-view').hidden = false;
-      }
-      editTitle.value = appt.title;
-      editDate.value = appt.date;
-      editTime.value = appt.time || '';
-      editProvider.value = appt.provider;
-      editLocation.value = appt.location;
-      editNotes.value = appt.notes;
-      editError.hidden = true;
-      viewSection.hidden = true;
-      editForm.hidden = false;
-    });
-
-    node.querySelector('.cancel-btn').addEventListener('click', () => {
-      editForm.hidden = true;
-      viewSection.hidden = false;
-    });
-
-    editForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      // Hide first -- see Medications' edit-form submit handler for why.
-      editForm.hidden = true;
-      viewSection.hidden = false;
-      const result = updateAppointment(appt.id, {
-        title: editTitle.value,
-        date: editDate.value,
-        time: editTime.value,
-        provider: editProvider.value,
-        location: editLocation.value,
-        notes: editNotes.value,
-      });
-      if (!result.ok) {
-        viewSection.hidden = true;
-        editForm.hidden = false;
-        editError.textContent = result.error;
-        editError.hidden = false;
-      }
-    });
-
-    node.querySelector('.delete-btn').addEventListener('click', () => deleteAppointment(appt.id));
-
-    if (openEdit && openEdit.id === appt.id) {
-      editTitle.value = openEdit.title;
-      editDate.value = openEdit.date;
-      editTime.value = openEdit.time;
-      editProvider.value = openEdit.provider;
-      editLocation.value = openEdit.location;
-      editNotes.value = openEdit.notes;
-      viewSection.hidden = true;
-      editForm.hidden = false;
-    }
-
-    list.appendChild(node);
-  });
-}
-
-// Redraws the Appointments screen, split into upcoming (soonest first) and past (latest first).
-function renderAppointments() {
-  const openForm = document.querySelector('#appointments-collection .appt-edit-form:not([hidden])');
-  const openEdit = openForm
-    ? {
-        id: openForm.closest('.appt-card').dataset.apptId,
-        title: openForm.querySelector('.appt-edit-title').value,
-        date: openForm.querySelector('.appt-edit-date').value,
-        time: openForm.querySelector('.appt-edit-time').value,
-        provider: openForm.querySelector('.appt-edit-provider').value,
-        location: openForm.querySelector('.appt-edit-location').value,
-        notes: openForm.querySelector('.appt-edit-notes').value,
-      }
-    : null;
-
-  const todayK = todayKey();
-  const visible = appointments.filter((a) => !a.deleted);
-  const upcoming = visible.filter((a) => a.date >= todayK).sort(compareAppointments);
-  const past = visible.filter((a) => a.date < todayK).sort((a, b) => compareAppointments(b, a));
-
-  renderAppointmentCards(document.getElementById('appointments-upcoming-list'), upcoming, openEdit);
-  renderAppointmentCards(document.getElementById('appointments-past-list'), past, openEdit);
-  document.getElementById('appointments-empty-state').hidden = upcoming.length !== 0;
-
-  renderHome();
-}
-
-document.getElementById('appointments-add-form').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const ids = ['title', 'date', 'time', 'provider', 'location', 'notes'];
-  const inputs = Object.fromEntries(ids.map((k) => [k, document.getElementById(`appointments-${k}-input`)]));
-  const errorEl = document.getElementById('appointments-form-error');
-  const result = addAppointment({
-    title: inputs.title.value,
-    date: inputs.date.value,
-    time: inputs.time.value,
-    provider: inputs.provider.value,
-    location: inputs.location.value,
-    notes: inputs.notes.value,
-  });
-  if (!result.ok) {
-    errorEl.textContent = result.error;
-    errorEl.hidden = false;
-    return;
-  }
-  errorEl.hidden = true;
-  ids.forEach((k) => { inputs[k].value = ''; });
-  inputs.title.focus();
 });
 
 // ---- Weight ----
@@ -3215,6 +2958,9 @@ let bills = migrateSyncFields(loadCollection(BILLS_KEY), BILLS_KEY, getDeviceId(
 // `isTodoOverdue()`/`todayForFilename()` bug pattern this new code must not
 // repeat). Comparisons between two date keys use plain string comparison,
 // which is correct for this fixed zero-padded format.
+
+// A date key is a 'YYYY-MM-DD' string; this checks the shape (not that the date is real).
+const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // Builds a 'YYYY-MM-DD' key; monthIndex is 0-based (0 = January) like JavaScript dates.
 function dateKeyFromParts(year, monthIndex, day) {
@@ -6029,7 +5775,6 @@ const SEARCH_SOURCES = [
   { tab: 'recipes', label: 'Recipes', inputId: 'recipes-search-input', items: () => recipes, title: (r) => r.title, fields: (r) => [r.title, r.category, ...(r.ingredients || []), ...(r.steps || []), r.notes] },
   { tab: 'medications', label: 'Medications', inputId: 'medications-search-input', items: () => medications, title: (m) => m.name, fields: (m) => [m.name, m.dosage, m.frequency, m.prescribingDoctor, m.notes] },
   { tab: 'diagnoses', label: 'Diagnoses', inputId: 'diagnoses-search-input', items: () => diagnoses, title: (d) => d.condition, fields: (d) => [d.condition, d.provider, d.notes] },
-  { tab: 'appointments', label: 'Appointments', inputId: null, items: () => appointments, title: (a) => a.title, fields: (a) => [a.title, a.provider, a.location, a.notes] },
   { tab: 'todo', label: 'To-Do', inputId: 'todo-search-input', items: () => todos, title: (t) => (t.completed ? `${t.task} (done)` : t.task), fields: (t) => [t.task] },
   { tab: 'shopping', label: 'Shopping List', inputId: 'shopping-search-input', items: () => shoppingItems, title: (s) => s.item, fields: (s) => [s.item, s.category, s.quantity] },
   { tab: 'notes', label: 'Notes', inputId: 'notes-search-input', items: () => notes, title: (n) => n.title || '(untitled note)', fields: (n) => [n.title, n.body] },
@@ -6244,16 +5989,6 @@ function computeHomeRefills(nonDeletedMeds) {
     .sort(compareByField((m) => m.refillDate, 1, { text: false }));
 }
 
-// Appointments from today through the next week, soonest first.
-function computeHomeAppointments(nonDeletedAppointments) {
-  return nonDeletedAppointments
-    .filter((a) => {
-      const days = daysUntilDateKey(a.date);
-      return days >= 0 && days <= HOME_DUE_SOON_DAYS;
-    })
-    .sort(compareAppointments);
-}
-
 // How soon a bill must be due to appear in the banner at the top of every screen.
 const REMINDER_BANNER_DAYS = 3;
 let reminderBannerDismissed = false;
@@ -6291,8 +6026,8 @@ function computeCurrentlyReading(nonDeletedBooks) {
   return nonDeletedBooks.filter((b) => b.status === 'currently_reading').sort(BOOK_SORTS.author_asc);
 }
 
-// Redraws the Home dashboard: what needs attention this week (bills, to-dos, refills,
-// appointments) and the books being read.
+// Redraws the Home dashboard: what needs attention this week (bills, to-dos, refills)
+// and the books being read.
 function renderHome() {
   // Gather what to show.
   renderBackupNotes();
@@ -6304,12 +6039,11 @@ function renderHome() {
   const { overdue: overdueTodos, dueSoon: dueSoonTodos } = computeHomeTodos(nonDeletedTodos);
   const currentlyReading = computeCurrentlyReading(nonDeletedBooks);
   const homeRefills = computeHomeRefills(medications.filter((m) => !m.deleted));
-  const homeAppointments = computeHomeAppointments(appointments.filter((a) => !a.deleted));
 
   renderReminderBanner(overdueBills, dueSoonBills);
 
   const actionableCount = overdueBills.length + dueSoonBills.length + overdueTodos.length + dueSoonTodos.length
-    + homeRefills.length + homeAppointments.length;
+    + homeRefills.length;
 
   // Grab the panels and clear their lists before refilling them.
   const statsEl = document.getElementById('home-stats');
@@ -6322,15 +6056,12 @@ function renderHome() {
   const readingList = document.getElementById('home-reading-list');
 
   const refillsPanel = document.getElementById('home-refills-panel');
-  const appointmentsPanel = document.getElementById('home-appointments-panel');
   const refillsList = document.getElementById('home-refills-list');
-  const appointmentsList = document.getElementById('home-appointments-list');
 
   billsList.innerHTML = '';
   todoList.innerHTML = '';
   readingList.innerHTML = '';
   refillsList.innerHTML = '';
-  appointmentsList.innerHTML = '';
 
   // One Home row: a button that jumps to the tab, plus an optional quick-action button (e.g. Mark paid).
   function makeHomeRow(onClick, buildContent, action) {
@@ -6436,21 +6167,6 @@ function renderHome() {
     }));
   });
 
-  // Upcoming appointments.
-  appointmentsPanel.hidden = homeAppointments.length === 0;
-  homeAppointments.forEach((appt) => {
-    appointmentsList.appendChild(makeHomeRow(() => goToTab('appointments'), (btn) => {
-      const title = document.createElement('strong');
-      title.className = 'appt-title';
-      title.textContent = appt.title;
-      const when = document.createElement('span');
-      when.className = 'bill-due';
-      const time = formatTime12h(appt.time);
-      when.textContent = `${whenLabel(daysUntilDateKey(appt.date))}${time ? ` at ${time}` : ''}`;
-      btn.append(title, when);
-    }));
-  });
-
   // Books currently being read.
   if (currentlyReading.length > 0) {
     readingPanel.hidden = false;
@@ -6505,7 +6221,6 @@ const SYNC_COLLECTIONS = [
   { name: 'recipes', label: 'Recipes', key: RECIPES_KEY, get: () => recipes, set: (v) => { recipes = v; }, render: renderRecipes, delete: deleteRecipe, restore: restoreRecipe },
   { name: 'medications', label: 'Medications', key: MEDICATIONS_KEY, get: () => medications, set: (v) => { medications = v; }, render: renderMedications, delete: deleteMedication, restore: restoreMedication },
   { name: 'weights', label: 'Weight', key: WEIGHTS_KEY, get: () => weights, set: (v) => { weights = v; }, render: renderWeights, delete: deleteWeight, restore: restoreWeight },
-  { name: 'appointments', label: 'Appointments', key: APPOINTMENTS_KEY, get: () => appointments, set: (v) => { appointments = v; }, render: renderAppointments, delete: deleteAppointment, restore: restoreAppointment },
   { name: 'diagnoses', label: 'Diagnoses', key: DIAGNOSES_KEY, get: () => diagnoses, set: (v) => { diagnoses = v; }, render: renderDiagnoses, delete: deleteDiagnosis, restore: restoreDiagnosis },
   { name: 'todos', label: 'To-Do', key: TODOS_KEY, get: () => todos, set: (v) => { todos = v; }, render: renderTodos, delete: deleteTodo, restore: restoreTodo },
   { name: 'shoppingList', label: 'Shopping List', key: SHOPPING_KEY, get: () => shoppingItems, set: (v) => { shoppingItems = v; }, render: renderShoppingList, delete: deleteShoppingItem, restore: restoreShoppingItem },
@@ -6614,7 +6329,7 @@ function redo() {
 const RECORD_LABEL_FIELD = {
   books: 'title', recipes: 'title', medications: 'name', diagnoses: 'condition',
   todos: 'task', shoppingList: 'item', notes: 'title', links: 'label', bills: 'name',
-  income: 'dateKey', recurringIncome: 'name', appointments: 'title', weights: 'date',
+  income: 'dateKey', recurringIncome: 'name', weights: 'date',
 };
 
 // Plain-English summary of an undo entry, e.g. "deleted 'Dune'", for the button tooltips.
@@ -6708,9 +6423,10 @@ function loadSyncSnapshot() {
     const raw = localStorage.getItem(SYNC_SNAPSHOT_KEY);
     const parsed = raw ? JSON.parse(raw) : null;
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      if ('courses' in parsed || 'deadlines' in parsed) {
+      if ('courses' in parsed || 'deadlines' in parsed || 'appointments' in parsed) {
         delete parsed.courses;
         delete parsed.deadlines;
+        delete parsed.appointments;
         saveSyncSnapshot(parsed);
       }
       return parsed;
@@ -7263,7 +6979,6 @@ function isValidImportRecord(collectionName, rec) {
   if (collectionName === 'bills') return isNum(rec.amount) && isDate(rec.dueDate) && IMPORT_FREQUENCIES.includes(rec.frequency);
   if (collectionName === 'recurringIncome') return isNum(rec.amount) && isDate(rec.dueDate) && IMPORT_FREQUENCIES.includes(rec.frequency) && rec.frequency !== 'one_time';
   if (collectionName === 'income') return isNum(rec.amount) && isDate(rec.dateKey);
-  if (collectionName === 'appointments') return isDate(rec.date);
   if (collectionName === 'weights') return isNum(rec.weight) && rec.weight > 0 && rec.weight <= WEIGHT_MAX && isDate(rec.date);
   return true;
 }
@@ -7387,7 +7102,7 @@ function refreshForNewDay() {
   if (now === lastRenderedDayKey) return;
   lastRenderedDayKey = now;
   reminderBannerDismissed = false; // a new day can bring new due/overdue bills
-  [renderBudget, renderTodos, renderMedications, renderAppointments, renderHome].forEach(safeRender);
+  [renderBudget, renderTodos, renderMedications, renderHome].forEach(safeRender);
 }
 
 setInterval(refreshForNewDay, 60000);
@@ -7398,7 +7113,7 @@ document.addEventListener('visibilitychange', () => {
 // ---- Init ----
 
 [
-  renderBooks, renderRecipes, renderMedications, renderDiagnoses, renderAppointments, renderWeights, renderJournal,
+  renderBooks, renderRecipes, renderMedications, renderDiagnoses, renderWeights, renderJournal,
   renderTodos, renderShoppingList, renderNotes, renderLinks, renderBudget,
 ].forEach(safeRender);
 updateUndoRedoButtons();

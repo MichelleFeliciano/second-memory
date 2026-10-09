@@ -7,6 +7,7 @@ window.fetch = () => { networkCalls += 1; return Promise.reject(new Error('block
 // ---- the removed Coursework feature must stay removed ----
 check('no Coursework tab or section', !document.querySelector('[data-tab="coursework"], #coursework-collection'));
 check('no course/deadline collections in sync', !SYNC_COLLECTIONS.some((c) => /course|deadline/i.test(c.name)));
+check('no Appointments tab or section, and none in sync', !document.querySelector('[data-tab="appointments"], #appointments-collection') && !SYNC_COLLECTIONS.some((c) => c.name === 'appointments'));
 check('page text has no coursework wording', !/coursework|degree|deadline/i.test(document.body.innerText));
 
 // ---- every tab opens exactly its own section ----
@@ -22,7 +23,6 @@ const specs = [
   ['books', () => books, 'books-add-form', { 'books-title-input': 'TBook', 'books-author-input': 'Auth' }],
   ['recipes', () => recipes, 'recipes-add-form', { 'recipes-title-input': 'TRecipe', 'recipes-ingredients-input': 'a\nb', 'recipes-steps-input': '1\n2' }],
   ['medications', () => medications, 'medications-add-form', { 'medications-name-input': 'TMed', 'medications-refill-input': dk(2) }],
-  ['appointments', () => appointments, 'appointments-add-form', { 'appointments-title-input': 'TAppt', 'appointments-date-input': dk(1), 'appointments-time-input': '09:30' }],
   ['weight', () => weights, 'weight-add-form', { 'weight-date-input': dk(0), 'weight-value-input': '150.5' }],
   ['diagnoses', () => diagnoses, 'diagnoses-add-form', { 'diagnoses-condition-input': 'TDiag' }],
   ['todo', () => todos, 'todo-add-form', { 'todo-task-input': 'TTodo', 'todo-due-input': dk(1) }],
@@ -42,7 +42,7 @@ for (const [tab, arr, form, fill] of specs) {
 }
 
 // ---- edit: open, cancel, save closes the form and keeps the data ----
-for (const t of ['books', 'recipes', 'medications', 'appointments', 'weight', 'diagnoses', 'todo', 'shopping', 'notes', 'budget', 'resume']) {
+for (const t of ['books', 'recipes', 'medications', 'weight', 'diagnoses', 'todo', 'shopping', 'notes', 'budget', 'resume']) {
   nav(t);
   const sec = $(t + '-collection');
   const openForm = () => [...sec.querySelectorAll('form')].find((f) => !f.hidden && /edit-form/.test(f.className));
@@ -58,7 +58,7 @@ for (const t of ['books', 'recipes', 'medications', 'appointments', 'weight', 'd
 }
 
 // ---- delete, undo, redo ----
-const delSpecs = [['books', () => books], ['recipes', () => recipes], ['medications', () => medications], ['appointments', () => appointments], ['weight', () => weights],
+const delSpecs = [['books', () => books], ['recipes', () => recipes], ['medications', () => medications], ['weight', () => weights],
   ['diagnoses', () => diagnoses], ['todo', () => todos], ['shopping', () => shoppingItems], ['notes', () => notes], ['resume', () => links]];
 for (const [t, arr] of delSpecs) {
   nav(t);
@@ -121,10 +121,10 @@ check('an older backup never brings back a deleted record', books.find((b) => b.
 importData({ collections: {
   bills: [{ id: 'bad-bill', name: 'Bad', amount: '1200', dueDate: dk(0), frequency: 'monthly' }],
   income: [{ id: 'bad-inc', dateKey: 'not-a-date', amount: 5 }],
-  appointments: [{ id: 'bad-appt', title: 'x', date: '2026-13-45' }],
+  appointments: [{ id: 'old-appt', title: 'Old appointment', date: dk(2) }],
   courses: [{ id: 'old-course', title: 'Old class' }],
 } });
-check('wrongly typed records are skipped, not saved', !bills.some((b) => b.id === 'bad-bill') && !income.some((i) => i.id === 'bad-inc') && !appointments.some((a) => a.id === 'bad-appt'));
+check('wrongly typed records are skipped, not saved', !bills.some((b) => b.id === 'bad-bill') && !income.some((i) => i.id === 'bad-inc') && typeof appointments === 'undefined');
 check('import reports what it skipped', /skipped/.test($('data-io-status').textContent), $('data-io-status').textContent);
 check('an old backup that still has courses imports without trouble', !('courses' in buildExportPayload().collections));
 check('import rejects impossible dates', !isRealDateKey('2026-02-30') && !isRealDateKey('2026-13-01') && isRealDateKey('2028-02-29'));

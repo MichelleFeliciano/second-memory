@@ -1,6 +1,6 @@
 # Second Memory
 
-A personal, local-first organizer — books, recipes, medications, diagnoses, appointments, a
+A personal, local-first organizer — books, recipes, medications, diagnoses, a
 weight tracker, a to-do list, a shopping list, notes, a household budget/bills tracker, resume & portfolio
 links, and a private journal, all in one place. (The authoritative current list of sections
 lives in the `TABS` constant in `app.js`.)
@@ -38,7 +38,7 @@ file, in the code, or in a commit; keep it in a password manager.
 
 | What | Where it lives | How to get it back |
 |---|---|---|
-| Everything that syncs (books, recipes, medications, diagnoses, appointments, weight, to-dos, shopping, notes, links, bills, income) | Each device, plus the Render server | Open the app on the new device, enter the passphrase, tap **Sync now**. It pulls everything down. |
+| Everything that syncs (books, recipes, medications, diagnoses, weight, to-dos, shopping, notes, links, bills, income) | Each device, plus the Render server | Open the app on the new device, enter the passphrase, tap **Sync now**. It pulls everything down. |
 | The journal | **Only** the device where you wrote it. It is never synced. | Open the app, go to Journal, tap **Restore journal**, choose a journal backup file. Or use **Import data** with a full backup (see below). |
 | Pay-period settings | Only the device you set them on | Come back with a full backup. Otherwise set them again in Budget. |
 
