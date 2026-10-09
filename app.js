@@ -445,6 +445,8 @@ if (sidebarToggleBtn) {
 
 const BOOKS_KEY = 'secondMemory.books.v1';
 // The shelves a book can be on; stored in each book's status field.
+// Shelves that count as "finished" for the reading goal and get a finished date.
+const READ_STATUSES = ['owned_read', 'jons_bookshelf_read'];
 const BOOK_STATUSES = ['want_to_buy', 'owned_unread', 'currently_reading', 'owned_read', 'textbook', 'textbook_read', 'jons_bookshelf', 'jons_bookshelf_read'];
 
 // The only address the app ever talks to, and only when the user presses "Sync now".
@@ -463,6 +465,7 @@ function addBook(title, author, status) {
     author: author.trim(),
     status: BOOK_STATUSES.includes(status) ? status : 'want_to_buy',
     rating: null,
+    dateFinished: READ_STATUSES.includes(status) ? todayKey() : null,
     dateAdded: now,
     updatedAt: now,
     deviceId: getDeviceId(),
@@ -483,6 +486,13 @@ function updateBookStatus(id, newStatus) {
   const before = structuredClone(book);
   book.status = newStatus;
   if (newStatus !== 'owned_read') book.rating = null;
+  // Moving onto a read shelf stamps today as the finished date (unless it already has one);
+  // moving off a read shelf clears it.
+  if (READ_STATUSES.includes(newStatus)) {
+    if (!isRealDateKey(book.dateFinished)) book.dateFinished = todayKey();
+  } else {
+    book.dateFinished = null;
+  }
   stampSync(book);
   saveCollection(BOOKS_KEY, books);
   recordUndo('books', id, before, structuredClone(book));
@@ -533,6 +543,16 @@ function updateBook(id, fields) {
   const before = structuredClone(book);
   book.title = trimmedTitle;
   book.author = fields.author.trim();
+  // The finished date is only edited when the form offers it (a read shelf); blank clears it.
+  if (fields.dateFinished !== undefined) {
+    if (fields.dateFinished === '') {
+      book.dateFinished = null;
+    } else if (isRealDateKey(fields.dateFinished) && fields.dateFinished <= todayKey()) {
+      book.dateFinished = fields.dateFinished;
+    } else {
+      return false;
+    }
+  }
   stampSync(book);
   saveCollection(BOOKS_KEY, books);
   recordUndo('books', id, before, structuredClone(book));
@@ -570,6 +590,93 @@ function renderBooksStats(nonDeletedBooks) {
     `${countFor('jons_bookshelf')} on Jon's Bookshelf (unread) · ${countFor('jons_bookshelf_read')} on Jon's Bookshelf (read)`;
 }
 
+// ---- Reading goal ----
+// A yearly goal ("12 of 24 books") counted from the finished dates on books on a read shelf.
+// Goals are kept on this device, one per year, and travel in the full backup.
+
+const READING_GOALS_KEY = 'secondMemory.readingGoals.v1';
+
+// The saved goals as { '2026': 24 }; anything damaged is dropped.
+function loadReadingGoals() {
+  const goals = {};
+  try {
+    const parsed = JSON.parse(localStorage.getItem(READING_GOALS_KEY) || '{}');
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      Object.entries(parsed).forEach(([year, n]) => {
+        if (/^\d{4}$/.test(year) && Number.isInteger(n) && n > 0 && n <= 1000) goals[year] = n;
+      });
+    }
+  } catch { /* unreadable: no goals */ }
+  return goals;
+}
+
+// Sets (a whole number) or clears (null) the goal for one year. Returns false if it could not be saved.
+function saveReadingGoal(year, count) {
+  const goals = loadReadingGoals();
+  if (count === null) delete goals[String(year)]; else goals[String(year)] = count;
+  try {
+    localStorage.setItem(READING_GOALS_KEY, JSON.stringify(goals));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// How many of these books were finished in the year (read shelf plus a finished date in that year).
+function booksFinishedInYear(list, year) {
+  return list.filter((b) => !b.deleted && READ_STATUSES.includes(b.status)
+    && typeof b.dateFinished === 'string' && b.dateFinished.startsWith(`${year}-`)).length;
+}
+
+// Redraws the goal box: the count, the progress bar, the "no finish date" hint and the goal field.
+function renderReadingGoal(nonDeletedBooks) {
+  const year = new Date().getFullYear();
+  const done = booksFinishedInYear(nonDeletedBooks, year);
+  const goal = loadReadingGoals()[String(year)] || null;
+  const text = document.getElementById('reading-goal-text');
+  const bar = document.getElementById('reading-goal-bar');
+  if (goal) {
+    text.textContent = done >= goal
+      ? `${year}: ${done} of ${goal} books finished. Goal reached!`
+      : `${year}: ${done} of ${goal} books finished (${goal - done} to go)`;
+    bar.max = goal;
+    bar.value = Math.min(done, goal);
+    bar.hidden = false;
+  } else {
+    text.textContent = `${year}: ${done} book${done === 1 ? '' : 's'} finished. Set a goal to track your progress.`;
+    bar.hidden = true;
+  }
+  const undated = nonDeletedBooks.filter((b) => READ_STATUSES.includes(b.status) && !isRealDateKey(b.dateFinished)).length;
+  const hint = document.getElementById('reading-goal-undated');
+  hint.hidden = undated === 0;
+  if (undated > 0) hint.textContent = `${undated} finished book${undated === 1 ? ' has' : 's have'} no finish date, so ${undated === 1 ? 'it is' : 'they are'} not counted. Tap Edit on a book to add one.`;
+  document.getElementById('reading-goal-label').textContent = `Books to read in ${year}`;
+  const input = document.getElementById('reading-goal-input');
+  if (document.activeElement !== input) input.value = goal === null ? '' : String(goal);
+}
+
+document.getElementById('reading-goal-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const errorEl = document.getElementById('reading-goal-error');
+  const raw = document.getElementById('reading-goal-input').value.trim();
+  const value = Number(raw);
+  if (raw === '' || !Number.isInteger(value) || value < 1 || value > 1000) {
+    errorEl.textContent = 'Enter a whole number from 1 to 1000, or tap Clear.';
+    errorEl.hidden = false;
+    return;
+  }
+  errorEl.hidden = true;
+  saveReadingGoal(new Date().getFullYear(), value);
+  renderReadingGoal(books.filter((b) => !b.deleted));
+});
+
+document.getElementById('reading-goal-clear').addEventListener('click', () => {
+  document.getElementById('reading-goal-error').hidden = true;
+  saveReadingGoal(new Date().getFullYear(), null);
+  document.getElementById('reading-goal-input').value = '';
+  renderReadingGoal(books.filter((b) => !b.deleted));
+});
+
 // Redraws the whole Books screen: filter, search, sort and the book cards.
 function renderBooks() {
   const searchTerm = document.getElementById('books-search-input').value;
@@ -592,6 +699,7 @@ function renderBooks() {
         id: openForm.closest('.book-card').dataset.bookId,
         title: openForm.querySelector('.book-edit-title').value,
         author: openForm.querySelector('.book-edit-author').value,
+        finished: openForm.querySelector('.book-edit-finished').value,
       };
       break;
     }
@@ -617,6 +725,14 @@ function renderBooks() {
 
       node.querySelector('.book-title').textContent = book.title;
       node.querySelector('.book-author').textContent = book.author || '';
+      const finishedEl = node.querySelector('.book-finished');
+      if (READ_STATUSES.includes(book.status) && isRealDateKey(book.dateFinished)) {
+        finishedEl.textContent = `Finished ${formatDateKeyLong(book.dateFinished)}`;
+        finishedEl.hidden = false;
+      }
+      const finishedField = node.querySelector('.book-edit-finished-field');
+      const showFinished = READ_STATUSES.includes(book.status);
+      finishedField.hidden = !showFinished;
 
       const ratingLabel = node.querySelector('.rating-label');
       const ratingSelect = node.querySelector('.rating-select');
@@ -638,6 +754,7 @@ function renderBooks() {
 
       const editTitleInput = node.querySelector('.book-edit-title');
       const editAuthorInput = node.querySelector('.book-edit-author');
+      const editFinishedInput = node.querySelector('.book-edit-finished');
 
       node.querySelector('.edit-btn').addEventListener('click', () => {
         // Only one book (across every status column) can be in edit mode at
@@ -651,6 +768,7 @@ function renderBooks() {
         });
         editTitleInput.value = book.title;
         editAuthorInput.value = book.author;
+        editFinishedInput.value = book.dateFinished || '';
         viewSection.hidden = true;
         editForm.hidden = false;
       });
@@ -671,7 +789,9 @@ function renderBooks() {
         // fix is applied at every collection's edit-form submit handler.
         editForm.hidden = true;
         viewSection.hidden = false;
-        if (updateBook(book.id, { title: editTitleInput.value, author: editAuthorInput.value }) === false) {
+        const fields = { title: editTitleInput.value, author: editAuthorInput.value };
+        if (showFinished) fields.dateFinished = editFinishedInput.value;
+        if (updateBook(book.id, fields) === false) {
           viewSection.hidden = true;
           editForm.hidden = false;
         }
@@ -682,6 +802,7 @@ function renderBooks() {
       if (openEdit && openEdit.id === book.id) {
         editTitleInput.value = openEdit.title;
         editAuthorInput.value = openEdit.author;
+        editFinishedInput.value = openEdit.finished;
         viewSection.hidden = true;
         editForm.hidden = false;
       }
@@ -691,6 +812,7 @@ function renderBooks() {
   });
 
   document.getElementById('books-empty-state').hidden = nonDeleted.length !== 0;
+  renderReadingGoal(nonDeleted);
 
   renderHome(); // Home aggregates books/todos/bills — keep this in sync
 }
@@ -719,6 +841,158 @@ document.getElementById('books-sort-input').addEventListener('change', (e) => {
 const RECIPES_KEY = 'secondMemory.recipes.v1';
 
 let recipes = migrateSyncFields(loadCollection(RECIPES_KEY), RECIPES_KEY, getDeviceId());
+
+// ---- Recipe scaling ----
+// Scale buttons multiply the amount at the start of each ingredient line (1/2, 1 1/2, 2-3, 0.5,
+// and the symbols for a half or a quarter). Lines with no leading amount ("salt to taste") are
+// left alone. The chosen scale is remembered per recipe only while the app is open.
+
+const recipeScales = new Map(); // recipe id -> factor (1 when absent)
+const FRACTION_SYMBOLS = { '\u00bc': 0.25, '\u00bd': 0.5, '\u00be': 0.75, '\u2153': 1 / 3, '\u2154': 2 / 3, '\u215b': 0.125, '\u215c': 0.375, '\u215d': 0.625, '\u215e': 0.875 };
+const QTY_PART = '\\d+\\s*[\u00bc\u00bd\u00be\u2153\u2154\u215b\u215c\u215d\u215e]|\\d+\\s+\\d+\\/\\d+|\\d+\\/\\d+|\\d+\\.\\d+|\\d+|[\u00bc\u00bd\u00be\u2153\u2154\u215b\u215c\u215d\u215e]';
+const QTY_RE = new RegExp(`^(\\s*)(${QTY_PART})(?:(\\s*(?:-|\u2013|to)\\s*)(${QTY_PART}))?`);
+
+// The number a typed amount stands for ("1 1/2" is 1.5), or null if it cannot be read.
+function parseQuantity(text) {
+  const t = text.trim();
+  let m = t.match(/^(\d+)\s*([\u00bc\u00bd\u00be\u2153\u2154\u215b\u215c\u215d\u215e])$/);
+  if (m) return Number(m[1]) + FRACTION_SYMBOLS[m[2]];
+  if (FRACTION_SYMBOLS[t] !== undefined) return FRACTION_SYMBOLS[t];
+  m = t.match(/^(\d+)\s+(\d+)\/(\d+)$/);
+  if (m) return Number(m[3]) === 0 ? null : Number(m[1]) + Number(m[2]) / Number(m[3]);
+  m = t.match(/^(\d+)\/(\d+)$/);
+  if (m) return Number(m[2]) === 0 ? null : Number(m[1]) / Number(m[2]);
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+}
+
+// Writes an amount the way a cook reads it: 3, 1 1/2, 2/3, 0.4 (nearest eighth or third).
+function formatQuantity(x) {
+  if (Math.abs(x - Math.round(x)) < 0.01) return String(Math.round(x));
+  const whole = Math.floor(x);
+  const frac = x - whole;
+  const choices = [[1 / 8, '1/8'], [1 / 4, '1/4'], [1 / 3, '1/3'], [3 / 8, '3/8'], [1 / 2, '1/2'], [5 / 8, '5/8'], [2 / 3, '2/3'], [3 / 4, '3/4'], [7 / 8, '7/8']];
+  const best = choices.reduce((a, b) => (Math.abs(b[0] - frac) < Math.abs(a[0] - frac) ? b : a));
+  if (Math.abs(best[0] - frac) <= 0.04) return whole > 0 ? `${whole} ${best[1]}` : best[1];
+  return String(Math.round(x * 100) / 100);
+}
+
+// Measures that take an "s" when there is more than one ("2 cups", "1/2 cup").
+const PLURAL_UNITS = ['cup', 'tablespoon', 'teaspoon', 'pound', 'ounce', 'clove', 'can', 'slice', 'stick', 'package', 'bunch', 'head', 'stalk', 'sprig', 'pint', 'quart', 'gallon', 'fillet'];
+
+// One ingredient line with its leading amount (or range) multiplied by the factor. A spelled-out
+// measure right after the amount is made singular or plural to match ("1 cup" doubled is "2 cups").
+function scaleIngredientLine(line, factor) {
+  if (factor === 1) return line;
+  const m = line.match(QTY_RE);
+  if (!m) return line;
+  const first = parseQuantity(m[2]);
+  if (first === null) return line;
+  let out = `${m[1]}${formatQuantity(first * factor)}`;
+  let consumed = m[0].length;
+  let last = first * factor;
+  if (m[3] !== undefined) {
+    const second = parseQuantity(m[4]);
+    if (second !== null) { out += `${m[3]}${formatQuantity(second * factor)}`; last = second * factor; } else consumed = m[1].length + m[2].length;
+  }
+  let rest = line.slice(consumed);
+  const unit = rest.match(/^(\s+)([A-Za-z]+)/);
+  if (unit) {
+    const base = unit[2].toLowerCase().replace(/s$/, '');
+    if (PLURAL_UNITS.includes(base)) {
+      const word = last > 1 ? `${unit[2].replace(/s$/i, '')}s` : unit[2].replace(/s$/i, '');
+      rest = unit[1] + word + rest.slice(unit[0].length);
+    }
+  }
+  return out + rest;
+}
+
+// A recipe's ingredient lines at the chosen scale.
+function scaledIngredients(recipe, factor) {
+  return (recipe.ingredients || []).map((line) => scaleIngredientLine(line, factor));
+}
+
+// ---- Cook mode ----
+// A full-screen, one-step-at-a-time view with big text. While it is open the screen is asked to
+// stay awake (where the browser supports it), so the phone does not lock with flour on your hands.
+
+let cookState = null; // { recipe, factor, step }
+let cookWakeLock = null;
+
+// Asks the browser to keep the screen on; harmless if unsupported or refused.
+async function requestCookWakeLock() {
+  const note = document.getElementById('cook-awake');
+  try {
+    if ('wakeLock' in navigator) {
+      cookWakeLock = await navigator.wakeLock.request('screen');
+      note.hidden = false;
+    }
+  } catch { note.hidden = true; }
+}
+
+// Shows the current step, its position, and enables or disables Back/Next.
+function renderCookStep() {
+  const { recipe, step } = cookState;
+  const steps = recipe.steps || [];
+  document.getElementById('cook-progress').textContent = steps.length ? `Step ${step + 1} of ${steps.length}` : '';
+  document.getElementById('cook-step').textContent = steps.length ? steps[step] : 'This recipe has no steps yet.';
+  document.getElementById('cook-prev').disabled = step === 0;
+  const last = step >= steps.length - 1;
+  document.getElementById('cook-next').textContent = last ? 'Done' : 'Next';
+}
+
+// Opens cook mode for a recipe at the scale chosen on its card.
+function openCookMode(recipeId) {
+  const recipe = recipes.find((r) => r.id === recipeId && !r.deleted);
+  if (!recipe) return;
+  const factor = recipeScales.get(recipe.id) || 1;
+  cookState = { recipe, factor, step: 0 };
+  document.getElementById('cook-title').textContent = recipe.title + (factor === 1 ? '' : ` (${factor === 0.5 ? '\u00bd' : factor}\u00d7)`);
+  const list = document.getElementById('cook-ingredients-list');
+  list.innerHTML = '';
+  scaledIngredients(recipe, factor).forEach((line) => {
+    const li = document.createElement('li');
+    li.textContent = line;
+    list.appendChild(li);
+  });
+  document.getElementById('cook-awake').hidden = true;
+  renderCookStep();
+  document.getElementById('cook-mode').hidden = false;
+  document.getElementById('cook-next').focus();
+  requestCookWakeLock();
+}
+
+// Closes cook mode and lets the screen sleep again.
+function closeCookMode() {
+  document.getElementById('cook-mode').hidden = true;
+  cookState = null;
+  if (cookWakeLock) { cookWakeLock.release().catch(() => {}); cookWakeLock = null; }
+}
+
+// Moves one step (Next on the last step finishes and closes).
+function cookStepBy(delta) {
+  if (!cookState) return;
+  const steps = cookState.recipe.steps || [];
+  const next = cookState.step + delta;
+  if (next >= steps.length) { closeCookMode(); return; }
+  if (next < 0) return;
+  cookState.step = next;
+  renderCookStep();
+}
+
+document.getElementById('cook-next').addEventListener('click', () => cookStepBy(1));
+document.getElementById('cook-prev').addEventListener('click', () => cookStepBy(-1));
+document.getElementById('cook-close').addEventListener('click', closeCookMode);
+document.addEventListener('keydown', (e) => {
+  if (!cookState) return;
+  if (e.key === 'Escape') closeCookMode();
+  else if (e.key === 'ArrowRight') cookStepBy(1);
+  else if (e.key === 'ArrowLeft') cookStepBy(-1);
+});
+// The browser releases a wake lock when the page is hidden; take it again when we come back.
+document.addEventListener('visibilitychange', () => {
+  if (cookState && document.visibilityState === 'visible') requestCookWakeLock();
+});
 
 // Turns a block of text into a list of non-empty trimmed lines.
 function splitLines(text) {
@@ -910,15 +1184,27 @@ function renderRecipes() {
     }
 
     const ingredientsSection = node.querySelector('.recipe-ingredients-section');
+    const factor = recipeScales.get(recipe.id) || 1;
     if (recipe.ingredients.length) {
       const ingredientsList = node.querySelector('.recipe-ingredients');
-      recipe.ingredients.forEach((ing) => {
+      scaledIngredients(recipe, factor).forEach((ing) => {
         const li = document.createElement('li');
         li.textContent = ing;
         ingredientsList.appendChild(li);
       });
       ingredientsSection.hidden = false;
+      // Scale buttons: pick a multiple; the choice is remembered while the app is open.
+      node.querySelectorAll('.recipe-scale .chip').forEach((chip) => {
+        chip.classList.toggle('chip-active', Number(chip.dataset.scale) === factor);
+        chip.addEventListener('click', () => {
+          recipeScales.set(recipe.id, Number(chip.dataset.scale));
+          renderRecipes();
+        });
+      });
     }
+    const cookBtn = node.querySelector('.cook-mode-btn');
+    cookBtn.hidden = !(recipe.steps && recipe.steps.length);
+    cookBtn.addEventListener('click', () => openCookMode(recipe.id));
 
     const stepsSection = node.querySelector('.recipe-steps-section');
     if (recipe.steps.length) {
@@ -3613,7 +3899,7 @@ function validateBillFields(fields) {
   if (!dueDate) return { ok: false, error: 'Due date is required.' };
   if (!isReasonableDateKey(dueDate)) return { ok: false, error: DATE_RANGE_MESSAGE };
   const frequency = BILL_FREQUENCIES.includes(fields.frequency) ? fields.frequency : 'monthly';
-  return { ok: true, name: trimmedName, amount, dueDate, frequency, category: fields.category.trim() };
+  return { ok: true, name: trimmedName, amount, dueDate, frequency, category: fields.category.trim(), autopay: !!fields.autopay };
 }
 
 // Adds a bill. Returns { ok } or { ok: false, error } if the fields don't validate.
@@ -3628,6 +3914,7 @@ function addBill(fields) {
     dueDate: result.dueDate,
     frequency: result.frequency,
     category: result.category,
+    autopay: result.autopay,
     paidDates: [],
     dateAdded: now,
     updatedAt: now,
@@ -3685,6 +3972,7 @@ function updateBill(id, fields) {
   bill.dueDate = result.dueDate;
   bill.frequency = result.frequency;
   bill.category = result.category;
+  bill.autopay = result.autopay;
   // Changing when a bill is due must not orphan the payments already marked
   // paid: each paid occurrence moves to the same-numbered occurrence of the
   // new schedule (the 3rd payment stays the 3rd payment), so totals don't jump.
@@ -4618,6 +4906,7 @@ function renderBudgetList(nonDeletedBills, openEdit) {
       categoryEl.textContent = bill.category;
       categoryEl.hidden = false;
     }
+    node.querySelector('.bill-autopay').hidden = !bill.autopay;
 
     // Only offered while something is still owed as of today.
     const markOldestBtn = node.querySelector('.mark-oldest-paid-btn');
@@ -4633,6 +4922,7 @@ function renderBudgetList(nonDeletedBills, openEdit) {
     const editDueDateInput = node.querySelector('.bill-edit-duedate');
     const editFrequencyInput = node.querySelector('.bill-edit-frequency');
     const editCategoryInput = node.querySelector('.bill-edit-category');
+    const editAutopayInput = node.querySelector('.bill-edit-autopay');
     const editError = node.querySelector('.bill-edit-error');
 
     node.querySelector('.edit-btn').addEventListener('click', () => {
@@ -4648,6 +4938,7 @@ function renderBudgetList(nonDeletedBills, openEdit) {
       editDueDateInput.value = bill.dueDate;
       editFrequencyInput.value = bill.frequency;
       editCategoryInput.value = bill.category;
+      editAutopayInput.checked = !!bill.autopay;
       editError.hidden = true;
       viewSection.hidden = true;
       editForm.hidden = false;
@@ -4677,6 +4968,7 @@ function renderBudgetList(nonDeletedBills, openEdit) {
         dueDate: editDueDateInput.value,
         frequency: editFrequencyInput.value,
         category: editCategoryInput.value,
+        autopay: editAutopayInput.checked,
       });
       if (!result.ok) {
         viewSection.hidden = true;
@@ -4695,6 +4987,7 @@ function renderBudgetList(nonDeletedBills, openEdit) {
       editDueDateInput.value = openEdit.dueDate;
       editFrequencyInput.value = openEdit.frequency;
       editCategoryInput.value = openEdit.category;
+      editAutopayInput.checked = openEdit.autopay;
       viewSection.hidden = true;
       editForm.hidden = false;
     }
@@ -4837,6 +5130,7 @@ function renderBudget() {
         dueDate: openForm.querySelector('.bill-edit-duedate').value,
         frequency: openForm.querySelector('.bill-edit-frequency').value,
         category: openForm.querySelector('.bill-edit-category').value,
+        autopay: openForm.querySelector('.bill-edit-autopay').checked,
       }
     : null;
 
@@ -4907,6 +5201,7 @@ document.getElementById('budget-add-form').addEventListener('submit', (e) => {
     dueDate: dueDateInput.value,
     frequency: frequencyInput.value,
     category: categoryInput.value,
+    autopay: document.getElementById('budget-autopay-input').checked,
   });
 
   if (!result.ok) {
@@ -4916,6 +5211,7 @@ document.getElementById('budget-add-form').addEventListener('submit', (e) => {
   }
 
   errorEl.hidden = true;
+  document.getElementById('budget-autopay-input').checked = false;
   nameInput.value = '';
   amountInput.value = '';
   dueDateInput.value = '';
@@ -5025,6 +5321,101 @@ let selectedTrendRange = '90';
 let journalScrollMode = 'end';
 let journalLastScrollLeft = 0; // browsers reset a hidden element's scroll, so remember it
 let journalActiveOverride = null; // a date the reader just tapped, kept highlighted until they scroll themselves
+
+// ---- Journal prompt and look-back ----
+// A reflective prompt that changes every day (the same all day), and a short list of what you
+// wrote on this date a year ago. Both are on the Journal tab only; nothing leaves the device.
+
+const JOURNAL_PROMPTS = [
+  'What is one thing that went better than you expected lately?',
+  'What are you carrying that you could set down today?',
+  'Who made your week easier, and what would you like to tell them?',
+  'What is something small you are looking forward to?',
+  'When did you last feel truly rested? What was different?',
+  'What is a worry you keep returning to? What is the next tiny step on it?',
+  'What did you need today that you did not get?',
+  'What is something you handled well that you have not given yourself credit for?',
+  'Describe a place where you feel calm. What makes it that way?',
+  'What would make tomorrow a good day?',
+  'What is something you are avoiding, and why?',
+  'What are three things you are grateful for right now?',
+  'What did you learn about yourself this week?',
+  'What boundary would help you most right now?',
+  'What is a kind thing you could say to yourself today?',
+  'What has been taking up the most space in your mind?',
+  'What is one thing you would do if you were not afraid?',
+  'When did you last laugh really hard? What was funny?',
+  'What does your body need from you today?',
+  'What is something you used to enjoy that you would like to do again?',
+  'What is a decision you are putting off? What do you already know about it?',
+  'Who do you miss, and what do you miss about them?',
+  'What is one thing you can let be good enough?',
+  'What are you proud of from the last month?',
+  'How have you changed in the past year?',
+  'What is something you wish people understood about you?',
+  'What made you feel safe lately?',
+  'What would you tell a friend who was in your situation?',
+  'What is one thing you are still figuring out?',
+  'What did today teach you?',
+  'What are you hoping for this season of your life?',
+  'Which feeling showed up most this week? Where did you notice it in your body?',
+  'What is something beautiful you noticed recently?',
+  'What would you like to remember about this time?',
+  'What is draining your energy, and what restores it?',
+  'What is one small way you could be gentler with yourself?',
+  'What are you ready to forgive, in yourself or someone else?',
+  'What conversation would you like to have, and with whom?',
+  'What is a win from this week, however small?',
+  'What do you want more of in your life, and what do you want less of?',
+];
+
+// Today's prompt: it moves to the next one each day, wrapping around the list.
+function journalPromptForDate(dateKey) {
+  return JOURNAL_PROMPTS[((epochDays(dateKey) % JOURNAL_PROMPTS.length) + JOURNAL_PROMPTS.length) % JOURNAL_PROMPTS.length];
+}
+
+// The same calendar date one year before (Feb 29 becomes Feb 28).
+function sameDateLastYear(dateKey) {
+  const { y, m, d } = parseDateKey(dateKey);
+  return dateKeyFromParts(y - 1, m, Math.min(d, daysInMonth(y - 1, m)));
+}
+
+// A short piece of an entry to jog the memory: its first written answer, trimmed.
+function journalExcerpt(entry) {
+  const answers = entry.answers || {};
+  const questions = (JOURNAL_TEMPLATES[entry.type] || { questions: [] }).questions;
+  const firstText = questions.find((q) => q.type === 'text' && hasJournalAnswer(answers[q.id]));
+  const text = firstText ? String(answers[firstText.id]).replace(/\s+/g, ' ').trim() : '';
+  return text.length > 140 ? `${text.slice(0, 137)}...` : text;
+}
+
+// Fills the prompt and the "this day last year" list on the Journal tab.
+function renderJournalExtras() {
+  document.getElementById('journal-prompt-text').textContent = journalPromptForDate(todayKey());
+  const target = sameDateLastYear(todayKey());
+  const found = journalEntries.filter((e) => e.date === target);
+  const box = document.getElementById('journal-lookback');
+  const list = document.getElementById('journal-lookback-list');
+  list.innerHTML = '';
+  box.hidden = found.length === 0;
+  found.forEach((entry) => {
+    const li = document.createElement('li');
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    const label = (JOURNAL_TEMPLATES[entry.type] || { label: 'Entry' }).label;
+    const excerpt = journalExcerpt(entry);
+    btn.textContent = excerpt ? `${label}: ${excerpt}` : label;
+    btn.addEventListener('click', () => scrollJournalToEntry(entry.id));
+    li.appendChild(btn);
+    list.appendChild(li);
+  });
+}
+
+// "Write about this" starts a journal entry with today's prompt already in the first answer.
+document.getElementById('journal-prompt-btn').addEventListener('click', () => {
+  openJournalWizard('daily');
+  journalDraft.answers.on_mind = `${journalPromptForDate(todayKey())}\n\n`;
+});
 
 // Wizard state: step 0 is the date; steps 1..N are the template's questions.
 let journalDraft = null; // { type, editingId, date, answers, step }
@@ -5296,6 +5687,7 @@ function renderJournal() {
   if (searching) countEl.textContent = `${visible.length} entr${visible.length === 1 ? 'y matches' : 'ies match'} "${journalSearchTerm.trim()}"`;
   renderJournalTrends();
   renderBackupNotes();
+  renderJournalExtras();
   renderJournalDateStrip(visible);
   document.getElementById('journal-nav').hidden = visible.length === 0;
 
@@ -6253,14 +6645,15 @@ function computeHomeRefills(nonDeletedMeds) {
 }
 
 // How soon a bill must be due to appear in the banner at the top of every screen.
-const REMINDER_BANNER_DAYS = 3;
+const REMINDER_BANNER_DAYS = 2;
 let reminderBannerDismissed = false;
 
 // Shows or hides the bills banner (bills due within a few days, plus a count of overdue ones).
 function renderReminderBanner(overdueBills, dueSoonBills) {
   const banner = document.getElementById('reminder-banner');
   const cutoff = shiftDateKey(todayKey(), REMINDER_BANNER_DAYS);
-  const soon = dueSoonBills.filter((x) => x.dateKey <= cutoff);
+  // Bills that pay themselves are not nagged about; overdue ones (probably just not marked paid) still are.
+  const soon = dueSoonBills.filter((x) => x.dateKey <= cutoff && !x.bill.autopay);
   if (reminderBannerDismissed || (soon.length === 0 && overdueBills.length === 0)) {
     banner.hidden = true;
     return;
@@ -6387,7 +6780,7 @@ function renderHome() {
         name.textContent = bill.name;
         const due = document.createElement('span');
         due.className = 'bill-due';
-        due.textContent = `$${bill.amount.toFixed(2)} due ${dateKey}`;
+        due.textContent = `$${bill.amount.toFixed(2)} due ${dateKey}${bill.autopay ? ' \u00b7 autopay' : ''}`;
         btn.append(name, due);
       }, {
         label: 'Mark paid',
@@ -7041,6 +7434,7 @@ function buildExportPayload() {
   if (payday.payDateKey) local.paydaySettings = payday;
   const goal = loadWeightGoal();
   if (goal !== null) local.weightGoal = goal;
+  if (Object.keys(loadReadingGoals()).length > 0) local.readingGoals = loadReadingGoals();
   return { collections, local };
 }
 
@@ -7245,7 +7639,8 @@ function isValidImportRecord(collectionName, rec) {
   if (!rec || typeof rec !== 'object' || typeof rec.id !== 'string' || !rec.id) return false;
   const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
   const isDate = (v) => isRealDateKey(v);
-  if (collectionName === 'bills') return isNum(rec.amount) && isDate(rec.dueDate) && IMPORT_FREQUENCIES.includes(rec.frequency);
+  if (collectionName === 'bills') return isNum(rec.amount) && isDate(rec.dueDate) && IMPORT_FREQUENCIES.includes(rec.frequency) && (rec.autopay === undefined || typeof rec.autopay === 'boolean');
+  if (collectionName === 'books') return rec.dateFinished == null || isDate(rec.dateFinished);
   if (collectionName === 'recurringIncome') return isNum(rec.amount) && isDate(rec.dueDate) && IMPORT_FREQUENCIES.includes(rec.frequency) && rec.frequency !== 'one_time';
   if (collectionName === 'income') return isNum(rec.amount) && isDate(rec.dateKey);
   if (collectionName === 'medications') return rec.takenDates === undefined || Array.isArray(rec.takenDates);
@@ -7313,6 +7708,17 @@ function importData(parsed) {
       renderWeightChart();
       anyChanged = true;
       summaries.push('weight goal');
+    }
+    // Reading goals fill in only the years this device has no goal for.
+    if (localPart.readingGoals && typeof localPart.readingGoals === 'object') {
+      const have = loadReadingGoals();
+      const added = Object.entries(localPart.readingGoals).filter(([year, n]) => /^\d{4}$/.test(year) && Number.isInteger(n) && n > 0 && n <= 1000 && !(year in have));
+      added.forEach(([year, n]) => saveReadingGoal(year, n));
+      if (added.length) {
+        renderBooks();
+        anyChanged = true;
+        summaries.push('reading goals');
+      }
     }
     const saved = localPart.paydaySettings;
     if (saved && isRealDateKey(saved.payDateKey) && PAY_PERIOD_FREQUENCIES.includes(saved.frequency) && !loadPaydaySettings().payDateKey) {
@@ -7391,7 +7797,7 @@ document.addEventListener('visibilitychange', () => {
 
 // The build number shown in the Menu. Keep it equal to the number in CACHE_NAME in sw.js
 // (a test checks this), so "which version am I on?" has a one-glance answer.
-const APP_VERSION = 60;
+const APP_VERSION = 62;
 const THEME_KEY = 'secondMemory.theme.v1';
 const THEMES = ['auto', 'light', 'dark'];
 

@@ -15,6 +15,12 @@ All of your data is stored in that browser's `localStorage`, on that device only
 Nothing is sent anywhere over the network unless you deliberately set up syncing between
 devices, described below.
 
+## What else is in the app
+
+- **Home:** needs-attention panels, search across every list, quick add (to-do, shopping item or note), and a printable **Health summary** (medications, diagnoses, weight; never the journal).
+- **Medications:** a daily **Taken today** tick with a streak. **Weight:** chart, goal line and 30-day change. **Books:** a yearly reading goal. **Budget:** mark bills as **autopay** (they are left out of the two-day reminder banner). **Recipes:** scale amounts and **Cook mode** (big steps, screen stays on). **Journal:** a prompt of the day and "this day last year".
+- **Menu:** Theme (Auto, Light, Dark), **App lock** (a PIN; it hides the app but does not encrypt the data, and if you forget it the only way back in is to erase that device), and the app version.
+
 ## Syncing between devices (optional)
 
 By default, each device you use keeps its own separate copy of your data. If you want
@@ -40,7 +46,7 @@ file, in the code, or in a commit; keep it in a password manager.
 |---|---|---|
 | Everything that syncs (books, recipes, medications, diagnoses, weight, to-dos, shopping, notes, links, bills, income) | Each device, plus the Render server | Open the app on the new device, enter the passphrase, tap **Sync now**. It pulls everything down. |
 | The journal | **Only** the device where you wrote it. It is never synced. | Open the app, go to Journal, tap **Restore journal**, choose a journal backup file. Or use **Import data** with a full backup (see below). |
-| Pay-period settings | Only the device you set them on | Come back with a full backup. Otherwise set them again in Budget. |
+| Pay-period settings, weight goal, reading goals, app lock, theme | Only the device you set them on | The first three come back with a full backup. The app lock and theme are per device: set them again in the Menu. |
 
 **Keep a full backup.** In the app's Menu, tap **Export data** to download a full backup file. It
 holds everything above, including the journal and pay-period settings, so keep the file

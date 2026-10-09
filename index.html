@@ -292,6 +292,20 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
 
       <p class="stats-line" id="books-stats"></p>
 
+      <!-- Reading goal for this year: books finished so far, a progress bar, and a goal you set. Drawn by renderReadingGoal. -->
+      <div class="reading-goal" id="reading-goal">
+        <p class="reading-goal-text" id="reading-goal-text"></p>
+        <progress class="reading-goal-bar" id="reading-goal-bar" max="1" value="0" hidden></progress>
+        <p class="reading-goal-undated" id="reading-goal-undated" hidden></p>
+        <form class="reading-goal-form" id="reading-goal-form" novalidate>
+          <label for="reading-goal-input" id="reading-goal-label">Books to read this year</label>
+          <input type="number" id="reading-goal-input" min="1" max="1000" step="1" placeholder="Goal" aria-label="Books to read this year">
+          <button type="submit">Save goal</button>
+          <button type="button" id="reading-goal-clear">Clear</button>
+        </form>
+        <p class="form-error" id="reading-goal-error" hidden></p>
+      </div>
+
       <form id="books-add-form" class="add-form">
         <input type="text" id="books-title-input" placeholder="Title" required aria-label="Book title">
         <input type="text" id="books-author-input" placeholder="Author" aria-label="Book author">
@@ -421,6 +435,19 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         <button type="button" class="journal-start-btn" data-journal-type="dream">New dream entry</button>
         <button type="button" class="journal-start-btn" data-journal-type="therapy">New therapy session entry</button>
         <button type="button" class="journal-summary-btn" id="therapy-summary-btn">Therapy summary</button>
+
+        <!-- A reflective prompt that changes each day; "Write about this" starts a journal entry with it filled in. -->
+        <div class="journal-extra journal-prompt" id="journal-prompt">
+          <p class="journal-extra-label">Prompt of the day</p>
+          <p class="journal-prompt-text" id="journal-prompt-text"></p>
+          <button type="button" class="journal-secondary-btn" id="journal-prompt-btn">Write about this</button>
+        </div>
+
+        <!-- Entries written on this date one year ago (hidden when there are none). Filled by renderJournalExtras. -->
+        <div class="journal-extra journal-lookback" id="journal-lookback" hidden>
+          <p class="journal-extra-label">This day last year</p>
+          <ul class="journal-lookback-list" id="journal-lookback-list"></ul>
+        </div>
       </div>
 
       <form id="journal-wizard" class="journal-wizard" hidden>
@@ -736,6 +763,7 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
           <option value="one_time">One-time (no recurrence)</option>
         </select>
         <input type="text" id="budget-category-input" placeholder="Category (optional)" aria-label="Bill category">
+        <label class="check-field"><input type="checkbox" id="budget-autopay-input"> Pays automatically (autopay)</label>
         <p class="form-error" id="budget-form-error" hidden></p>
         <button type="submit">Add bill</button>
       </form>
@@ -807,6 +835,7 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
       <div class="book-info">
         <strong class="book-title"></strong>
         <span class="book-author"></span>
+        <span class="book-finished" hidden></span>
         <span class="book-rating"></span>
       </div>
       <div class="book-actions">
@@ -838,6 +867,9 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
     <form class="book-edit-form" hidden>
       <input type="text" class="book-edit-title" placeholder="Title" required aria-label="Edit book title">
       <input type="text" class="book-edit-author" placeholder="Author" aria-label="Edit book author">
+      <label class="date-field book-edit-finished-field" hidden>Date finished
+        <input type="date" class="book-edit-finished" min="1990-01-01" max="2100-12-31" aria-label="Edit date finished">
+      </label>
       <div class="book-actions">
         <button type="submit">Save</button>
         <button type="button" class="cancel-btn">Cancel</button>
@@ -856,6 +888,13 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
       </div>
       <div class="recipe-section recipe-ingredients-section" hidden>
         <h4>Ingredients</h4>
+        <div class="recipe-scale" role="group" aria-label="Scale the amounts">
+          <span class="recipe-scale-label">Scale:</span>
+          <button type="button" class="chip" data-scale="0.5">&frac12;&times;</button>
+          <button type="button" class="chip" data-scale="1">1&times;</button>
+          <button type="button" class="chip" data-scale="2">2&times;</button>
+          <button type="button" class="chip" data-scale="3">3&times;</button>
+        </div>
         <ul class="recipe-ingredients scroll-block"></ul>
       </div>
       <div class="recipe-section recipe-steps-section" hidden>
@@ -864,6 +903,7 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
       </div>
       <p class="recipe-notes" hidden></p>
       <div class="recipe-actions">
+        <button type="button" class="cook-mode-btn" hidden>Cook mode</button>
         <button type="button" class="add-to-shopping-btn" hidden>Add to shopping list</button>
         <button type="button" class="edit-btn">Edit</button>
         <button type="button" class="delete-btn" aria-label="Delete recipe">Delete</button>
@@ -1082,6 +1122,7 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         <span class="bill-amount"></span>
         <span class="bill-due"></span>
         <span class="bill-frequency"></span>
+        <span class="bill-autopay" hidden>Autopay</span>
         <span class="bill-category badge" hidden></span>
       </div>
       <div class="bill-actions">
@@ -1105,6 +1146,7 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         <option value="one_time">One-time (no recurrence)</option>
       </select>
       <input type="text" class="bill-edit-category" placeholder="Category (optional)" aria-label="Edit bill category">
+      <label class="check-field"><input type="checkbox" class="bill-edit-autopay"> Pays automatically (autopay)</label>
       <p class="form-error bill-edit-error" hidden></p>
       <div class="bill-actions">
         <button type="submit">Save</button>
@@ -1239,6 +1281,27 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
       <button type="button" id="lock-setup-cancel">Cancel</button>
     </div>
   </form>
+</div>
+
+<!-- Cook mode: a big, one-step-at-a-time view of a recipe that keeps the screen on while it is open. -->
+<div class="cook-overlay" id="cook-mode" role="dialog" aria-modal="true" aria-labelledby="cook-title" hidden>
+  <div class="cook-sheet">
+    <div class="cook-top">
+      <h2 id="cook-title"></h2>
+      <button type="button" id="cook-close" class="summary-btn">Close</button>
+    </div>
+    <details class="cook-ingredients">
+      <summary>Ingredients</summary>
+      <ul id="cook-ingredients-list"></ul>
+    </details>
+    <p class="cook-progress" id="cook-progress" aria-live="polite"></p>
+    <p class="cook-step" id="cook-step"></p>
+    <div class="cook-nav">
+      <button type="button" id="cook-prev" class="summary-btn">Back</button>
+      <button type="button" id="cook-next" class="summary-btn cook-next">Next</button>
+    </div>
+    <p class="cook-awake" id="cook-awake" hidden>The screen will stay on while this is open.</p>
+  </div>
 </div>
 
 <!-- All app behaviour lives in app.js; it must load last so every element above exists. -->

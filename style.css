@@ -2341,7 +2341,8 @@ body::before {
 }
 
 /* Recipe -> shopping list */
-.add-to-shopping-btn {
+.add-to-shopping-btn,
+.cook-mode-btn {
   padding: 5px 12px;
   border: 1px solid var(--accent);
   border-radius: 13px;
@@ -2352,8 +2353,10 @@ body::before {
   cursor: pointer;
 }
 
-.add-to-shopping-btn:hover { background: var(--accent); color: var(--accent-contrast); }
-.add-to-shopping-btn[hidden] { display: none; }
+.add-to-shopping-btn:hover,
+.cook-mode-btn:hover { background: var(--accent); color: var(--accent-contrast); }
+.add-to-shopping-btn[hidden],
+.cook-mode-btn[hidden] { display: none; }
 
 /* Confirmation line under a recipe after adding it to the shopping list. */
 .recipe-shop-status {
@@ -2835,3 +2838,121 @@ html[data-locked] .storage-warning { visibility: hidden; }
 
 .lock-buttons { display: flex; gap: 8px; }
 .lock-buttons button { flex: 1; }
+
+/* ===== Reading goal, autopay, recipe scaling, cook mode, journal prompts ===== */
+.date-field[hidden] { display: none; } /* .date-field sets display:flex, which would otherwise beat [hidden] */
+
+.check-field { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; color: var(--muted); }
+.check-field input { width: auto; flex: none; }
+
+.reading-goal {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.reading-goal-text { margin: 0 0 6px; font-weight: 600; overflow-wrap: anywhere; }
+.reading-goal-undated { margin: 6px 0 0; font-size: 0.8rem; color: var(--muted); }
+
+.reading-goal-bar {
+  display: block;
+  width: 100%;
+  height: 10px;
+  border: none;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--border-soft);
+  accent-color: var(--accent);
+}
+
+.reading-goal-bar::-webkit-progress-bar { background: var(--border-soft); }
+.reading-goal-bar::-webkit-progress-value { background: var(--accent); border-radius: 999px; }
+.reading-goal-bar::-moz-progress-bar { background: var(--accent); }
+.reading-goal-bar[hidden] { display: none; }
+
+.reading-goal-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.reading-goal-form label { font-size: 0.85rem; color: var(--muted); }
+
+.reading-goal-form input {
+  width: 6em;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+}
+
+.reading-goal-form button {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.reading-goal-form button[type="submit"] { border: none; background: var(--accent); color: var(--accent-contrast); font-weight: 600; }
+
+.book-finished { font-size: 0.85rem; color: var(--muted); }
+
+.bill-autopay {
+  align-self: flex-start;
+  padding: 1px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  color: var(--accent);
+}
+
+.bill-autopay[hidden] { display: none; }
+
+.recipe-scale { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 6px; }
+.recipe-scale-label { font-size: 0.8rem; color: var(--muted); }
+
+.cook-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  overflow-y: auto;
+  padding: 16px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.cook-overlay[hidden] { display: none; }
+.cook-sheet { max-width: 760px; margin: 0 auto; }
+.cook-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.cook-top h2 { margin: 0; overflow-wrap: anywhere; }
+.cook-ingredients { margin: 14px 0; }
+.cook-ingredients summary { cursor: pointer; font-weight: 600; }
+.cook-ingredients ul { margin: 8px 0 0; padding-left: 22px; }
+.cook-progress { margin: 18px 0 6px; color: var(--muted); font-size: 0.95rem; }
+.cook-step { margin: 0 0 20px; font-size: 1.6rem; line-height: 1.45; overflow-wrap: anywhere; }
+.cook-nav { display: flex; gap: 12px; }
+.cook-nav .summary-btn { flex: 1; padding: 16px; font-size: 1.1rem; }
+.cook-nav .summary-btn:disabled { opacity: 0.4; }
+.cook-awake { margin: 14px 0 0; font-size: 0.8rem; color: var(--muted); }
+.cook-awake[hidden] { display: none; }
+
+.journal-extra { flex: 1 1 100%; padding: 12px 14px; border: 1px solid var(--border-soft); border-radius: 16px; background: var(--surface); }
+.journal-extra[hidden] { display: none; }
+.journal-extra-label { margin: 0 0 4px; font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.journal-prompt-text { margin: 0 0 10px; font-size: 1.05rem; overflow-wrap: anywhere; }
+.journal-lookback-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+
+.journal-lookback-list button {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 13px;
+  background: var(--bg);
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
