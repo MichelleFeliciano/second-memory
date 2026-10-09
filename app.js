@@ -5182,6 +5182,7 @@ function renderJournal() {
   });
 
   document.getElementById('journal-empty-state').hidden = journalEntries.length !== 0;
+  renderBackupNotes();
   renderJournalDateStrip(visible);
   document.getElementById('journal-nav').hidden = visible.length === 0;
 
@@ -5334,7 +5335,8 @@ function setJournalBackupStatus(text, tone) {
   el.classList.toggle('sync-failed', tone === 'failed');
 }
 
-document.getElementById('journal-export-btn').addEventListener('click', () => {
+function downloadJournalBackup() {
+  recordBackupTime(JOURNAL_BACKUP_AT_KEY);
   const json = JSON.stringify({ journal: journalEntries }, null, 2);
   const blob = new Blob([json], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -5346,7 +5348,10 @@ document.getElementById('journal-export-btn').addEventListener('click', () => {
   link.remove();
   URL.revokeObjectURL(url);
   setJournalBackupStatus('Journal backup downloaded. Keep the file somewhere private.', 'ok');
-});
+  renderBackupNotes();
+}
+
+document.getElementById('journal-export-btn').addEventListener('click', downloadJournalBackup);
 
 document.getElementById('journal-import-btn').addEventListener('click', () => {
   document.getElementById('journal-import-file').click();
@@ -5392,6 +5397,88 @@ document.getElementById('journal-import-file').addEventListener('change', (e) =>
   reader.onerror = () => setJournalBackupStatus('Restore failed \u2014 could not read that file.', 'failed');
   reader.readAsText(file);
 });
+
+// ---- Backup reminders ----
+// The server keeps daily restore points of everything that syncs. These are
+// the two things only this device holds: the journal, and a full download.
+// Browsers can't write files in the background, so the app tracks the last
+// download and nags when it is overdue.
+
+const JOURNAL_BACKUP_AT_KEY = 'secondMemory.journalBackupAt.v1';
+const EXPORT_AT_KEY = 'secondMemory.exportAt.v1';
+const JOURNAL_BACKUP_DUE_DAYS = 7;
+const EXPORT_DUE_DAYS = 30;
+
+function recordBackupTime(key) {
+  try { localStorage.setItem(key, new Date().toISOString()); } catch { /* storage full: nothing to remember it in */ }
+}
+
+function daysSinceBackup(key) {
+  try {
+    const value = localStorage.getItem(key);
+    if (!value) return null;
+    const ms = Date.now() - new Date(value).getTime();
+    return Number.isFinite(ms) ? Math.max(0, Math.floor(ms / 86400000)) : null;
+  } catch {
+    return null;
+  }
+}
+
+function backupAgeText(days) {
+  if (days === null) return 'never';
+  if (days === 0) return 'today';
+  return days === 1 ? 'yesterday' : `${days} days ago`;
+}
+
+let backupNotesDismissed = false;
+
+function renderBackupNotes() {
+  const lastEl = document.getElementById('journal-backup-last');
+  if (lastEl) lastEl.textContent = `Last journal backup: ${backupAgeText(daysSinceBackup(JOURNAL_BACKUP_AT_KEY))}`;
+
+  const box = document.getElementById('home-backup-notes');
+  if (!box) return;
+  box.innerHTML = '';
+  const reminders = [];
+  const journalDays = daysSinceBackup(JOURNAL_BACKUP_AT_KEY);
+  if (journalEntries.length > 0 && (journalDays === null || journalDays >= JOURNAL_BACKUP_DUE_DAYS)) {
+    reminders.push({
+      text: `Your journal lives only on this device, and it ${journalDays === null ? 'has never been backed up' : `was last backed up ${backupAgeText(journalDays)}`}.`,
+      label: 'Back up journal',
+      action: downloadJournalBackup,
+    });
+  }
+  const hasAnyData = SYNC_COLLECTIONS.some((c) => c.get().some((r) => !r.deleted));
+  const exportDays = daysSinceBackup(EXPORT_AT_KEY);
+  if (hasAnyData && (exportDays === null || exportDays >= EXPORT_DUE_DAYS)) {
+    reminders.push({
+      text: `You haven't downloaded a full backup of everything ${exportDays === null ? 'yet' : `in ${exportDays} days`}. Your synced data is also kept safe on the server.`,
+      label: 'Download full backup',
+      action: exportData,
+    });
+  }
+  box.hidden = backupNotesDismissed || reminders.length === 0;
+  reminders.forEach((reminder) => {
+    const row = document.createElement('div');
+    row.className = 'reminder-banner';
+    const text = document.createElement('span');
+    text.className = 'reminder-banner-text';
+    text.textContent = reminder.text;
+    const act = document.createElement('button');
+    act.type = 'button';
+    act.className = 'reminder-banner-btn';
+    act.textContent = reminder.label;
+    act.addEventListener('click', reminder.action);
+    const dismiss = document.createElement('button');
+    dismiss.type = 'button';
+    dismiss.className = 'reminder-banner-btn';
+    dismiss.setAttribute('aria-label', 'Dismiss backup reminders');
+    dismiss.textContent = '\u00d7';
+    dismiss.addEventListener('click', () => { backupNotesDismissed = true; box.hidden = true; });
+    row.append(text, act, dismiss);
+    box.appendChild(row);
+  });
+}
 
 // ---- Home ----
 // Pure, render-only aggregation over the live books/todos/bills arrays — no
@@ -5507,6 +5594,7 @@ function computeCurrentlyReading(nonDeletedBooks) {
 }
 
 function renderHome() {
+  renderBackupNotes();
   const nonDeletedBills = bills.filter((b) => !b.deleted);
   const nonDeletedTodos = todos.filter((t) => !t.deleted);
   const nonDeletedBooks = books.filter((b) => !b.deleted);
@@ -6143,6 +6231,7 @@ function todayForFilename() {
 }
 
 function exportData() {
+  recordBackupTime(EXPORT_AT_KEY);
   const json = JSON.stringify(buildExportPayload(), null, 2);
   const blob = new Blob([json], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -6153,6 +6242,7 @@ function exportData() {
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10000); // revoking at once can cancel the download on iOS/Safari
+  renderBackupNotes();
 }
 
 // Accepts the exact shape `buildExportPayload()` produces (`{ collections: {...} }`)

@@ -11,6 +11,7 @@ this server does not serve them. Stdlib only — no pip installs.
 import hmac
 import json
 import os
+import re
 import shutil
 import sys
 import threading
@@ -23,6 +24,14 @@ from urllib.parse import unquote
 PORT = int(os.environ.get("PORT", "8443"))
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/var/data"))
 DATA_PATH = DATA_DIR / "sync_data.json"
+
+# Automatic daily restore points. The first save on each UTC day first copies
+# the data file as it stood BEFORE that day's changes to
+# backups/sync_data-YYYY-MM-DD.json, then older ones beyond the newest 30 are
+# deleted. Restoring "day D" means the state at the start of day D.
+BACKUP_DIR = DATA_DIR / "backups"
+BACKUP_KEEP = 30
+BACKUP_NAME_RE = re.compile(r"^sync_data-(\d{4}-\d{2}-\d{2})\.json$")
 
 COLLECTION_NAMES = [
     "books", "recipes", "medications", "diagnoses", "todos",
@@ -85,7 +94,35 @@ def save_dataset(data):
         os.fsync(f.fileno())
     if DATA_PATH.exists():
         shutil.copyfile(DATA_PATH, DATA_PATH.with_suffix(".bak"))
+        try:
+            snapshot_daily()
+        except OSError as err:  # a backup problem must never block saving real data
+            print(f"WARNING: daily backup failed: {err}", file=sys.stderr)
     os.replace(tmp_path, DATA_PATH)
+
+
+def snapshot_daily():
+    """Copies the current (pre-save) data file to today's restore point if
+    today doesn't have one yet, then prunes to the newest BACKUP_KEEP."""
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    today = time.strftime("%Y-%m-%d", time.gmtime())
+    target = BACKUP_DIR / f"sync_data-{today}.json"
+    if not target.exists():
+        shutil.copyfile(DATA_PATH, target)
+    files = sorted(f for f in BACKUP_DIR.iterdir() if BACKUP_NAME_RE.match(f.name))
+    for old in files[:-BACKUP_KEEP]:
+        old.unlink()
+
+
+def list_backups():
+    if not BACKUP_DIR.exists():
+        return []
+    out = []
+    for f in sorted(BACKUP_DIR.iterdir()):
+        m = BACKUP_NAME_RE.match(f.name)
+        if m:
+            out.append({"date": m.group(1), "bytes": f.stat().st_size})
+    return out
 
 
 # Fields that describe *who/when touched a record* rather than the record's
@@ -270,7 +307,7 @@ class SyncHandler(BaseHTTPRequestHandler):
         return any(hmac.compare_digest(c.encode("utf-8"), expected.encode("utf-8")) for c in candidates)
 
     def do_OPTIONS(self):
-        if self.path != "/api/sync":
+        if self.path not in ("/api/sync", "/api/backup"):
             self.send_response(404)
             self.send_header("Content-Length", "0")
             self.end_headers()
@@ -287,7 +324,38 @@ class SyncHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
+    def _handle_backup(self):
+        """POST /api/backup. No body (or no "date"): list the restore points.
+        {"date": "YYYY-MM-DD"}: return that day's saved copy of all the data."""
+        if not self._check_token():
+            self._send_json(401, {"error": "invalid or missing X-Sync-Token"})
+            return
+        try:
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            body = json.loads(self.rfile.read(min(max(length, 0), 4096)) or b"{}")
+        except ValueError:
+            self._send_json(400, {"error": "invalid request"})
+            return
+        date = body.get("date") if isinstance(body, dict) else None
+        with data_lock:
+            if date is None:
+                self._send_json(200, {"backups": list_backups()})
+                return
+            if not isinstance(date, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+                self._send_json(400, {"error": "date must look like 2026-10-08"})
+                return
+            path = BACKUP_DIR / f"sync_data-{date}.json"
+            if not path.is_file():
+                self._send_json(404, {"error": "no backup for that date"})
+                return
+            with path.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+        self._send_json(200, {"date": date, "collections": data})
+
     def do_POST(self):
+        if self.path == "/api/backup":
+            self._handle_backup()
+            return
         if self.path != "/api/sync":
             self._send_json(404, {"error": "not found"})
             return
