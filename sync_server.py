@@ -36,7 +36,7 @@ BACKUP_NAME_RE = re.compile(r"^sync_data-(\d{4}-\d{2}-\d{2})\.json$")
 COLLECTION_NAMES = [
     "books", "recipes", "medications", "diagnoses", "todos",
     "shoppingList", "notes", "links", "bills", "income",
-    "recurringIncome", "appointments",
+    "recurringIncome", "appointments", "weights",
 ]
 
 # The app's HTML/JS is now hosted separately from this server (GitHub Pages,

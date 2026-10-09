@@ -23,6 +23,7 @@ const specs = [
   ['recipes', () => recipes, 'recipes-add-form', { 'recipes-title-input': 'TRecipe', 'recipes-ingredients-input': 'a\nb', 'recipes-steps-input': '1\n2' }],
   ['medications', () => medications, 'medications-add-form', { 'medications-name-input': 'TMed', 'medications-refill-input': dk(2) }],
   ['appointments', () => appointments, 'appointments-add-form', { 'appointments-title-input': 'TAppt', 'appointments-date-input': dk(1), 'appointments-time-input': '09:30' }],
+  ['weight', () => weights, 'weight-add-form', { 'weight-date-input': dk(0), 'weight-value-input': '150.5' }],
   ['diagnoses', () => diagnoses, 'diagnoses-add-form', { 'diagnoses-condition-input': 'TDiag' }],
   ['todo', () => todos, 'todo-add-form', { 'todo-task-input': 'TTodo', 'todo-due-input': dk(1) }],
   ['shopping', () => shoppingItems, 'shopping-add-form', { 'shopping-item-input': 'TShop', 'shopping-category-input': 'Dairy' }],
@@ -41,7 +42,7 @@ for (const [tab, arr, form, fill] of specs) {
 }
 
 // ---- edit: open, cancel, save closes the form and keeps the data ----
-for (const t of ['books', 'recipes', 'medications', 'appointments', 'diagnoses', 'todo', 'shopping', 'notes', 'budget', 'resume']) {
+for (const t of ['books', 'recipes', 'medications', 'appointments', 'weight', 'diagnoses', 'todo', 'shopping', 'notes', 'budget', 'resume']) {
   nav(t);
   const sec = $(t + '-collection');
   const openForm = () => [...sec.querySelectorAll('form')].find((f) => !f.hidden && /edit-form/.test(f.className));
@@ -57,7 +58,7 @@ for (const t of ['books', 'recipes', 'medications', 'appointments', 'diagnoses',
 }
 
 // ---- delete, undo, redo ----
-const delSpecs = [['books', () => books], ['recipes', () => recipes], ['medications', () => medications], ['appointments', () => appointments],
+const delSpecs = [['books', () => books], ['recipes', () => recipes], ['medications', () => medications], ['appointments', () => appointments], ['weight', () => weights],
   ['diagnoses', () => diagnoses], ['todo', () => todos], ['shopping', () => shoppingItems], ['notes', () => notes], ['resume', () => links]];
 for (const [t, arr] of delSpecs) {
   nav(t);

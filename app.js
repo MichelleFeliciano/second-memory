@@ -250,6 +250,7 @@ renderBooks = withFocusRestore(renderBooks);
 renderRecipes = withFocusRestore(renderRecipes);
 renderMedications = withFocusRestore(renderMedications);
 renderAppointments = withFocusRestore(renderAppointments);
+renderWeights = withFocusRestore(renderWeights);
 renderDiagnoses = withFocusRestore(renderDiagnoses);
 renderTodos = withFocusRestore(renderTodos);
 renderShoppingList = withFocusRestore(renderShoppingList);
@@ -354,7 +355,7 @@ function recordUndo(collectionName, id, before, after) {
 // ---- UI state (active tab) ----
 
 const UI_STORAGE_KEY = 'secondMemory.ui.v1';
-const TABS = ['home', 'books', 'recipes', 'medications', 'diagnoses', 'appointments', 'journal', 'todo', 'shopping', 'notes', 'budget', 'resume'];
+const TABS = ['home', 'books', 'recipes', 'medications', 'diagnoses', 'appointments', 'weight', 'journal', 'todo', 'shopping', 'notes', 'budget', 'resume'];
 
 function loadUiState() {
   try {
@@ -1591,6 +1592,228 @@ document.getElementById('appointments-add-form').addEventListener('submit', (e) 
   errorEl.hidden = true;
   ids.forEach((k) => { inputs[k].value = ''; });
   inputs.title.focus();
+});
+
+// ---- Weight ----
+// A synced list of dated weights (pounds). The four headline figures are computed from the
+// entries each time: the oldest (earliest date), the highest, the lowest and the most recent.
+
+const WEIGHTS_KEY = 'secondMemory.weights.v1';
+const WEIGHT_UNIT = 'lb';
+const WEIGHT_MAX = 1500;
+
+let weights = migrateSyncFields(loadCollection(WEIGHTS_KEY), WEIGHTS_KEY, getDeviceId());
+
+function formatWeight(value) {
+  return `${Number(value).toFixed(1)} ${WEIGHT_UNIT}`;
+}
+
+function validateWeightFields(fields) {
+  const date = (fields.date || '').trim();
+  if (!isRealDateKey(date)) return { ok: false, error: 'Enter a real date.' };
+  if (date > todayKey()) return { ok: false, error: "The date can't be in the future." };
+  const raw = String(fields.value === undefined || fields.value === null ? '' : fields.value).trim();
+  const value = Number(raw);
+  if (raw === '' || !Number.isFinite(value) || value <= 0 || value > WEIGHT_MAX) {
+    return { ok: false, error: `Enter a weight between 0.1 and ${WEIGHT_MAX} ${WEIGHT_UNIT}.` };
+  }
+  return { ok: true, date, weight: Math.round(value * 10) / 10, note: (fields.note || '').trim() };
+}
+
+function addWeight(fields) {
+  const result = validateWeightFields(fields);
+  if (!result.ok) return result;
+  const now = new Date().toISOString();
+  const record = {
+    id: makeId(),
+    date: result.date,
+    weight: result.weight,
+    note: result.note,
+    dateAdded: now,
+    updatedAt: now,
+    deviceId: getDeviceId(),
+    deleted: false,
+    version: 0,
+  };
+  weights.push(record);
+  saveCollection(WEIGHTS_KEY, weights);
+  recordUndo('weights', record.id, null, structuredClone(record));
+  renderWeights();
+  return { ok: true };
+}
+
+function updateWeight(id, fields) {
+  const record = weights.find((w) => w.id === id);
+  if (!record) return { ok: false, error: 'Entry not found.' };
+  const result = validateWeightFields(fields);
+  if (!result.ok) return result;
+  const before = structuredClone(record);
+  record.date = result.date;
+  record.weight = result.weight;
+  record.note = result.note;
+  stampSync(record);
+  saveCollection(WEIGHTS_KEY, weights);
+  recordUndo('weights', id, before, structuredClone(record));
+  renderWeights();
+  return { ok: true };
+}
+
+function deleteWeight(id) {
+  const record = weights.find((w) => w.id === id);
+  if (!record) return;
+  const before = structuredClone(record);
+  record.deleted = true;
+  stampSync(record);
+  saveCollection(WEIGHTS_KEY, weights);
+  recordUndo('weights', id, before, structuredClone(record));
+  renderWeights();
+}
+
+function restoreWeight(id) {
+  const record = weights.find((w) => w.id === id);
+  if (!record || !record.deleted) return;
+  const before = structuredClone(record);
+  record.deleted = false;
+  stampSync(record);
+  saveCollection(WEIGHTS_KEY, weights);
+  recordUndo('weights', id, before, structuredClone(record));
+  renderWeights();
+}
+
+function compareWeightsByDate(a, b) {
+  if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+  return (a.dateAdded || '') < (b.dateAdded || '') ? -1 : (a.dateAdded || '') > (b.dateAdded || '') ? 1 : 0;
+}
+
+// oldest = earliest date, recent = latest date (same-day entries: the one added later).
+// highest / lowest = the largest / smallest weight; if it was reached more than once, the earliest time.
+function computeWeightStats(entries) {
+  const usable = entries
+    .filter((w) => !w.deleted && Number.isFinite(w.weight) && w.weight > 0 && typeof w.date === 'string')
+    .sort(compareWeightsByDate);
+  if (usable.length === 0) return null;
+  let highest = usable[0];
+  let lowest = usable[0];
+  usable.forEach((w) => {
+    if (w.weight > highest.weight) highest = w;
+    if (w.weight < lowest.weight) lowest = w;
+  });
+  return { oldest: usable[0], highest, lowest, recent: usable[usable.length - 1], count: usable.length };
+}
+
+function renderWeightStats(stats) {
+  document.querySelectorAll('#weight-stats .weight-stat').forEach((card) => {
+    const entry = stats ? stats[card.dataset.stat] : null;
+    card.querySelector('.weight-stat-value').textContent = entry ? formatWeight(entry.weight) : '\u2014';
+    card.querySelector('.weight-stat-date').textContent = entry && isRealDateKey(entry.date) ? formatDateKeyLong(entry.date) : '';
+  });
+}
+
+function renderWeights() {
+  const list = document.getElementById('weight-list');
+  if (!list) return;
+
+  const openForm = list.querySelector('.weight-edit-form:not([hidden])');
+  const openEdit = openForm
+    ? {
+        id: openForm.closest('.weight-card').dataset.weightId,
+        date: openForm.querySelector('.weight-edit-date').value,
+        value: openForm.querySelector('.weight-edit-value').value,
+        note: openForm.querySelector('.weight-edit-note').value,
+      }
+    : null;
+
+  const live = weights.filter((w) => !w.deleted && typeof w.date === 'string');
+  renderWeightStats(computeWeightStats(live));
+
+  const dateInput = document.getElementById('weight-date-input');
+  if (!dateInput.value) dateInput.value = todayKey();
+
+  list.innerHTML = '';
+  const template = document.getElementById('weight-card-template');
+  live.slice().sort((a, b) => compareWeightsByDate(b, a)).forEach((record) => {
+    const node = template.content.cloneNode(true);
+    node.querySelector('.weight-card').dataset.weightId = record.id;
+    const viewSection = node.querySelector('.weight-view');
+    const editForm = node.querySelector('.weight-edit-form');
+
+    node.querySelector('.weight-entry-value').textContent = formatWeight(record.weight);
+    node.querySelector('.weight-entry-date').textContent = isRealDateKey(record.date) ? formatDateKeyLong(record.date) : record.date;
+    const noteEl = node.querySelector('.weight-entry-note');
+    if (record.note) {
+      noteEl.textContent = record.note;
+      noteEl.hidden = false;
+    }
+
+    const editDate = node.querySelector('.weight-edit-date');
+    const editValue = node.querySelector('.weight-edit-value');
+    const editNote = node.querySelector('.weight-edit-note');
+    const editError = node.querySelector('.weight-edit-error');
+
+    node.querySelector('.edit-btn').addEventListener('click', () => {
+      const otherOpen = list.querySelector('.weight-edit-form:not([hidden])');
+      if (otherOpen && otherOpen !== editForm) {
+        otherOpen.hidden = true;
+        otherOpen.closest('.weight-card').querySelector('.weight-view').hidden = false;
+      }
+      editDate.value = record.date;
+      editValue.value = record.weight;
+      editNote.value = record.note || '';
+      editError.hidden = true;
+      viewSection.hidden = true;
+      editForm.hidden = false;
+    });
+    node.querySelector('.cancel-btn').addEventListener('click', () => {
+      editForm.hidden = true;
+      viewSection.hidden = false;
+    });
+    editForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      // Hide first (see the Medications edit form) so a successful save's own re-render doesn't
+      // reopen this form; re-show it if the entry was rejected.
+      editForm.hidden = true;
+      viewSection.hidden = false;
+      const result = updateWeight(record.id, { date: editDate.value, value: editValue.value, note: editNote.value });
+      if (!result.ok) {
+        viewSection.hidden = true;
+        editForm.hidden = false;
+        editError.textContent = result.error;
+        editError.hidden = false;
+      }
+    });
+    node.querySelector('.delete-btn').addEventListener('click', () => deleteWeight(record.id));
+
+    if (openEdit && openEdit.id === record.id) {
+      editDate.value = openEdit.date;
+      editValue.value = openEdit.value;
+      editNote.value = openEdit.note;
+      viewSection.hidden = true;
+      editForm.hidden = false;
+    }
+
+    list.appendChild(node);
+  });
+
+  document.getElementById('weight-empty-state').hidden = live.length !== 0;
+}
+
+document.getElementById('weight-add-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const dateInput = document.getElementById('weight-date-input');
+  const valueInput = document.getElementById('weight-value-input');
+  const noteInput = document.getElementById('weight-note-input');
+  const errorEl = document.getElementById('weight-form-error');
+  const result = addWeight({ date: dateInput.value, value: valueInput.value, note: noteInput.value });
+  if (!result.ok) {
+    errorEl.textContent = result.error;
+    errorEl.hidden = false;
+    return;
+  }
+  errorEl.hidden = true;
+  valueInput.value = '';
+  noteInput.value = '';
+  dateInput.value = todayKey();
+  valueInput.focus();
 });
 
 // ---- Diagnoses ----
@@ -6001,6 +6224,7 @@ const SYNC_COLLECTIONS = [
   { name: 'books', label: 'Books', key: BOOKS_KEY, get: () => books, set: (v) => { books = v; }, render: renderBooks, delete: deleteBook, restore: restoreBook },
   { name: 'recipes', label: 'Recipes', key: RECIPES_KEY, get: () => recipes, set: (v) => { recipes = v; }, render: renderRecipes, delete: deleteRecipe, restore: restoreRecipe },
   { name: 'medications', label: 'Medications', key: MEDICATIONS_KEY, get: () => medications, set: (v) => { medications = v; }, render: renderMedications, delete: deleteMedication, restore: restoreMedication },
+  { name: 'weights', label: 'Weight', key: WEIGHTS_KEY, get: () => weights, set: (v) => { weights = v; }, render: renderWeights, delete: deleteWeight, restore: restoreWeight },
   { name: 'appointments', label: 'Appointments', key: APPOINTMENTS_KEY, get: () => appointments, set: (v) => { appointments = v; }, render: renderAppointments, delete: deleteAppointment, restore: restoreAppointment },
   { name: 'diagnoses', label: 'Diagnoses', key: DIAGNOSES_KEY, get: () => diagnoses, set: (v) => { diagnoses = v; }, render: renderDiagnoses, delete: deleteDiagnosis, restore: restoreDiagnosis },
   { name: 'todos', label: 'To-Do', key: TODOS_KEY, get: () => todos, set: (v) => { todos = v; }, render: renderTodos, delete: deleteTodo, restore: restoreTodo },
@@ -6101,7 +6325,7 @@ function redo() {
 const RECORD_LABEL_FIELD = {
   books: 'title', recipes: 'title', medications: 'name', diagnoses: 'condition',
   todos: 'task', shoppingList: 'item', notes: 'title', links: 'label', bills: 'name',
-  income: 'dateKey', recurringIncome: 'name', appointments: 'title',
+  income: 'dateKey', recurringIncome: 'name', appointments: 'title', weights: 'date',
 };
 
 function describeEntry(entry) {
@@ -6722,6 +6946,7 @@ function isValidImportRecord(collectionName, rec) {
   if (collectionName === 'recurringIncome') return isNum(rec.amount) && isDate(rec.dueDate) && IMPORT_FREQUENCIES.includes(rec.frequency) && rec.frequency !== 'one_time';
   if (collectionName === 'income') return isNum(rec.amount) && isDate(rec.dateKey);
   if (collectionName === 'appointments') return isDate(rec.date);
+  if (collectionName === 'weights') return isNum(rec.weight) && rec.weight > 0 && rec.weight <= WEIGHT_MAX && isDate(rec.date);
   return true;
 }
 
@@ -6848,7 +7073,7 @@ document.addEventListener('visibilitychange', () => {
 // ---- Init ----
 
 [
-  renderBooks, renderRecipes, renderMedications, renderDiagnoses, renderAppointments, renderJournal,
+  renderBooks, renderRecipes, renderMedications, renderDiagnoses, renderAppointments, renderWeights, renderJournal,
   renderTodos, renderShoppingList, renderNotes, renderLinks, renderBudget,
 ].forEach(safeRender);
 updateUndoRedoButtons();

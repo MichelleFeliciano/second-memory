@@ -685,6 +685,7 @@ body::before {
 .shopping-item,
 .note-card,
 .appt-card,
+.weight-card,
 .link-card,
 .bill-card,
 .recurring-income-card,
@@ -706,6 +707,7 @@ body::before {
 .shopping-item:hover,
 .note-card:hover,
 .appt-card:hover,
+.weight-card:hover,
 .link-card:hover,
 .bill-card:hover,
 .recurring-income-card:hover,
@@ -2333,3 +2335,64 @@ body::before {
 
 /* While searching, the rest of Home steps aside. */
 #home-collection.is-searching > :not(.collection-toolbar):not(.global-search) { display: none !important; }
+
+/* Weight */
+
+.weight-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.weight-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-soft);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.weight-stat-label { font-size: 0.8rem; color: var(--muted); }
+.weight-stat-value { font-size: 1.5rem; overflow-wrap: anywhere; }
+.weight-stat-date { font-size: 0.8rem; color: var(--muted); min-height: 1.1em; }
+
+.weight-view {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.weight-view[hidden], .weight-edit-form[hidden] { display: none; }
+
+.weight-info { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; min-width: 0; }
+.weight-entry-value { font-size: 1.1rem; }
+.weight-entry-date, .weight-entry-note { font-size: 0.85rem; color: var(--muted); overflow-wrap: anywhere; }
+.weight-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.weight-edit-form { display: flex; flex-direction: column; gap: 10px; }
+
+.weight-edit-form input {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+}
+
+.weight-edit-form button[type="submit"] {
+  padding: 5px 14px;
+  border: none;
+  border-radius: 13px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.8rem;
+}
