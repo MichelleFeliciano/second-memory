@@ -2672,3 +2672,85 @@ select[id$="-sort-input"],
 }
 
 .quick-add-status[hidden] { display: none; }
+
+/* ===== Weight chart and medication check-off ===== */
+.weight-chart-box { margin-bottom: 18px; }
+
+.weight-chart-toolbar { margin-bottom: 6px; }
+
+.weight-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.weight-chart .w-grid { stroke: var(--border-soft); stroke-width: 1; }
+.weight-chart .w-label { fill: var(--muted); font-size: 16px; }
+.weight-chart .w-line { fill: none; stroke: var(--accent); stroke-width: 2.2; }
+.weight-chart .w-dot { fill: var(--accent); stroke: var(--surface); stroke-width: 1.5; }
+.weight-chart .w-goal { stroke: var(--accent-rose); stroke-width: 1.6; stroke-dasharray: 6 4; }
+.weight-chart .w-goal-label { fill: var(--accent-rose); font-size: 16px; font-weight: 600; }
+.weight-chart .w-empty { fill: var(--muted); font-size: 18px; }
+
+.weight-trend { margin: 8px 0; font-size: 0.9rem; color: var(--muted); min-height: 1.2em; }
+
+.weight-goal-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.weight-goal-form label { font-size: 0.85rem; color: var(--muted); }
+
+.weight-goal-form input {
+  width: 8em;
+  max-width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+}
+
+.weight-goal-form button {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.weight-goal-form button[type="submit"] {
+  border: none;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
+}
+
+.med-taken { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 6px 0; }
+
+.med-taken-btn {
+  padding: 6px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 13px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.med-taken-btn[aria-pressed="true"] { background: var(--accent); color: var(--accent-contrast); }
+
+.med-taken-note { font-size: 0.85rem; color: var(--muted); }
+
+@media (max-width: 700px) {
+  input[type="number"].weight-goal-input, .weight-goal-form input { font-size: 16px; }
+}

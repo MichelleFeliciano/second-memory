@@ -1067,6 +1067,7 @@ function addMedication(fields) {
     endDate: null,
     refillDate,
     notes: fields.notes.trim(),
+    takenDates: [],
     dateAdded: now,
     updatedAt: now,
     deviceId: getDeviceId(),
@@ -1111,6 +1112,68 @@ function updateMedicationDate(id, field, value) {
   saveCollection(MEDICATIONS_KEY, medications);
   renderHome(); // refills show on Home; this does not touch the medication list
   return { ok: true };
+}
+
+// ---- Medication check-off ----
+// Each medication keeps `takenDates`: the days you ticked "Taken today" (newest 365 are kept).
+// It is part of the medication record, so it syncs and is undoable like any other edit.
+
+const TAKEN_DATES_KEPT = 365;
+
+// The valid, de-duplicated, sorted list of days a medication was taken (damaged data becomes []).
+function takenDatesOf(med) {
+  const raw = Array.isArray(med.takenDates) ? med.takenDates : [];
+  return [...new Set(raw.filter((d) => isRealDateKey(d)))].sort();
+}
+
+// Summarises the check-off: taken today?, the current streak of days in a row, the last day taken,
+// and how many of the last 7 days (today included) were ticked.
+function medicationTakenSummary(med) {
+  const taken = new Set(takenDatesOf(med));
+  const today = todayKey();
+  const takenToday = taken.has(today);
+  let cursor = takenToday ? today : shiftDateKey(today, -1);
+  let streak = 0;
+  while (taken.has(cursor)) {
+    streak += 1;
+    cursor = shiftDateKey(cursor, -1);
+  }
+  const sorted = [...taken].sort();
+  let last7 = 0;
+  for (let i = 0; i < 7; i++) if (taken.has(shiftDateKey(today, -i))) last7 += 1;
+  return { takenToday, streak, lastTaken: sorted.length ? sorted[sorted.length - 1] : null, last7 };
+}
+
+// Ticks or unticks "taken" for one day (defaults to today) and saves it as one undoable change.
+function toggleMedicationTaken(id, dateKey) {
+  const med = medications.find((m) => m.id === id);
+  if (!med) return;
+  const day = dateKey || todayKey();
+  flushMedDateUndo();
+  const before = structuredClone(med);
+  const taken = new Set(takenDatesOf(med));
+  if (taken.has(day)) taken.delete(day); else taken.add(day);
+  med.takenDates = [...taken].sort().slice(-TAKEN_DATES_KEPT);
+  stampSync(med);
+  saveCollection(MEDICATIONS_KEY, medications);
+  recordUndo('medications', id, before, structuredClone(med));
+  renderMedications();
+  renderHome();
+}
+
+// Sets the "Taken today" button and the note beside it (streak, or when it was last taken).
+function renderMedicationTaken(med, button, note) {
+  const s = medicationTakenSummary(med);
+  button.setAttribute('aria-pressed', String(s.takenToday));
+  button.textContent = s.takenToday ? 'Taken today \u2713' : 'Taken today';
+  if (s.streak >= 2) {
+    note.textContent = `${s.streak} days in a row`;
+  } else if (s.lastTaken && !s.takenToday) {
+    const ago = -daysUntilDateKey(s.lastTaken);
+    note.textContent = ago <= 1 ? 'Last taken yesterday' : `Last taken ${ago} days ago`;
+  } else {
+    note.textContent = '';
+  }
 }
 
 // The "overdue / due in N days" and "unknown" labels under the date boxes.
@@ -1234,6 +1297,11 @@ function renderMedicationList(items, template, openEdit) {
     startInput.value = med.startDate || '';
     refillInput.value = med.refillDate || '';
     updateMedHints(med, refillHint, unknownHint);
+
+    // "Taken today" check-off with a streak note.
+    const takenBtn = node.querySelector('.med-taken-btn');
+    renderMedicationTaken(med, takenBtn, node.querySelector('.med-taken-note'));
+    takenBtn.addEventListener('click', () => toggleMedicationTaken(med.id));
 
     // `change` fires on every digit once a date is complete, so each one saves quietly in
     // place. A half-typed year (e.g. 0002) is never saved; if it is still out of range when
@@ -1628,6 +1696,7 @@ function renderWeights() {
   });
 
   document.getElementById('weight-empty-state').hidden = live.length !== 0;
+  renderWeightChart();
 }
 
 document.getElementById('weight-add-form').addEventListener('submit', (e) => {
@@ -1647,6 +1716,187 @@ document.getElementById('weight-add-form').addEventListener('submit', (e) => {
   noteInput.value = '';
   dateInput.value = todayKey();
   valueInput.focus();
+});
+
+// ---- Weight chart, trend and goal ----
+// A line chart of the entries (all, last 90 days or last 30 days), an optional goal line, and a
+// one-line "change over the last 30 days". The goal is a setting kept on this device only.
+
+const WEIGHT_GOAL_KEY = 'secondMemory.weightGoal.v1';
+let selectedWeightRange = 'all'; // 'all', '90' or '30'
+
+// The saved goal weight, or null when none is set (or the saved value is not a sensible number).
+function loadWeightGoal() {
+  try {
+    const value = Number(localStorage.getItem(WEIGHT_GOAL_KEY));
+    return Number.isFinite(value) && value > 0 && value <= WEIGHT_MAX ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+// Saves the goal (a number) or clears it (null). Returns false if the browser refused to save.
+function saveWeightGoal(value) {
+  try {
+    if (value === null) localStorage.removeItem(WEIGHT_GOAL_KEY);
+    else localStorage.setItem(WEIGHT_GOAL_KEY, String(value));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Live entries sorted oldest to newest, limited to the last `days` days when a number is given.
+function weightEntriesForChart(entries, days) {
+  const sorted = entries.filter((w) => !w.deleted && Number.isFinite(w.weight) && isRealDateKey(w.date)).sort(compareWeightsByDate);
+  if (!days) return sorted;
+  const since = shiftDateKey(todayKey(), -days);
+  return sorted.filter((w) => w.date >= since);
+}
+
+// How much the weight changed over the last 30 days: the latest entry compared with the last entry
+// on or before 30 days earlier, or with the first entry inside the window when there is none.
+// Returns null when there is nothing to compare.
+function weightChangeLast30(entries) {
+  const sorted = weightEntriesForChart(entries, 0);
+  if (sorted.length < 2) return null;
+  const latest = sorted[sorted.length - 1];
+  const cutoff = shiftDateKey(latest.date, -30);
+  const before = sorted.filter((w) => w.date <= cutoff);
+  const base = before.length ? before[before.length - 1] : sorted.find((w) => w.date > cutoff && w !== latest);
+  if (!base) return null;
+  return { change: Math.round((latest.weight - base.weight) * 10) / 10, since: base.date };
+}
+
+// Draws the chart into the <svg>: grid, axis labels, the line and dots, and the goal line.
+function drawWeightChart(svg, points, goal) {
+  svg.innerHTML = '';
+  const W = 600;
+  const H = 260;
+  const left = 52;
+  const right = 14;
+  const top = 14;
+  const bottom = 34;
+  if (points.length === 0) {
+    const msg = svgEl('text', { x: W / 2, y: H / 2, 'text-anchor': 'middle', class: 'w-empty' });
+    msg.textContent = 'No weights in this range yet.';
+    svg.appendChild(msg);
+    return;
+  }
+  const values = points.map((p) => p.weight).concat(goal ? [goal] : []);
+  let min = Math.min(...values);
+  let max = Math.max(...values);
+  if (max - min < 2) { min -= 1; max += 1; }
+  const pad = (max - min) * 0.08;
+  min -= pad;
+  max += pad;
+  const days = points.map((p) => epochDays(p.date));
+  const firstDay = days[0];
+  const span = Math.max(1, days[days.length - 1] - firstDay);
+  const x = (i) => (points.length === 1 ? (left + W - right) / 2 : left + ((days[i] - firstDay) / span) * (W - left - right));
+  const y = (v) => top + (1 - (v - min) / (max - min)) * (H - top - bottom);
+
+  // Grid lines with a weight label on each.
+  [0, 0.5, 1].forEach((f) => {
+    const v = min + (max - min) * f;
+    svg.appendChild(svgEl('line', { x1: left, x2: W - right, y1: y(v), y2: y(v), class: 'w-grid' }));
+    const label = svgEl('text', { x: left - 6, y: y(v) + 4, 'text-anchor': 'end', class: 'w-label' });
+    label.textContent = v.toFixed(0);
+    svg.appendChild(label);
+  });
+
+  // First and last dates under the chart.
+  const short = (key) => formatDateKeyLong(key).replace(/, \d{4}$/, '');
+  const firstLabel = svgEl('text', { x: left, y: H - 10, 'text-anchor': 'start', class: 'w-label' });
+  firstLabel.textContent = short(points[0].date);
+  svg.appendChild(firstLabel);
+  if (points.length > 1) {
+    const lastLabel = svgEl('text', { x: W - right, y: H - 10, 'text-anchor': 'end', class: 'w-label' });
+    lastLabel.textContent = short(points[points.length - 1].date);
+    svg.appendChild(lastLabel);
+  }
+
+  // The goal line, labelled at its right end.
+  if (goal) {
+    svg.appendChild(svgEl('line', { x1: left, x2: W - right, y1: y(goal), y2: y(goal), class: 'w-goal' }));
+    const goalLabel = svgEl('text', { x: W - right, y: y(goal) - 5, 'text-anchor': 'end', class: 'w-goal-label' });
+    goalLabel.textContent = `Goal ${goal}`;
+    svg.appendChild(goalLabel);
+  }
+
+  // The weight line, then a dot for every entry (each with a tooltip).
+  if (points.length > 1) {
+    svg.appendChild(svgEl('polyline', { points: points.map((p, i) => `${x(i).toFixed(1)},${y(p.weight).toFixed(1)}`).join(' '), class: 'w-line' }));
+  }
+  points.forEach((p, i) => {
+    const dot = svgEl('circle', { cx: x(i), cy: y(p.weight), r: 3.5, class: 'w-dot' });
+    const tip = svgEl('title', {});
+    tip.textContent = `${formatDateKeyLong(p.date)}: ${formatWeight(p.weight)}`;
+    dot.appendChild(tip);
+    svg.appendChild(dot);
+  });
+}
+
+// Redraws the chart, the "last 30 days" line and the goal box from the current entries.
+function renderWeightChart() {
+  const svg = document.getElementById('weight-chart');
+  if (!svg) return;
+  const goal = loadWeightGoal();
+  const days = selectedWeightRange === 'all' ? 0 : Number(selectedWeightRange);
+  const points = weightEntriesForChart(weights, days);
+  drawWeightChart(svg, points, goal);
+  svg.setAttribute('aria-label', points.length
+    ? `Weight over time: ${points.length} entries from ${formatWeight(points[0].weight)} to ${formatWeight(points[points.length - 1].weight)}`
+    : 'Weight over time: no entries in this range');
+
+  document.querySelectorAll('#weight-range-row .chip').forEach((chip) => {
+    chip.classList.toggle('chip-active', chip.dataset.range === selectedWeightRange);
+  });
+
+  // One line under the chart: change over 30 days, and distance to the goal.
+  const parts = [];
+  const trend = weightChangeLast30(weights);
+  if (trend) {
+    const sign = trend.change > 0 ? '+' : trend.change < 0 ? '\u2212' : '';
+    parts.push(`Last 30 days: ${sign}${Math.abs(trend.change).toFixed(1)} ${WEIGHT_UNIT} (since ${formatDateKeyLong(trend.since)})`);
+  }
+  const stats = computeWeightStats(weights.filter((w) => !w.deleted));
+  if (goal && stats) {
+    const diff = Math.round((stats.recent.weight - goal) * 10) / 10;
+    parts.push(diff === 0 ? 'You are at your goal.' : `${Math.abs(diff).toFixed(1)} ${WEIGHT_UNIT} ${diff > 0 ? 'above' : 'below'} your goal of ${goal} ${WEIGHT_UNIT}`);
+  }
+  document.getElementById('weight-trend').textContent = parts.join(' \u00b7 ');
+  const goalInput = document.getElementById('weight-goal-input');
+  if (document.activeElement !== goalInput) goalInput.value = goal === null ? '' : String(goal);
+}
+
+document.getElementById('weight-range-row').addEventListener('click', (e) => {
+  const chip = e.target.closest('.chip');
+  if (!chip) return;
+  selectedWeightRange = chip.dataset.range;
+  renderWeightChart();
+});
+
+document.getElementById('weight-goal-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const errorEl = document.getElementById('weight-goal-error');
+  const raw = document.getElementById('weight-goal-input').value.trim();
+  const value = Number(raw);
+  if (raw === '' || !Number.isFinite(value) || value <= 0 || value > WEIGHT_MAX) {
+    errorEl.textContent = `Enter a goal between 0.1 and ${WEIGHT_MAX} ${WEIGHT_UNIT}, or tap Clear.`;
+    errorEl.hidden = false;
+    return;
+  }
+  errorEl.hidden = true;
+  saveWeightGoal(Math.round(value * 10) / 10);
+  renderWeightChart();
+});
+
+document.getElementById('weight-goal-clear').addEventListener('click', () => {
+  document.getElementById('weight-goal-error').hidden = true;
+  saveWeightGoal(null);
+  document.getElementById('weight-goal-input').value = '';
+  renderWeightChart();
 });
 
 // ---- Diagnoses ----
@@ -6789,6 +7039,8 @@ function buildExportPayload() {
   const local = { journal: journalEntries.slice() };
   const payday = loadPaydaySettings();
   if (payday.payDateKey) local.paydaySettings = payday;
+  const goal = loadWeightGoal();
+  if (goal !== null) local.weightGoal = goal;
   return { collections, local };
 }
 
@@ -6996,6 +7248,7 @@ function isValidImportRecord(collectionName, rec) {
   if (collectionName === 'bills') return isNum(rec.amount) && isDate(rec.dueDate) && IMPORT_FREQUENCIES.includes(rec.frequency);
   if (collectionName === 'recurringIncome') return isNum(rec.amount) && isDate(rec.dueDate) && IMPORT_FREQUENCIES.includes(rec.frequency) && rec.frequency !== 'one_time';
   if (collectionName === 'income') return isNum(rec.amount) && isDate(rec.dateKey);
+  if (collectionName === 'medications') return rec.takenDates === undefined || Array.isArray(rec.takenDates);
   if (collectionName === 'weights') return isNum(rec.weight) && rec.weight > 0 && rec.weight <= WEIGHT_MAX && isDate(rec.date);
   return true;
 }
@@ -7053,6 +7306,13 @@ function importData(parsed) {
         anyChanged = true;
         summaries.push(`${addedEntries} journal entr${addedEntries === 1 ? 'y' : 'ies'}`);
       }
+    }
+    // The weight goal is only filled in when this device has none (it never overwrites yours).
+    if (Number.isFinite(localPart.weightGoal) && localPart.weightGoal > 0 && localPart.weightGoal <= WEIGHT_MAX && loadWeightGoal() === null) {
+      saveWeightGoal(localPart.weightGoal);
+      renderWeightChart();
+      anyChanged = true;
+      summaries.push('weight goal');
     }
     const saved = localPart.paydaySettings;
     if (saved && isRealDateKey(saved.payDateKey) && PAY_PERIOD_FREQUENCIES.includes(saved.frequency) && !loadPaydaySettings().payDateKey) {
@@ -7131,7 +7391,7 @@ document.addEventListener('visibilitychange', () => {
 
 // The build number shown in the Menu. Keep it equal to the number in CACHE_NAME in sw.js
 // (a test checks this), so "which version am I on?" has a one-glance answer.
-const APP_VERSION = 58;
+const APP_VERSION = 59;
 const THEME_KEY = 'secondMemory.theme.v1';
 const THEMES = ['auto', 'light', 'dark'];
 

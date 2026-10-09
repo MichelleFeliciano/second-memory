@@ -71,3 +71,31 @@ check('deleting everything restores the empty state', !$('weight-empty-state').h
 // ---- import ----
 check('import validator rejects bad weights', !isValidImportRecord('weights', { id: 'b1', date: '2026-01-01', weight: -3 }) && !isValidImportRecord('weights', { id: 'b2', date: 'nope', weight: 150 }));
 check('import validator accepts a good one', isValidImportRecord('weights', w('ok', '2026-01-01', 150)));
+
+// ---- chart, trend and goal ----
+weights.length = 0; saveCollection(WEIGHTS_KEY, weights); localStorage.removeItem('secondMemory.weightGoal.v1');
+nav('weight');
+const svgCount = (cls) => document.querySelectorAll('#weight-chart .' + cls).length;
+check('the chart says so when there are no entries', /No weights/.test($('weight-chart').textContent));
+check('with no data there is no trend line', $('weight-trend').textContent === '');
+await add(dk(-60), '190'); await add(dk(-40), '186'); await add(dk(-10), '182'); await add(dk(0), '180');
+check('the chart has a dot per entry', svgCount('w-dot') === 4 && svgCount('w-line') === 1, svgCount('w-dot') + ' dots');
+check('the change over 30 days compares with the entry on or before then', /Last 30 days: −6\.0 lb/.test($('weight-trend').textContent), $('weight-trend').textContent);
+check('"all" is the default range', document.querySelector('#weight-range-row .chip-active').dataset.range === 'all');
+document.querySelector('#weight-range-row [data-range="30"]').click();
+check('the 30 day range keeps only recent entries', svgCount('w-dot') === 2, svgCount('w-dot') + ' dots');
+document.querySelector('#weight-range-row [data-range="90"]').click();
+check('the 90 day range keeps all four', svgCount('w-dot') === 4);
+document.querySelector('#weight-range-row [data-range="all"]').click();
+check('no goal line before a goal is set', svgCount('w-goal') === 0);
+set('weight-goal-input', '170'); $('weight-goal-form').requestSubmit();
+check('a goal draws a dashed line and is saved', svgCount('w-goal') === 1 && loadWeightGoal() === 170);
+check('the line says how far from the goal', /10\.0 lb above your goal of 170 lb/.test($('weight-trend').textContent), $('weight-trend').textContent);
+set('weight-goal-input', '-4'); $('weight-goal-form').requestSubmit();
+check('a bad goal is refused and the saved one stays', !$('weight-goal-error').hidden && loadWeightGoal() === 170);
+$('weight-goal-clear').click();
+check('Clear removes the goal', loadWeightGoal() === null && svgCount('w-goal') === 0);
+check('the goal travels in the full backup', (() => { saveWeightGoal(165); const out = buildExportPayload(); saveWeightGoal(null); return out.local.weightGoal === 165; })());
+weights.length = 0; saveCollection(WEIGHTS_KEY, weights);
+await add(dk(0), '150');
+check('one entry draws a single dot and no trend', svgCount('w-dot') === 1 && svgCount('w-line') === 0 && $('weight-trend').textContent === '');

@@ -493,6 +493,26 @@ try { var t = localStorage.getItem('secondMemory.theme.v1'); if (t === 'light' |
         </div>
       </div>
 
+      <!-- Weight over time: a line chart with an optional goal line and a "last 30 days" change. Drawn by renderWeightChart. -->
+      <div class="weight-chart-box" id="weight-chart-box">
+        <div class="weight-chart-toolbar">
+          <div class="chip-row weight-range-row" id="weight-range-row" role="group" aria-label="Chart range">
+            <button type="button" class="chip chip-active" data-range="all">All</button>
+            <button type="button" class="chip" data-range="90">90 days</button>
+            <button type="button" class="chip" data-range="30">30 days</button>
+          </div>
+        </div>
+        <svg class="weight-chart" id="weight-chart" viewBox="0 0 600 260" role="img" aria-label="Weight over time"></svg>
+        <p class="weight-trend" id="weight-trend"></p>
+        <form class="weight-goal-form" id="weight-goal-form" novalidate>
+          <label for="weight-goal-input">Goal weight (lb)</label>
+          <input type="number" id="weight-goal-input" min="0.1" max="1500" step="any" placeholder="Optional" aria-label="Goal weight in pounds">
+          <button type="submit">Save goal</button>
+          <button type="button" id="weight-goal-clear">Clear</button>
+        </form>
+        <p class="form-error" id="weight-goal-error" hidden></p>
+      </div>
+
       <form id="weight-add-form" class="add-form add-form-stacked">
         <label class="date-field">Date
           <input type="date" id="weight-date-input" required aria-label="Date weighed">
@@ -870,6 +890,11 @@ try { var t = localStorage.getItem('secondMemory.theme.v1'); if (t === 'light' |
         <span class="med-field med-dosage-field" hidden><span class="field-label">Dosage:</span> <span class="med-dosage"></span></span>
         <span class="med-field med-frequency-field" hidden><span class="field-label">Frequency:</span> <span class="med-frequency"></span></span>
         <span class="med-field med-doctor-field" hidden><span class="field-label">Prescriber:</span> <span class="med-doctor"></span></span>
+      </div>
+      <!-- Daily check-off: tap once a day when the medication has been taken; shows the streak. -->
+      <div class="med-taken">
+        <button type="button" class="med-taken-btn" aria-pressed="false">Taken today</button>
+        <span class="med-taken-note"></span>
       </div>
       <div class="med-dates">
         <label class="date-field">Start date
