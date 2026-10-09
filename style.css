@@ -2459,3 +2459,32 @@ select[id$="-sort-input"],
   font-family: inherit;
   margin-bottom: 12px;
 }
+
+/* Long words (a long recipe title, a long to-do) must wrap instead of widening the page. */
+.recipe-title,
+.recipe-header,
+.todo-task,
+.shopping-item-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.todo-check,
+.shopping-check {
+  min-width: 0;
+}
+
+@media (max-width: 700px) {
+  /* The to-do / shopping row holds a task plus a due date, badge and two buttons: let it
+     wrap onto a second line instead of squeezing everything onto one. */
+  .todo-view,
+  .shopping-view {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  .todo-check,
+  .shopping-check {
+    flex: 1 1 100%;
+  }
+}
