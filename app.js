@@ -1,8 +1,29 @@
 // Second Memory — Books, Recipes, Medications, Diagnoses
 // All persistence is local (localStorage). No network calls, no dependencies.
+//
+// How this file is organised (top to bottom, one section per area):
+//   Shared helpers, filter/sort helpers, keyboard-focus keeping, device identity & sync
+//   metadata, undo/redo, UI state (active tab), then one section per list: Books, Recipes,
+//   Medications, Appointments, Weight, Diagnoses, To-Do, Shopping List, Notes, Resume &
+//   Portfolio, Budget (bills, income, recurring income, paid history, pay period, calendar),
+//   Journal (plus trends, therapy summary, backup reminders), Search everything, Home,
+//   Device Sync, undo/redo application, data export/import, day rollover, and Init.
+//
+// Every list is an array of plain records kept in memory and saved whole to its own
+// localStorage key. A record looks like:
+//   { id, ...its own fields..., dateAdded, updatedAt, deviceId, deleted, version }
+// - updatedAt / deviceId are stamped on every change (see stampSync).
+// - Deleting never removes a record: it sets deleted:true (a "tombstone") so a later sync
+//   can tell "deleted here" apart from "never existed here". Screens skip deleted records.
+// - version is the server's counter for the record; 0 means the server hasn't confirmed it yet.
+//
+// Syncing between devices is manual only (the user presses "Sync now"); nothing runs in
+// the background. The journal is the exception to all of the above: it is local-only,
+// has no sync fields, and is never synced (it can only be backed up and restored by file).
 
 // ---- Shared helpers ----
 
+// A unique id for a new record (falls back to time + random where randomUUID is missing).
 function makeId() {
   return (crypto.randomUUID && crypto.randomUUID()) ||
     `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -13,6 +34,7 @@ function makeId() {
   try { localStorage.removeItem(key); } catch { /* storage unavailable: nothing to clear */ }
 });
 
+// Reads a saved list from localStorage; anything missing or corrupt becomes an empty list.
 function loadCollection(key) {
   try {
     const raw = localStorage.getItem(key);
@@ -42,6 +64,7 @@ function reportStorageProblem() {
   document.body.appendChild(box);
 }
 
+// Writes a whole list to localStorage. Returns false (and shows the warning) if the browser refuses.
 function saveCollection(key, items) {
   try {
     localStorage.setItem(key, JSON.stringify(items));
@@ -145,20 +168,26 @@ function renderChipFilter(container, options, getSelected, setSelected, onSelect
 // withFocusRestore() remembers which control had focus, lets the screen redraw, then puts
 // focus back on the equivalent control in the new cards.
 
+// What counts as one card/row when working out where focus was.
 const FOCUS_UNIT = 'li, .budget-day-cell, tr';
 
+// A control's visible text with whitespace collapsed, used to recognise it after a redraw.
 function focusText(node) {
   return (node.textContent || '').replace(/\s+/g, ' ').trim();
 }
 
+// A fingerprint of what kind of control this is (tag, classes, label, input type).
 function focusKind(node) {
   return [node.tagName, [...node.classList].sort().join('.'), node.getAttribute('aria-label') || '', node.type || ''].join('|');
 }
 
+// Identifies one card/row by its date (calendar cells) and the start of its text.
 function focusUnitSignature(unit) {
   return (unit.dataset.dateKey || '') + '|' + focusText(unit).slice(0, 160);
 }
 
+// Notes down which control currently has focus (and where it sits) so it can be found again
+// after the screen redraws. Returns null when focus isn't inside a list screen.
 function describeFocus() {
   const el = document.activeElement;
   if (!el || el === document.body || el === document.documentElement) return null;
@@ -188,6 +217,7 @@ function describeFocus() {
   return { sectionId: section.id, mode: 'loose', kind: focusKind(el), label: focusText(el) };
 }
 
+// Puts focus back on the control described by describeFocus, trying the closest match first.
 function restoreFocus(d) {
   if (!d) return;
   const active = document.activeElement;
@@ -222,6 +252,7 @@ function restoreFocus(d) {
   if (target && !target.disabled && !target.hidden) target.focus({ preventScroll: true });
 }
 
+// Wraps a render function so keyboard focus survives the redraw.
 function withFocusRestore(render) {
   return function wrappedRender(...args) {
     const snapshot = describeFocus();
@@ -240,6 +271,7 @@ function focusSectionHeading(tab) {
   heading.focus();
 }
 
+// Switches screen and moves keyboard focus to its heading.
 function goToTab(tab) {
   setActiveTab(tab);
   focusSectionHeading(tab);
@@ -266,6 +298,7 @@ renderJournal = withFocusRestore(renderJournal);
 const DEVICE_KEY = 'secondMemory.device.v1';
 let cachedDeviceId = null;
 
+// This browser's permanent random id (created on first use); stamped onto every record it edits.
 function getDeviceId() {
   if (cachedDeviceId) return cachedDeviceId;
   try {
@@ -287,6 +320,7 @@ function getDeviceId() {
   return cachedDeviceId;
 }
 
+// Marks a record as just changed on this device. Call on every add/edit/delete/restore.
 function stampSync(record) {
   record.updatedAt = new Date().toISOString();
   record.deviceId = getDeviceId();
@@ -332,11 +366,13 @@ function rejectBlank(input, message) {
 // In-memory only, never persisted. One entry per changed record (never a
 // whole-array snapshot). See docs/specs/edit-everywhere-and-undo-redo.md.
 
+// Each entry is { collection, id, before, after, timestamp }; before is null for a brand-new record.
 let undoStack = [];
 let redoStack = [];
 let isApplyingHistory = false; // guard: undo/redo replays never re-record themselves
 const MAX_UNDO_DEPTH = 50;
 
+// Remembers one change (the record before and after) so it can be undone; clears the redo list.
 function recordUndo(collectionName, id, before, after) {
   if (isApplyingHistory) return;
   flushMedDateUndo(); // keep undo steps in the order things really happened
@@ -355,8 +391,10 @@ function recordUndo(collectionName, id, before, after) {
 // ---- UI state (active tab) ----
 
 const UI_STORAGE_KEY = 'secondMemory.ui.v1';
+// Every screen id; each has a matching "<id>-collection" section and a sidebar button.
 const TABS = ['home', 'books', 'recipes', 'medications', 'diagnoses', 'appointments', 'weight', 'journal', 'todo', 'shopping', 'notes', 'budget', 'resume'];
 
+// Reads the saved screen state (which tab was open), tolerating missing or damaged data.
 function loadUiState() {
   try {
     const raw = localStorage.getItem(UI_STORAGE_KEY);
@@ -367,10 +405,12 @@ function loadUiState() {
   }
 }
 
+// Remembers which tab is open so the app reopens on it.
 function saveUiState(state) {
   localStorage.setItem(UI_STORAGE_KEY, JSON.stringify(state));
 }
 
+// Shows one screen and hides the rest (unknown names fall back to Home); closes the phone sidebar.
 function setActiveTab(tab) {
   const activeTab = TABS.includes(tab) ? tab : 'home';
   const showingJournal = activeTab === 'journal';
@@ -405,12 +445,15 @@ if (sidebarToggleBtn) {
 // ---- Books ----
 
 const BOOKS_KEY = 'secondMemory.books.v1';
+// The shelves a book can be on; stored in each book's status field.
 const BOOK_STATUSES = ['want_to_buy', 'owned_unread', 'currently_reading', 'owned_read', 'textbook', 'textbook_read', 'jons_bookshelf', 'jons_bookshelf_read'];
 
+// The only address the app ever talks to, and only when the user presses "Sync now".
 const SYNC_SERVER_URL = 'https://second-memory-mwm3.onrender.com';
 
 let books = migrateSyncFields(loadCollection(BOOKS_KEY), BOOKS_KEY, getDeviceId());
 
+// Adds a book to the list; a blank title is refused (returns false).
 function addBook(title, author, status) {
   const trimmedTitle = title.trim();
   if (!trimmedTitle) return false;
@@ -434,6 +477,7 @@ function addBook(title, author, status) {
   return true;
 }
 
+// Moves a book to another shelf (status), e.g. from owned/unread to owned/read.
 function updateBookStatus(id, newStatus) {
   const book = books.find((b) => b.id === id);
   if (!book || !BOOK_STATUSES.includes(newStatus)) return;
@@ -446,6 +490,7 @@ function updateBookStatus(id, newStatus) {
   renderBooks();
 }
 
+// Sets a book's star rating.
 function updateBookRating(id, rating) {
   const book = books.find((b) => b.id === id);
   if (!book) return;
@@ -456,6 +501,7 @@ function updateBookRating(id, rating) {
   recordUndo('books', id, before, structuredClone(book));
 }
 
+// Soft-deletes a book (keeps a tombstone so syncing can tell it was deleted).
 function deleteBook(id) {
   const book = books.find((b) => b.id === id);
   if (!book) return;
@@ -467,6 +513,7 @@ function deleteBook(id) {
   renderBooks();
 }
 
+// Brings a deleted book back (used by undo).
 function restoreBook(id) {
   const book = books.find((b) => b.id === id);
   if (!book || !book.deleted) return; // defensive no-op — nothing to restore
@@ -478,6 +525,7 @@ function restoreBook(id) {
   renderBooks();
 }
 
+// Saves edits to a book's title and author; a blank title is refused (returns false).
 function updateBook(id, fields) {
   const book = books.find((b) => b.id === id);
   if (!book) return;
@@ -492,6 +540,7 @@ function updateBook(id, fields) {
   renderBooks();
 }
 
+// True if the search text appears in the book's title or author (an empty search matches all).
 function matchesBookSearch(book, term) {
   if (!term) return true;
   const haystack = `${book.title} ${book.author}`.toLowerCase();
@@ -509,6 +558,7 @@ const BOOK_SORTS = {
   date_added_asc: compareByField((b) => b.dateAdded, 1, { text: false }),
 };
 
+// Fills in the count summary at the top of the Books screen.
 function renderBooksStats(nonDeletedBooks) {
   const el = document.getElementById('books-stats');
   if (!el) return;
@@ -521,6 +571,7 @@ function renderBooksStats(nonDeletedBooks) {
     `${countFor('jons_bookshelf')} on Jon's Bookshelf (unread) · ${countFor('jons_bookshelf_read')} on Jon's Bookshelf (read)`;
 }
 
+// Redraws the whole Books screen: filter, search, sort and the book cards.
 function renderBooks() {
   const searchTerm = document.getElementById('books-search-input').value;
   const nonDeleted = books.filter((b) => !b.deleted);
@@ -670,10 +721,12 @@ const RECIPES_KEY = 'secondMemory.recipes.v1';
 
 let recipes = migrateSyncFields(loadCollection(RECIPES_KEY), RECIPES_KEY, getDeviceId());
 
+// Turns a block of text into a list of non-empty trimmed lines.
 function splitLines(text) {
   return text.split('\n').map((s) => s.trim()).filter(Boolean);
 }
 
+// Adds a recipe (ingredients and steps are typed one per line); a blank title is refused.
 function addRecipe(title, category, ingredientsText, stepsText, notes) {
   const trimmedTitle = title.trim();
   if (!trimmedTitle) return false;
@@ -698,6 +751,7 @@ function addRecipe(title, category, ingredientsText, stepsText, notes) {
   return true;
 }
 
+// Soft-deletes a recipe (keeps a tombstone so syncing can tell it was deleted).
 function deleteRecipe(id) {
   const recipe = recipes.find((r) => r.id === id);
   if (!recipe) return;
@@ -709,6 +763,7 @@ function deleteRecipe(id) {
   renderRecipes();
 }
 
+// Brings a deleted recipe back (used by undo).
 function restoreRecipe(id) {
   const recipe = recipes.find((r) => r.id === id);
   if (!recipe || !recipe.deleted) return;
@@ -720,6 +775,7 @@ function restoreRecipe(id) {
   renderRecipes();
 }
 
+// Saves edits to a recipe.
 function updateRecipe(id, fields) {
   const recipe = recipes.find((r) => r.id === id);
   if (!recipe) return;
@@ -766,6 +822,7 @@ function addRecipeToShoppingList(recipe) {
   return { added, alreadyThere };
 }
 
+// True if the search text appears in the recipe's title, category, ingredients, steps or notes.
 function matchesRecipeSearch(recipe, term) {
   if (!term) return true;
   const haystack = [recipe.title, recipe.category, ...recipe.ingredients, ...recipe.steps, recipe.notes]
@@ -779,6 +836,7 @@ function matchesRecipeSearch(recipe, term) {
 // so "Sides" and "sides" are treated as the same selected chip.
 let selectedRecipeCategory = 'all';
 
+// True if the recipe belongs to the selected category chip ('all' matches everything).
 function matchesRecipeCategory(recipe, categoryKey) {
   return categoryKey === 'all' || normalizeChipKey(recipe.category) === categoryKey;
 }
@@ -808,6 +866,7 @@ const RECIPE_SORTS = {
   title_asc: compareByField((r) => r.title, 1),
 };
 
+// Redraws the whole Recipes screen: filters, search, sort and the recipe cards.
 function renderRecipes() {
   const searchTerm = document.getElementById('recipes-search-input').value;
   const nonDeleted = recipes.filter((r) => !r.deleted);
@@ -989,6 +1048,7 @@ const MEDICATIONS_KEY = 'secondMemory.medications.v1';
 
 let medications = migrateSyncFields(loadCollection(MEDICATIONS_KEY), MEDICATIONS_KEY, getDeviceId());
 
+// Adds a medication. Returns { ok } or { ok: false, error } for a missing name or out-of-range date.
 function addMedication(fields) {
   const trimmedName = fields.name.trim();
   if (!trimmedName) return { ok: false, error: 'Name is required.' };
@@ -1027,6 +1087,7 @@ function addMedication(fields) {
 // recorded when you leave the box (or just before anything else needs the undo history).
 let pendingMedDateUndo = null; // { id, before } for the burst in progress
 
+// Closes out the pending burst of date typing as a single undo step (if anything really changed).
 function flushMedDateUndo() {
   if (!pendingMedDateUndo) return;
   const { id, before } = pendingMedDateUndo;
@@ -1037,6 +1098,7 @@ function flushMedDateUndo() {
   recordUndo('medications', id, before, structuredClone(med));
 }
 
+// Saves a start or refill date straight from its box without redrawing the medication list.
 function updateMedicationDate(id, field, value) {
   const med = medications.find((m) => m.id === id);
   if (!med) return { ok: false, error: 'Medication not found.' };
@@ -1072,6 +1134,7 @@ function updateMedHints(med, refillHint, unknownHint) {
   unknownHint.hidden = !!med.startDate;
 }
 
+// Soft-deletes a medication (keeps a tombstone so syncing can tell it was deleted).
 function deleteMedication(id) {
   const med = medications.find((m) => m.id === id);
   if (!med) return;
@@ -1083,6 +1146,7 @@ function deleteMedication(id) {
   renderMedications();
 }
 
+// Brings a deleted medication back (used by undo).
 function restoreMedication(id) {
   const med = medications.find((m) => m.id === id);
   if (!med || !med.deleted) return;
@@ -1094,6 +1158,7 @@ function restoreMedication(id) {
   renderMedications();
 }
 
+// Saves edits to a medication's text details (dates are saved separately by updateMedicationDate).
 function updateMedication(id, fields) {
   const med = medications.find((m) => m.id === id);
   if (!med) return { ok: false, error: 'Medication not found.' };
@@ -1112,6 +1177,7 @@ function updateMedication(id, fields) {
   return { ok: true };
 }
 
+// True if the search text appears in the medication's name, dosage, frequency, doctor or notes.
 function matchesMedicationSearch(med, term) {
   if (!term) return true;
   const haystack = [med.name, med.dosage, med.frequency, med.prescribingDoctor, med.notes]
@@ -1130,10 +1196,12 @@ const MEDICATION_SORTS = {
   start_date_asc: compareByField((m) => m.startDate, 1, { text: false }),
 };
 
+// Whole days from today to a YYYY-MM-DD date (negative if it's in the past).
 function daysUntilDateKey(dateKey) {
   return Math.round((new Date(dateKey + 'T00:00:00') - new Date(todayKey() + 'T00:00:00')) / 86400000);
 }
 
+// Builds one card per medication from the template, with its date boxes, edit form and buttons.
 function renderMedicationList(items, template, openEdit) {
   const list = document.getElementById('medications-list');
   list.innerHTML = '';
@@ -1274,6 +1342,7 @@ function renderMedicationList(items, template, openEdit) {
   });
 }
 
+// Redraws the whole Medications screen: search, sort and the medication cards.
 function renderMedications() {
   flushMedDateUndo(); // a redraw replaces the date boxes, so close any typing burst first
   const searchTerm = document.getElementById('medications-search-input').value;
@@ -1352,11 +1421,13 @@ document.getElementById('medications-sort-input').addEventListener('change', (e)
 // ---- Appointments ----
 
 const APPOINTMENTS_KEY = 'secondMemory.appointments.v1';
+// Date keys are 'YYYY-MM-DD' and times are 24-hour 'HH:MM'.
 const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^\d{2}:\d{2}$/;
 
 let appointments = migrateSyncFields(loadCollection(APPOINTMENTS_KEY), APPOINTMENTS_KEY, getDeviceId());
 
+// Checks and cleans the form values: title and a real-looking date are required, time is optional.
 function validateAppointmentFields(fields) {
   const title = fields.title.trim();
   if (!title) return { ok: false, error: 'Title is required.' };
@@ -1375,6 +1446,7 @@ function validateAppointmentFields(fields) {
   };
 }
 
+// Adds an appointment. Returns { ok } or { ok: false, error } if the fields don't validate.
 function addAppointment(fields) {
   const result = validateAppointmentFields(fields);
   if (!result.ok) return result;
@@ -1400,6 +1472,7 @@ function addAppointment(fields) {
   return { ok: true };
 }
 
+// Saves edits to an appointment, re-validating the fields first.
 function updateAppointment(id, fields) {
   const appt = appointments.find((a) => a.id === id);
   if (!appt) return { ok: false, error: 'Appointment not found.' };
@@ -1419,6 +1492,7 @@ function updateAppointment(id, fields) {
   return { ok: true };
 }
 
+// Soft-deletes an appointment (keeps a tombstone so syncing can tell it was deleted).
 function deleteAppointment(id) {
   const appt = appointments.find((a) => a.id === id);
   if (!appt) return;
@@ -1430,6 +1504,7 @@ function deleteAppointment(id) {
   renderAppointments();
 }
 
+// Brings a deleted appointment back (used by undo).
 function restoreAppointment(id) {
   const appt = appointments.find((a) => a.id === id);
   if (!appt || !appt.deleted) return;
@@ -1441,23 +1516,27 @@ function restoreAppointment(id) {
   renderAppointments();
 }
 
+// "14:05" becomes "2:05 PM"; anything that isn't HH:MM gives an empty string.
 function formatTime12h(time) {
   if (!TIME_RE.test(time || '')) return '';
   const [h, m] = time.split(':').map(Number);
   return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
 }
 
+// Readable date, plus " at <time>" when the appointment has a time.
 function formatAppointmentWhen(appt) {
   const time = formatTime12h(appt.time);
   return time ? `${formatDateKeyLong(appt.date)} at ${time}` : formatDateKeyLong(appt.date);
 }
 
+// Sort order: earliest date first, then earliest time (no time sorts before timed ones that day).
 function compareAppointments(a, b) {
   const ka = `${a.date} ${a.time || ''}`;
   const kb = `${b.date} ${b.time || ''}`;
   return ka < kb ? -1 : ka > kb ? 1 : 0;
 }
 
+// Builds the cards for one appointment list; openEdit re-opens an edit form that was open before the redraw.
 function renderAppointmentCards(list, items, openEdit) {
   const template = document.getElementById('appointments-card-template');
   list.innerHTML = '';
@@ -1545,6 +1624,7 @@ function renderAppointmentCards(list, items, openEdit) {
   });
 }
 
+// Redraws the Appointments screen, split into upcoming (soonest first) and past (latest first).
 function renderAppointments() {
   const openForm = document.querySelector('#appointments-collection .appt-edit-form:not([hidden])');
   const openEdit = openForm
@@ -1599,15 +1679,18 @@ document.getElementById('appointments-add-form').addEventListener('submit', (e) 
 // entries each time: the oldest (earliest date), the highest, the lowest and the most recent.
 
 const WEIGHTS_KEY = 'secondMemory.weights.v1';
+// Weights are stored in pounds; anything above WEIGHT_MAX is rejected as a typo.
 const WEIGHT_UNIT = 'lb';
 const WEIGHT_MAX = 1500;
 
 let weights = migrateSyncFields(loadCollection(WEIGHTS_KEY), WEIGHTS_KEY, getDeviceId());
 
+// A weight shown to one decimal place with its unit, e.g. "152.4 lb".
 function formatWeight(value) {
   return `${Number(value).toFixed(1)} ${WEIGHT_UNIT}`;
 }
 
+// Checks the form values: a real date that isn't in the future and a sensible weight (rounded to 0.1).
 function validateWeightFields(fields) {
   const date = (fields.date || '').trim();
   if (!isRealDateKey(date)) return { ok: false, error: 'Enter a real date.' };
@@ -1620,6 +1703,7 @@ function validateWeightFields(fields) {
   return { ok: true, date, weight: Math.round(value * 10) / 10, note: (fields.note || '').trim() };
 }
 
+// Adds a weight entry. Returns { ok } or { ok: false, error } if the fields don't validate.
 function addWeight(fields) {
   const result = validateWeightFields(fields);
   if (!result.ok) return result;
@@ -1642,6 +1726,7 @@ function addWeight(fields) {
   return { ok: true };
 }
 
+// Saves edits to a weight entry, re-validating the fields first.
 function updateWeight(id, fields) {
   const record = weights.find((w) => w.id === id);
   if (!record) return { ok: false, error: 'Entry not found.' };
@@ -1658,6 +1743,7 @@ function updateWeight(id, fields) {
   return { ok: true };
 }
 
+// Soft-deletes a weight entry (keeps a tombstone so syncing can tell it was deleted).
 function deleteWeight(id) {
   const record = weights.find((w) => w.id === id);
   if (!record) return;
@@ -1669,6 +1755,7 @@ function deleteWeight(id) {
   renderWeights();
 }
 
+// Brings a deleted weight entry back (used by undo).
 function restoreWeight(id) {
   const record = weights.find((w) => w.id === id);
   if (!record || !record.deleted) return;
@@ -1680,6 +1767,7 @@ function restoreWeight(id) {
   renderWeights();
 }
 
+// Oldest first by date; entries on the same day fall back to the order they were added.
 function compareWeightsByDate(a, b) {
   if (a.date !== b.date) return a.date < b.date ? -1 : 1;
   return (a.dateAdded || '') < (b.dateAdded || '') ? -1 : (a.dateAdded || '') > (b.dateAdded || '') ? 1 : 0;
@@ -1701,6 +1789,7 @@ function computeWeightStats(entries) {
   return { oldest: usable[0], highest, lowest, recent: usable[usable.length - 1], count: usable.length };
 }
 
+// Fills the four headline cards (oldest, highest, lowest, recent); shows a dash when there's no data.
 function renderWeightStats(stats) {
   document.querySelectorAll('#weight-stats .weight-stat').forEach((card) => {
     const entry = stats ? stats[card.dataset.stat] : null;
@@ -1709,6 +1798,7 @@ function renderWeightStats(stats) {
   });
 }
 
+// Redraws the Weight screen: headline figures, then entries newest first.
 function renderWeights() {
   const list = document.getElementById('weight-list');
   if (!list) return;
@@ -1819,10 +1909,12 @@ document.getElementById('weight-add-form').addEventListener('submit', (e) => {
 // ---- Diagnoses ----
 
 const DIAGNOSES_KEY = 'secondMemory.diagnoses.v1';
+// The states a diagnosis can be in; stored in each diagnosis's status field.
 const DIAGNOSIS_STATUSES = ['active', 'monitoring', 'resolved'];
 
 let diagnoses = migrateSyncFields(loadCollection(DIAGNOSES_KEY), DIAGNOSES_KEY, getDeviceId());
 
+// Adds a diagnosis (starts as 'active'); a blank condition is refused.
 function addDiagnosis(condition, dateDiagnosed, provider, notes) {
   const trimmedCondition = condition.trim();
   if (!trimmedCondition) return;
@@ -1846,6 +1938,7 @@ function addDiagnosis(condition, dateDiagnosed, provider, notes) {
   renderDiagnoses();
 }
 
+// Changes a diagnosis between active, monitoring and resolved.
 function updateDiagnosisStatus(id, newStatus) {
   const diagnosis = diagnoses.find((d) => d.id === id);
   if (!diagnosis || !DIAGNOSIS_STATUSES.includes(newStatus)) return;
@@ -1857,6 +1950,7 @@ function updateDiagnosisStatus(id, newStatus) {
   renderDiagnoses();
 }
 
+// Soft-deletes a diagnosis (keeps a tombstone so syncing can tell it was deleted).
 function deleteDiagnosis(id) {
   const diagnosis = diagnoses.find((d) => d.id === id);
   if (!diagnosis) return;
@@ -1868,6 +1962,7 @@ function deleteDiagnosis(id) {
   renderDiagnoses();
 }
 
+// Brings a deleted diagnosis back (used by undo).
 function restoreDiagnosis(id) {
   const diagnosis = diagnoses.find((d) => d.id === id);
   if (!diagnosis || !diagnosis.deleted) return;
@@ -1879,6 +1974,7 @@ function restoreDiagnosis(id) {
   renderDiagnoses();
 }
 
+// Saves edits to a diagnosis's details.
 function updateDiagnosis(id, fields) {
   const diagnosis = diagnoses.find((d) => d.id === id);
   if (!diagnosis) return;
@@ -1895,6 +1991,7 @@ function updateDiagnosis(id, fields) {
   renderDiagnoses();
 }
 
+// True if the search text appears in the condition, provider or notes.
 function matchesDiagnosisSearch(diagnosis, term) {
   if (!term) return true;
   const haystack = `${diagnosis.condition} ${diagnosis.provider} ${diagnosis.notes}`.toLowerCase();
@@ -1910,6 +2007,7 @@ const DIAGNOSIS_SORTS = {
   date_diagnosed_asc: compareByField((d) => d.dateDiagnosed, 1, { text: false }),
 };
 
+// Redraws the whole Diagnoses screen: status filter, search, sort and the cards.
 function renderDiagnoses() {
   const searchTerm = document.getElementById('diagnoses-search-input').value;
   const visible = diagnoses.filter((d) => !d.deleted).filter((d) => matchesDiagnosisSearch(d, searchTerm));
@@ -2052,8 +2150,10 @@ const TODOS_KEY = 'secondMemory.todos.v1';
 
 let todos = migrateSyncFields(loadCollection(TODOS_KEY), TODOS_KEY, getDeviceId());
 
+// The repeat options a to-do can have, with the wording shown on the card.
 const TODO_REPEATS = { daily: 'every day', weekly: 'every week', monthly: 'every month' };
 
+// Returns the repeat value if it's a known one, otherwise '' (no repeat).
 function cleanRepeat(value) {
   return Object.prototype.hasOwnProperty.call(TODO_REPEATS, value) ? value : '';
 }
@@ -2082,6 +2182,7 @@ function nextRepeatDate(dueDate, repeat) {
   return next;
 }
 
+// Adds a to-do; a blank task is ignored.
 function addTodo(task, dueDate, repeat) {
   const trimmedTask = task.trim();
   if (!trimmedTask) return;
@@ -2104,6 +2205,7 @@ function addTodo(task, dueDate, repeat) {
   renderTodos();
 }
 
+// Finds a to-do by id, but only if it hasn't been deleted.
 function liveTodo(id) {
   return id ? todos.find((t) => t.id === id && !t.deleted) : undefined;
 }
@@ -2152,6 +2254,7 @@ function toggleTodoCompleted(id, completed) {
   renderTodos();
 }
 
+// Soft-deletes a to-do (keeps a tombstone so syncing can tell it was deleted).
 function deleteTodo(id) {
   const todo = todos.find((t) => t.id === id);
   if (!todo) return;
@@ -2163,6 +2266,7 @@ function deleteTodo(id) {
   renderTodos();
 }
 
+// Brings a deleted to-do back (used by undo).
 function restoreTodo(id) {
   const todo = todos.find((t) => t.id === id);
   if (!todo || !todo.deleted) return;
@@ -2174,6 +2278,7 @@ function restoreTodo(id) {
   renderTodos();
 }
 
+// Saves edits to a to-do's task, due date and repeat; a blank task is ignored.
 function updateTodo(id, fields) {
   const todo = todos.find((t) => t.id === id);
   if (!todo) return;
@@ -2189,11 +2294,13 @@ function updateTodo(id, fields) {
   renderTodos();
 }
 
+// True if the search text appears in the task.
 function matchesTodoSearch(todo, term) {
   if (!term) return true;
   return todo.task.toLowerCase().includes(term.toLowerCase());
 }
 
+// A to-do is overdue when it's not done and its due date is before today.
 function isTodoOverdue(todo) {
   if (todo.completed || !todo.dueDate) return false;
   return todo.dueDate < todayKey();
@@ -2203,12 +2310,14 @@ function isTodoOverdue(todo) {
 // data, unlike the category-style chip filters) since `completed` is boolean.
 let selectedTodoFilter = 'all';
 
+// Applies the All / Active / Completed chip.
 function matchesTodoFilter(todo, filterKey) {
   if (filterKey === 'active') return !todo.completed;
   if (filterKey === 'completed') return todo.completed;
   return true;
 }
 
+// Draws the All / Active / Completed chips.
 function renderTodoCompletedFilters() {
   const container = document.getElementById('todo-completed-filters');
   const options = [
@@ -2236,6 +2345,7 @@ const TODO_SORTS = {
   date_added_asc: compareByField((t) => t.dateAdded, 1, { text: false }),
 };
 
+// Redraws the whole To-Do screen: chips, search, sort and the to-do rows.
 function renderTodos() {
   const searchTerm = document.getElementById('todo-search-input').value;
   renderTodoCompletedFilters();
@@ -2363,6 +2473,7 @@ const SHOPPING_KEY = 'secondMemory.shoppingList.v1';
 
 let shoppingItems = migrateSyncFields(loadCollection(SHOPPING_KEY), SHOPPING_KEY, getDeviceId());
 
+// Adds an item to the shopping list; a blank item name is ignored.
 function addShoppingItem(item, quantity, category) {
   const trimmedItem = item.trim();
   if (!trimmedItem) return;
@@ -2385,6 +2496,7 @@ function addShoppingItem(item, quantity, category) {
   renderShoppingList();
 }
 
+// Ticks or unticks an item (bought / not yet bought).
 function toggleShoppingChecked(id, checked) {
   const item = shoppingItems.find((i) => i.id === id);
   if (!item) return;
@@ -2396,6 +2508,7 @@ function toggleShoppingChecked(id, checked) {
   renderShoppingList();
 }
 
+// Soft-deletes a shopping item (keeps a tombstone so syncing can tell it was deleted).
 function deleteShoppingItem(id) {
   const item = shoppingItems.find((i) => i.id === id);
   if (!item) return;
@@ -2407,6 +2520,7 @@ function deleteShoppingItem(id) {
   renderShoppingList();
 }
 
+// Brings a deleted shopping item back (used by undo).
 function restoreShoppingItem(id) {
   const item = shoppingItems.find((i) => i.id === id);
   if (!item || !item.deleted) return;
@@ -2418,6 +2532,7 @@ function restoreShoppingItem(id) {
   renderShoppingList();
 }
 
+// Saves edits to a shopping item's name, quantity and category; a blank name is ignored.
 function updateShoppingItem(id, fields) {
   const item = shoppingItems.find((i) => i.id === id);
   if (!item) return;
@@ -2433,6 +2548,7 @@ function updateShoppingItem(id, fields) {
   renderShoppingList();
 }
 
+// True if the search text appears in the item name, category or quantity.
 function matchesShoppingSearch(item, term) {
   if (!term) return true;
   const haystack = `${item.item} ${item.category} ${item.quantity}`.toLowerCase();
@@ -2443,16 +2559,19 @@ function matchesShoppingSearch(item, term) {
 let selectedShoppingCategory = 'all';
 let selectedShoppingChecked = 'all';
 
+// True if the item is in the selected category chip ('all' matches everything).
 function matchesShoppingCategory(item, categoryKey) {
   return categoryKey === 'all' || normalizeChipKey(item.category) === categoryKey;
 }
 
+// Applies the All / Active / Checked chip.
 function matchesShoppingChecked(item, checkedKey) {
   if (checkedKey === 'active') return !item.checked;
   if (checkedKey === 'checked') return item.checked;
   return true;
 }
 
+// Draws the category chips, built from whatever categories the items currently use.
 function renderShoppingCategoryFilters(nonDeletedItems) {
   const container = document.getElementById('shopping-category-filters');
   const options = [{ key: 'all', label: 'All' }, ...deriveChipOptions(nonDeletedItems, (i) => i.category)];
@@ -2465,6 +2584,7 @@ function renderShoppingCategoryFilters(nonDeletedItems) {
   );
 }
 
+// Draws the All / Active / Checked chips.
 function renderShoppingCheckedFilters() {
   const container = document.getElementById('shopping-checked-filters');
   const options = [
@@ -2491,6 +2611,7 @@ const SHOPPING_SORTS = {
   item_asc: compareByField((i) => i.item, 1),
 };
 
+// Redraws the whole Shopping List screen: chips, search, sort and the item rows.
 function renderShoppingList() {
   const searchTerm = document.getElementById('shopping-search-input').value;
   const nonDeleted = shoppingItems.filter((i) => !i.deleted);
@@ -2621,6 +2742,7 @@ const NOTES_KEY = 'secondMemory.notes.v1';
 
 let notes = migrateSyncFields(loadCollection(NOTES_KEY), NOTES_KEY, getDeviceId());
 
+// Adds a note; a note needs a title or some body text.
 function addNote(title, body) {
   const trimmedTitle = title.trim();
   const trimmedBody = body.trim();
@@ -2644,6 +2766,7 @@ function addNote(title, body) {
   return { ok: true };
 }
 
+// Saves edits to a note's title and body.
 function updateNote(id, title, body) {
   const trimmedTitle = title.trim();
   const trimmedBody = body.trim();
@@ -2661,6 +2784,7 @@ function updateNote(id, title, body) {
   return { ok: true };
 }
 
+// Soft-deletes a note (keeps a tombstone so syncing can tell it was deleted).
 function deleteNote(id) {
   const note = notes.find((n) => n.id === id);
   if (!note) return;
@@ -2672,6 +2796,7 @@ function deleteNote(id) {
   renderNotes();
 }
 
+// Brings a deleted note back (used by undo).
 function restoreNote(id) {
   const note = notes.find((n) => n.id === id);
   if (!note || !note.deleted) return;
@@ -2683,12 +2808,14 @@ function restoreNote(id) {
   renderNotes();
 }
 
+// True if the search text appears in the note's title or body.
 function matchesNoteSearch(note, term) {
   if (!term) return true;
   const haystack = `${note.title} ${note.body}`.toLowerCase();
   return haystack.includes(term.toLowerCase());
 }
 
+// The start of a note's body for the card preview, cut off with "…" if it's long.
 function noteBodySnippet(body, length = 150) {
   const trimmed = body.trim();
   return trimmed.length > length ? `${trimmed.slice(0, length)}…` : trimmed;
@@ -2707,6 +2834,7 @@ const NOTE_SORTS = {
   title_asc: compareByField((n) => n.title, 1),
 };
 
+// Redraws the whole Notes screen: search, sort and the note cards.
 function renderNotes() {
   const searchTerm = document.getElementById('notes-search-input').value;
   const comparator = NOTE_SORTS[selectedNotesSort] || NOTE_SORTS.date_modified_desc;
@@ -2839,6 +2967,7 @@ const LINKS_KEY = 'secondMemory.links.v1';
 
 let links = migrateSyncFields(loadCollection(LINKS_KEY), LINKS_KEY, getDeviceId());
 
+// Adds a saved link (label, address, notes); a link needs a label or an address.
 function addLink(label, url, notes) {
   const trimmedLabel = label.trim();
   const trimmedUrl = url.trim();
@@ -2863,6 +2992,7 @@ function addLink(label, url, notes) {
   return { ok: true };
 }
 
+// Soft-deletes a link (keeps a tombstone so syncing can tell it was deleted).
 function deleteLink(id) {
   const link = links.find((l) => l.id === id);
   if (!link) return;
@@ -2874,6 +3004,7 @@ function deleteLink(id) {
   renderLinks();
 }
 
+// Brings a deleted link back (used by undo).
 function restoreLink(id) {
   const link = links.find((l) => l.id === id);
   if (!link || !link.deleted) return;
@@ -2885,6 +3016,7 @@ function restoreLink(id) {
   renderLinks();
 }
 
+// Saves edits to a link's label, address and notes.
 function updateLink(id, fields) {
   const link = links.find((l) => l.id === id);
   if (!link) return { ok: false, error: 'Link not found.' };
@@ -2903,12 +3035,14 @@ function updateLink(id, fields) {
   return { ok: true };
 }
 
+// True if the search text appears in the link's label, address or notes.
 function matchesLinkSearch(link, term) {
   if (!term) return true;
   const haystack = `${link.label} ${link.url} ${link.notes}`.toLowerCase();
   return haystack.includes(term.toLowerCase());
 }
 
+// Turns what the user typed into a safe address to open (adds https:// when no scheme is given).
 function hrefFor(url) {
   const trimmed = String(url).trim();
   if (/^(https?:\/\/|mailto:|tel:)/i.test(trimmed)) return trimmed;
@@ -2926,6 +3060,7 @@ const LINK_SORTS = {
   label_asc: compareByField((l) => l.label, 1),
 };
 
+// Redraws the whole Resume & Portfolio screen: search, sort and the link cards.
 function renderLinks() {
   const searchTerm = document.getElementById('resume-search-input').value;
   const comparator = LINK_SORTS[selectedLinksSort] || LINK_SORTS.date_added_asc;
@@ -3066,6 +3201,7 @@ function isRealDateKey(value) {
 // Storage key: secondMemory.bills.v1. See docs/specs/budget-tab.md.
 
 const BILLS_KEY = 'secondMemory.bills.v1';
+// How often a bill repeats, and the label shown for each option.
 const BILL_FREQUENCIES = ['one_time', 'weekly', 'biweekly', 'monthly', 'yearly'];
 const BILL_FREQUENCY_LABELS = {
   one_time: 'One-time', weekly: 'Weekly', biweekly: 'Biweekly', monthly: 'Monthly', yearly: 'Yearly',
@@ -3080,28 +3216,34 @@ let bills = migrateSyncFields(loadCollection(BILLS_KEY), BILLS_KEY, getDeviceId(
 // repeat). Comparisons between two date keys use plain string comparison,
 // which is correct for this fixed zero-padded format.
 
+// Builds a 'YYYY-MM-DD' key; monthIndex is 0-based (0 = January) like JavaScript dates.
 function dateKeyFromParts(year, monthIndex, day) {
   return `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
+// The date key for a Date, using the local calendar day.
 function dateKeyFromLocalDate(date) {
   return dateKeyFromParts(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
+// Today's date key in local time.
 function todayKey() {
   return dateKeyFromLocalDate(new Date());
 }
 
+// Splits a date key into { y, m, d } numbers (m is 0-based).
 function parseDateKey(key) {
   const [y, m, d] = key.split('-').map(Number);
   return { y, m: m - 1, d }; // m is 0-indexed to match Date's convention
 }
 
+// How many days a month has (handles leap years); monthIndex is 0-based.
 function daysInMonth(year, monthIndex) {
   // The "day 0" trick: day 0 of month M+1 is the last day of month M.
   return new Date(year, monthIndex + 1, 0).getDate();
 }
 
+// Whole days from one date key to another (positive if toKey is later), safe across clock changes.
 function utcDayDiff(fromKey, toKey) {
   const a = parseDateKey(fromKey);
   const b = parseDateKey(toKey);
@@ -3120,6 +3262,7 @@ function shiftDateKey(key, deltaDays) {
 
 // ---- Occurrence generation ----
 
+// True if a bill falls due on this date, given its first due date and how often it repeats.
 function occursOnDate(bill, dateKey) {
   if (bill.frequency === 'one_time') return dateKey === bill.dueDate;
 
@@ -3212,6 +3355,7 @@ function occurrenceAmount(bill, dateKey) {
   return (bill.paidDates || []).includes(dateKey) ? paidAmountFor(bill, dateKey) : bill.amount;
 }
 
+// Total still owed for a bill's occurrences up to a date (occurrences so far minus paid ones, times the amount).
 function unpaidAmountThrough(bill, throughKey) {
   const totalOccurrences = occurrenceCountThrough(bill, throughKey);
   if (totalOccurrences === 0) return 0;
@@ -3240,6 +3384,7 @@ function oldestUnpaidOccurrence(bill, throughKey) {
 
 // ---- Calendar window ----
 
+// The 35 days the budget calendar shows: five Monday-start weeks, from two weeks back to two ahead.
 function getCalendarWindowDays(today = new Date()) {
   const dow = (today.getDay() + 6) % 7; // days since Monday (getDay() is 0 = Sunday)
   const startOfThisWeek = new Date(today.getFullYear(), today.getMonth(), today.getDate() - dow);
@@ -3255,9 +3400,11 @@ function getCalendarWindowDays(today = new Date()) {
   return days.map(dateKeyFromLocalDate); // 35 date-key strings, Monday-start
 }
 
+// Month names indexed by 0-based month number.
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
   'August', 'September', 'October', 'November', 'December'];
 
+// Headings for the five calendar weeks, in order.
 const BUDGET_WEEK_LABELS = ['2 weeks ago', 'Last week', 'This week', 'Next week', '2 weeks from now'];
 
 // Cumulative "total currently owed as of the end of this week" — the same
@@ -3278,6 +3425,7 @@ function weekTotal(weekEndKey, allBills) {
 // at the cost of setIncomeForDate needing to find-or-create by dateKey
 // instead of blindly pushing like every other addX.
 
+// The old storage key for per-day income numbers; only read once, by the migration below.
 const BUDGET_DAILY_NUMBERS_KEY = 'secondMemory.budgetDailyNumbers.v1';
 const INCOME_KEY = 'secondMemory.income.v1';
 let income = migrateSyncFields(loadCollection(INCOME_KEY), INCOME_KEY, getDeviceId());
@@ -3326,6 +3474,7 @@ function migrateBudgetDailyNumbersToIncome() {
 
 migrateBudgetDailyNumbersToIncome();
 
+// Sets (or clears, when the value is '') the manual income number for one calendar day.
 function setIncomeForDate(dateKey, rawValue) {
   const existing = income.find((r) => r.id === dateKey);
 
@@ -3371,6 +3520,7 @@ function setIncomeForDate(dateKey, rawValue) {
   setTimeout(renderBudget, 0);
 }
 
+// Soft-deletes a day's income entry (keeps a tombstone so syncing can tell it was cleared).
 function deleteIncome(id) {
   const record = income.find((r) => r.id === id);
   if (!record) return;
@@ -3385,6 +3535,7 @@ function deleteIncome(id) {
   setTimeout(renderBudget, 0);
 }
 
+// Brings a cleared income entry back (used by undo).
 function restoreIncome(id) {
   const record = income.find((r) => r.id === id);
   if (!record || !record.deleted) return;
@@ -3396,9 +3547,6 @@ function restoreIncome(id) {
   renderBudget();
 }
 
-// Deliberately NOT cumulative-through-date, unlike weekTotal()/unpaidAmountThrough(). Each
-// income record is summed into exactly the one week (or month) whose range its dateKey falls
-// in — never carried into subsequent periods. See docs/specs/budget-income.md §5.
 // Income is one entry per date. If two live entries for one date ever exist (from an old conflict or
 // restore), only the most recently edited one is used, so nothing is counted twice.
 function uniqueIncomeByDate(records) {
@@ -3410,6 +3558,9 @@ function uniqueIncomeByDate(records) {
   return [...latest.values()];
 }
 
+// Deliberately NOT cumulative-through-date, unlike weekTotal()/unpaidAmountThrough(). Each
+// income record is summed into exactly the one week (or month) whose range its dateKey falls
+// in — never carried into subsequent periods. See docs/specs/budget-income.md §5.
 function incomeSumInRange(startKey, endKey, allIncome) {
   return allIncome
     .filter((r) => !r.deleted && r.dateKey >= startKey && r.dateKey <= endKey)
@@ -3447,12 +3598,14 @@ function signedAmountClass(amount) {
 // and a year before 1000 breaks the schedule math and makes the budget screen crawl.
 const DATE_YEAR_MIN = 1990;
 const DATE_YEAR_MAX = 2100;
+// True if a YYYY-MM-DD string has a year inside the allowed range.
 function isReasonableDateKey(key) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key || '');
   return !!m && Number(m[1]) >= DATE_YEAR_MIN && Number(m[1]) <= DATE_YEAR_MAX;
 }
 const DATE_RANGE_MESSAGE = `Pick a date between the years ${DATE_YEAR_MIN} and ${DATE_YEAR_MAX}.`;
 
+// Checks and cleans a bill's form values (name, amount above $0, due date); unknown frequency becomes monthly.
 function validateBillFields(fields) {
   const trimmedName = fields.name.trim();
   if (!trimmedName) return { ok: false, error: 'Bill name is required.' };
@@ -3467,6 +3620,7 @@ function validateBillFields(fields) {
   return { ok: true, name: trimmedName, amount, dueDate, frequency, category: fields.category.trim() };
 }
 
+// Adds a bill. Returns { ok } or { ok: false, error } if the fields don't validate.
 function addBill(fields) {
   const result = validateBillFields(fields);
   if (!result.ok) return result;
@@ -3492,8 +3646,6 @@ function addBill(fields) {
   return { ok: true };
 }
 
-// Never touches paidDates — only toggleBillPaid (and the "mark oldest unpaid
-// as paid" button, which calls the same function) ever mutates it.
 // The date of a schedule's nth (0-based) occurrence, or null if it has none.
 function nthOccurrenceDate(bill, n) {
   const anchor = parseDateKey(bill.dueDate);
@@ -3514,6 +3666,8 @@ function nthOccurrenceDate(bill, n) {
   return null;
 }
 
+// Saves edits to a bill. Never touches paidDates except to carry existing payments over to a new
+// schedule; only toggleBillPaid (and the "mark oldest unpaid as paid" button, which calls it) marks payments.
 function updateBill(id, fields) {
   const bill = bills.find((b) => b.id === id);
   if (!bill) return { ok: false, error: 'Bill not found.' };
@@ -3563,6 +3717,7 @@ function updateBill(id, fields) {
   return { ok: true };
 }
 
+// Soft-deletes a bill (keeps a tombstone so syncing can tell it was deleted).
 function deleteBill(id) {
   const bill = bills.find((b) => b.id === id);
   if (!bill) return;
@@ -3574,6 +3729,7 @@ function deleteBill(id) {
   renderBudget();
 }
 
+// Brings a deleted bill back (used by undo).
 function restoreBill(id) {
   const bill = bills.find((b) => b.id === id);
   if (!bill || !bill.deleted) return;
@@ -3623,6 +3779,7 @@ function toggleBillPaid(billId, dateKey, paid) {
 // toggled (§4).
 
 const RECURRING_INCOME_KEY = 'secondMemory.recurringIncome.v1';
+// How often a recurring income source repeats (no one-time option), and the label shown for each.
 const RECURRING_INCOME_FREQUENCIES = ['weekly', 'biweekly', 'monthly', 'yearly'];
 const RECURRING_INCOME_FREQUENCY_LABELS = {
   weekly: 'Weekly', biweekly: 'Biweekly', monthly: 'Monthly', yearly: 'Yearly',
@@ -3630,6 +3787,7 @@ const RECURRING_INCOME_FREQUENCY_LABELS = {
 
 let recurringIncome = migrateSyncFields(loadCollection(RECURRING_INCOME_KEY), RECURRING_INCOME_KEY, getDeviceId());
 
+// Checks and cleans a recurring income source's form values (unknown frequency becomes biweekly).
 function validateRecurringIncomeFields(fields) {
   const trimmedName = fields.name.trim();
   if (!trimmedName) return { ok: false, error: 'Income source name is required.' };
@@ -3648,6 +3806,7 @@ function validateRecurringIncomeFields(fields) {
   return { ok: true, name: trimmedName, amount, dueDate, frequency, category: fields.category.trim() };
 }
 
+// Adds a recurring income source (e.g. a paycheck). Returns { ok } or { ok: false, error }.
 function addRecurringIncome(fields) {
   const result = validateRecurringIncomeFields(fields);
   if (!result.ok) return result;
@@ -3672,6 +3831,7 @@ function addRecurringIncome(fields) {
   return { ok: true };
 }
 
+// Saves edits to a recurring income source, re-validating the fields first.
 function updateRecurringIncome(id, fields) {
   const source = recurringIncome.find((r) => r.id === id);
   if (!source) return { ok: false, error: 'Recurring income source not found.' };
@@ -3690,6 +3850,7 @@ function updateRecurringIncome(id, fields) {
   return { ok: true };
 }
 
+// Soft-deletes a recurring income source (keeps a tombstone so syncing can tell it was deleted).
 function deleteRecurringIncome(id) {
   const source = recurringIncome.find((r) => r.id === id);
   if (!source) return;
@@ -3701,6 +3862,7 @@ function deleteRecurringIncome(id) {
   renderBudget();
 }
 
+// Brings a deleted recurring income source back (used by undo).
 function restoreRecurringIncome(id) {
   const source = recurringIncome.find((r) => r.id === id);
   if (!source || !source.deleted) return;
@@ -3744,8 +3906,10 @@ function totalIncomeInRange(startKey, endKey, nonDeletedIncome, nonDeletedRecurr
 // Reads ALL bills including deleted ones (deleting a bill doesn't un-spend
 // money already paid), filtered through occursOnDate.
 
+// The month the Paid history panel is showing (m is 0-based); starts on the current month.
 let paidHistoryMonth = (() => { const { y, m } = parseDateKey(todayKey()); return { y, m }; })();
 
+// Totals what was paid in one month per bill category, biggest first.
 function computePaidByCategory(allBills, y, m) {
   const prefix = `${y}-${String(m + 1).padStart(2, '0')}-`;
   const byKey = new Map();
@@ -3769,6 +3933,7 @@ function computePaidByCategory(allBills, y, m) {
   return [...byKey.values()].sort((a, b) => b.total - a.total);
 }
 
+// Draws the Paid history list for the selected month, with a total row at the bottom.
 function renderPaidHistory() {
   const { y, m } = paidHistoryMonth;
   document.getElementById('paid-history-label').textContent = `${MONTH_NAMES[m]} ${y}`;
@@ -3792,6 +3957,7 @@ function renderPaidHistory() {
   addRow('Total paid', rows.reduce((sum, r) => sum + r.total, 0), 'paid-history-total');
 }
 
+// Moves the Paid history panel forward or back by whole months.
 function shiftPaidHistoryMonth(delta) {
   const d = new Date(paidHistoryMonth.y, paidHistoryMonth.m + delta, 1);
   paidHistoryMonth = { y: d.getFullYear(), m: d.getMonth() };
@@ -3801,6 +3967,7 @@ function shiftPaidHistoryMonth(delta) {
 document.getElementById('paid-history-prev').addEventListener('click', () => shiftPaidHistoryMonth(-1));
 document.getElementById('paid-history-next').addEventListener('click', () => shiftPaidHistoryMonth(1));
 
+// True if the search text appears in the bill's name or category.
 function matchesBillSearch(bill, term) {
   if (!term) return true;
   const haystack = `${bill.name} ${bill.category}`.toLowerCase();
@@ -3811,6 +3978,7 @@ function matchesBillSearch(bill, term) {
 // chip-filtered collection.
 let selectedBillCategory = 'all';
 
+// True if the bill is in the selected category chip ('all' matches everything).
 function matchesBillCategory(bill, categoryKey) {
   return categoryKey === 'all' || normalizeChipKey(bill.category) === categoryKey;
 }
@@ -3824,6 +3992,7 @@ function matchesBillCategory(bill, categoryKey) {
 // rather than being hashed in.
 const BILL_CATEGORY_PALETTE = ['var(--accent)', 'var(--accent-rose)', 'var(--accent-lavender)'];
 
+// The palette color for a category (same category always gets the same color); null if blank.
 function billCategoryColor(category) {
   const key = normalizeChipKey(category);
   if (!key) return null;
@@ -3832,6 +4001,7 @@ function billCategoryColor(category) {
   return BILL_CATEGORY_PALETTE[hash % BILL_CATEGORY_PALETTE.length];
 }
 
+// Draws the Budget category chips, built from whatever categories the bills currently use.
 function renderBillCategoryFilters(nonDeletedBills) {
   const container = document.getElementById('budget-category-filters');
   const options = [{ key: 'all', label: 'All' }, ...deriveChipOptions(nonDeletedBills, (b) => b.category)];
@@ -3856,6 +4026,7 @@ const BILL_SORTS = {
   amount_asc: compareByField((b) => b.amount, 1, { text: false }),
 };
 
+// Fills the one-line summary: total unpaid as of today across all bills.
 function renderBudgetStats(nonDeletedBills) {
   const el = document.getElementById('budget-stats');
   if (!el) return;
@@ -3880,8 +4051,10 @@ function renderBudgetStats(nonDeletedBills) {
 // of living in this flat, device-local key.
 
 const PAYDAY_SETTINGS_KEY = 'secondMemory.paydaySettings.v1';
+// How often payday comes around, for the Current Pay Period panel.
 const PAY_PERIOD_FREQUENCIES = ['weekly', 'biweekly', 'monthly'];
 
+// Reads the saved payday date and frequency; falls back to "not set, biweekly".
 function loadPaydaySettings() {
   try {
     const raw = localStorage.getItem(PAYDAY_SETTINGS_KEY);
@@ -3898,6 +4071,7 @@ function loadPaydaySettings() {
   return { payDateKey: null, frequency: 'biweekly' };
 }
 
+// Saves the payday date and frequency (device-local, never synced).
 function savePaydaySettings(settings) {
   localStorage.setItem(PAYDAY_SETTINGS_KEY, JSON.stringify(settings));
 }
@@ -3926,11 +4100,13 @@ function computeCurrentPayPeriod(payDateKey, frequency) {
   return { periodStart, periodEnd };
 }
 
+// "2026-09-05" becomes "September 5, 2026".
 function formatDateKeyLong(dateKey) {
   const { y, m, d } = parseDateKey(dateKey);
   return `${MONTH_NAMES[m]} ${d}, ${y}`;
 }
 
+// Draws the Current Pay Period panel: bills due before the next payday, plus income and net for that period.
 // Reads the live, non-deleted bills array directly (same convention as
 // renderBudgetStats/renderBillCategoryFilters) rather than taking it as a
 // parameter, since it's called from renderBudget() alongside those.
@@ -4041,14 +4217,10 @@ function renderPayPeriod() {
   });
 }
 
-// Renders the 35-day rolling calendar into #budget-calendar (everything
-// after the static .budget-weekday-row) and the month/year header. Always
-// runs against the full live `bills` array, and unaffected by the Bills
-// list's search filter below — but the category chip filter DOES apply here
-// too (occurrence rendering only; every total stays unfiltered, see the
-// matchesBillCategory comment inside the render loop below).
+// The date key of the calendar day currently opened (expanded), or null when none is.
 let openCalendarDayKey = null;
 
+// True on narrow screens, where the calendar switches to its compact layout.
 function isCompactCalendar() {
   return window.matchMedia('(max-width: 900px)').matches;
 }
@@ -4069,6 +4241,7 @@ function setDayDialog(cell, open) {
   }
 }
 
+// Closes the opened day sheet; with restoreFocus, focus goes back to that day's button.
 function closeCalendarDay({ restoreFocus = false } = {}) {
   const key = openCalendarDayKey;
   openCalendarDayKey = null;
@@ -4121,6 +4294,12 @@ document.addEventListener('click', (e) => {
   }
 }, true);
 
+// Renders the 35-day rolling calendar into #budget-calendar (everything
+// after the static .budget-weekday-row) and the month/year header. Always
+// runs against the full live `bills` array, and unaffected by the Bills
+// list's search filter below — but the category chip filter DOES apply here
+// too (occurrence rendering only; every total stays unfiltered, see the
+// matchesBillCategory comment inside the render loop below).
 function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, nonDeletedRecurringIncome, focusedManualInput) {
   const today = new Date();
   const todayK = todayKey();
@@ -4168,6 +4347,7 @@ function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, nonDeletedRecur
       '(includes unpaid amounts carried over from past months)';
   }
 
+  // Rebuild the five weeks from scratch: each week gets seven day cells plus its totals.
   const windowDays = getCalendarWindowDays(today);
   const calendarEl = document.getElementById('budget-calendar');
   calendarEl.querySelectorAll('.budget-week').forEach((el) => el.remove());
@@ -4228,6 +4408,7 @@ function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, nonDeletedRecur
 
       const daySummary = []; // what this day holds, for the open button's accessible name
 
+      // Day header: the date number, plus the Close button used by the compact layout.
       const headerEl = document.createElement('div');
       headerEl.className = 'budget-day-header';
       const dateSpan = document.createElement('span');
@@ -4273,6 +4454,7 @@ function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, nonDeletedRecur
           occurrencesEl.appendChild(itemEl);
         });
 
+      // Then the bills due on this day, each with a paid checkbox and a category dot.
       nonDeletedBills
         .filter((bill) => occursOnDate(bill, dateKey))
         // Calendar-only category filter — the same chip selection filters the
@@ -4327,6 +4509,7 @@ function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, nonDeletedRecur
         });
       bodyEl.appendChild(occurrencesEl);
 
+      // Day footer: the box for typing a manual income amount for this day.
       const footerEl = document.createElement('div');
       footerEl.className = 'budget-day-footer';
       const manualInput = document.createElement('input');
@@ -4362,6 +4545,7 @@ function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, nonDeletedRecur
 
     weekEl.appendChild(cellsEl);
 
+    // Under each week: what's still owed, the income, and the net.
     const totalEl = document.createElement('p');
     totalEl.className = 'budget-week-total';
     totalEl.innerHTML = `${BUDGET_WEEK_LABELS[weekIndex]}: <strong>$${weekTotal(weekEndKey, nonDeletedBills).toFixed(2)}</strong>`;
@@ -4391,6 +4575,7 @@ function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, nonDeletedRecur
     calendarEl.appendChild(weekEl);
   }
 
+  // If an income box was being typed in when the redraw started, put its text and focus back.
   if (focusedManualInput) {
     const restored = calendarEl.querySelector(
       `.budget-day-manual-input[data-date-key="${focusedManualInput.dateKey}"]`
@@ -4402,7 +4587,10 @@ function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, nonDeletedRecur
   }
 }
 
+// Draws the Bills list (cards with edit form, delete and "mark oldest unpaid as paid");
+// openEdit re-opens an edit form that was open before the redraw.
 function renderBudgetList(nonDeletedBills, openEdit) {
+  // Apply the search box, category chip and sort choice.
   const searchTerm = document.getElementById('budget-search-input').value;
   const comparator = BILL_SORTS[selectedBillsSort] || BILL_SORTS.due_date_asc;
   const visible = nonDeletedBills
@@ -4416,6 +4604,7 @@ function renderBudgetList(nonDeletedBills, openEdit) {
 
   list.innerHTML = '';
 
+  // One card per bill: fill in the details first, then wire up the buttons.
   visible.forEach((bill) => {
     const node = template.content.cloneNode(true);
     const card = node.querySelector('.bill-card');
@@ -4434,6 +4623,7 @@ function renderBudgetList(nonDeletedBills, openEdit) {
       categoryEl.hidden = false;
     }
 
+    // Only offered while something is still owed as of today.
     const markOldestBtn = node.querySelector('.mark-oldest-paid-btn');
     const hasUnpaid = unpaidAmountThrough(bill, todayK) > 0;
     markOldestBtn.disabled = !hasUnpaid;
@@ -4502,6 +4692,7 @@ function renderBudgetList(nonDeletedBills, openEdit) {
 
     node.querySelector('.delete-btn').addEventListener('click', () => deleteBill(bill.id));
 
+    // Re-open the form that was open before this redraw, with whatever had been typed in it.
     if (openEdit && openEdit.id === bill.id) {
       editNameInput.value = openEdit.name;
       editAmountInput.value = openEdit.amount;
@@ -4783,8 +4974,13 @@ document.getElementById('recurring-income-add-form').addEventListener('submit', 
 
 const JOURNAL_KEY = 'secondMemory.journal.v1';
 
+// Journal entries are { id, type, date, answers, dateAdded, updatedAt } with no sync fields,
+// and deleting one removes it for good (after a confirm) instead of leaving a tombstone.
 let journalEntries = loadCollection(JOURNAL_KEY);
 
+// The three kinds of entry and the questions the wizard asks for each. Question types:
+// 'text' = free writing, 'scale' = 1 to 5, 'choice' = pick one of `options`. Answers are
+// stored by question id, so don't rename an id once entries exist.
 const JOURNAL_TEMPLATES = {
   dream: {
     label: 'Dream',
@@ -4823,6 +5019,7 @@ const JOURNAL_TEMPLATES = {
   },
 };
 
+// Journal screen state: type chip, search text, and the trend chart's range ('all' or a number of days).
 let selectedJournalFilter = 'all';
 let journalSearchTerm = '';
 let selectedTrendRange = '90';
@@ -4836,14 +5033,17 @@ let journalActiveOverride = null; // a date the reader just tapped, kept highlig
 // Wizard state: step 0 is the date; steps 1..N are the template's questions.
 let journalDraft = null; // { type, editingId, date, answers, step }
 
+// True if an answer has some real content (not missing, null or only spaces).
 function hasJournalAnswer(value) {
   return value !== undefined && value !== null && String(value).trim() !== '';
 }
 
+// Saves the journal to localStorage; returns false if the browser refused.
 function saveJournalEntries() {
   return saveCollection(JOURNAL_KEY, journalEntries);
 }
 
+// Starts the question-by-question wizard for a new entry, or for editing an existing one.
 function openJournalWizard(type, existing) {
   journalDraft = {
     type,
@@ -4857,6 +5057,7 @@ function openJournalWizard(type, existing) {
   renderJournalStep();
 }
 
+// Throws away the wizard's draft and returns to the "start an entry" buttons.
 function closeJournalWizard() {
   journalDraft = null;
   document.getElementById('journal-wizard').hidden = true;
@@ -4865,6 +5066,7 @@ function closeJournalWizard() {
   if (startBtn) startBtn.focus(); // the wizard button that had focus is now hidden
 }
 
+// Copies what's typed on the current wizard step into the draft (call before moving to another step).
 function captureJournalAnswer() {
   const { type, step } = journalDraft;
   const container = document.getElementById('journal-answer');
@@ -4881,7 +5083,9 @@ function captureJournalAnswer() {
   // scale/choice answers are written to journalDraft.answers on click.
 }
 
+// Shows the wizard's current step: the date picker (step 0) or one question with its input.
 function renderJournalStep() {
+  // Clear the previous step and set the progress line.
   const { type, step, answers } = journalDraft;
   const template = JOURNAL_TEMPLATES[type];
   const total = template.questions.length;
@@ -4895,6 +5099,7 @@ function renderJournalStep() {
     `${template.label} entry${journalDraft.editingId ? ' (editing)' : ''} \u00b7 ` +
     (step === 0 ? 'Date' : `Question ${step} of ${total}`);
 
+  // Step 0 asks for the date; every later step asks one template question.
   if (step === 0) {
     questionEl.textContent = type === 'dream' ? 'Which night was this dream?'
       : type === 'daily' ? 'Which day is this entry for?'
@@ -4942,6 +5147,7 @@ function renderJournalStep() {
     }
   }
 
+  // Back and Skip aren't offered on the date step; the last step's button saves instead of advancing.
   const isLast = step === total;
   document.getElementById('journal-back-btn').hidden = step === 0;
   document.getElementById('journal-skip-btn').hidden = step === 0 || isLast;
@@ -4950,7 +5156,10 @@ function renderJournalStep() {
     : 'Next';
 }
 
+// Saves the wizard's draft as a new entry or as edits to the one being edited.
+// Needs at least one answer; if storage is full the journal is rolled back and an error shown.
 function finishJournalEntry() {
+  // Keep only answered questions, and refuse an entry with none.
   const { type, editingId, date, answers } = journalDraft;
   const questionIds = JOURNAL_TEMPLATES[type].questions.map((q) => q.id);
   const cleaned = {};
@@ -4961,6 +5170,7 @@ function finishJournalEntry() {
     errorEl.hidden = false;
     return;
   }
+  // Apply the change in memory, keeping a copy so a failed save can be undone.
   const now = new Date().toISOString();
   const backup = JSON.stringify(journalEntries);
   if (editingId) {
@@ -4988,6 +5198,7 @@ function finishJournalEntry() {
   renderJournal();
 }
 
+// Permanently deletes a journal entry after asking for confirmation (the journal has no undo or tombstones).
 function deleteJournalEntry(id) {
   if (!window.confirm('Delete this journal entry? This cannot be undone.')) return;
   journalEntries = journalEntries.filter((e) => e.id !== id);
@@ -4995,7 +5206,10 @@ function deleteJournalEntry(id) {
   renderJournal();
 }
 
+// Redraws the Journal screen: type chips, the row of entry cards (oldest left, newest right),
+// the date strip, trends and backup notes, then restores the scroll position.
 function renderJournal() {
+  // Type chips (changing one jumps back to the newest entry).
   const filterOptions = [
     { key: 'all', label: 'All' },
     { key: 'daily', label: 'Journal' },
@@ -5010,6 +5224,7 @@ function renderJournal() {
     () => { journalScrollMode = 'end'; renderJournal(); }
   );
 
+  // Remember the scroll position, then pick and order the entries to show.
   const list = document.getElementById('journal-list');
   const previousScroll = list.clientWidth > 0 ? list.scrollLeft : journalLastScrollLeft;
   list.innerHTML = '';
@@ -5024,6 +5239,7 @@ function renderJournal() {
       return ka < kb ? -1 : ka > kb ? 1 : 0;
     });
 
+  // One card per entry: type and date, the answered questions, then Edit / Delete.
   visible.forEach((entry) => {
     const template = JOURNAL_TEMPLATES[entry.type];
     const li = document.createElement('li');
@@ -5076,6 +5292,7 @@ function renderJournal() {
     list.appendChild(li);
   });
 
+  // Empty state, search result count, and the other panels that depend on the journal.
   document.getElementById('journal-empty-state').hidden = journalEntries.length !== 0;
   const countEl = document.getElementById('journal-search-count');
   const searching = journalSearchTerm.trim() !== '';
@@ -5099,6 +5316,7 @@ function renderJournal() {
   }
 }
 
+// True if the search text appears in the entry's type, date or any of its answers.
 function matchesJournalSearch(entry, term) {
   const needle = (term || '').trim().toLowerCase();
   if (!needle) return true;
@@ -5123,16 +5341,19 @@ document.getElementById('journal-search-input').addEventListener('input', (e) =>
 // therapy" answers) as an inline SVG line chart, plus the feelings you pick
 // most. Nothing leaves the device; this only reads the entries already here.
 
+// The two ratings charted: which entry type and which 1-5 question each line comes from.
 const TREND_SERIES = [
   { key: 'daily', type: 'daily', field: 'day_rating', label: 'Day rating' },
   { key: 'therapy', type: 'therapy', field: 'mood_after', label: 'Mood after therapy' },
 ];
 
+// The earliest date to include in the charts, from the selected range ('all' includes everything).
 function trendSinceKey() {
   if (selectedTrendRange === 'all') return '0000-00-00';
   return shiftDateKey(todayKey(), -Number(selectedTrendRange));
 }
 
+// The dated 1-5 ratings for one series since a date, oldest first; unanswered or invalid ones are skipped.
 function collectTrendPoints(series, sinceKey) {
   return journalEntries
     .filter((e) => e.type === series.type && DATE_KEY_RE.test(e.date) && e.date >= sinceKey)
@@ -5141,6 +5362,7 @@ function collectTrendPoints(series, sinceKey) {
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 }
 
+// The mean rating of a non-empty list of points.
 function averageOf(points) {
   return points.reduce((sum, pt) => sum + pt.value, 0) / points.length;
 }
@@ -5155,17 +5377,20 @@ function trendDirection(points) {
   return ', steady';
 }
 
+// Creates an SVG element with the given attributes (SVG needs its own namespace).
 function svgEl(name, attrs) {
   const el = document.createElementNS('http://www.w3.org/2000/svg', name);
   Object.entries(attrs || {}).forEach(([k, v]) => el.setAttribute(k, String(v)));
   return el;
 }
 
+// A date key as a whole-day number, so dates can be spaced out evenly along the chart's x axis.
 function epochDays(dateKey) {
   const { y, m, d } = parseDateKey(dateKey);
   return Math.round(Date.UTC(y, m, d) / 86400000);
 }
 
+// Draws the 1-5 rating line chart as inline SVG: grid and labels first, then each series' line and dots.
 function drawTrendChart(container, seriesPoints) {
   const W = 640, H = 200, left = 30, right = 14, top = 12, bottom = 28;
   const all = seriesPoints.flatMap((s) => s.points);
@@ -5208,6 +5433,8 @@ function drawTrendChart(container, seriesPoints) {
   container.appendChild(svg);
 }
 
+// Redraws the Trends panel: range chips, the chart (or a "no ratings yet" note), averages
+// and the feelings picked most often.
 function renderJournalTrends() {
   const details = document.getElementById('journal-trends');
   if (!details) return;
@@ -5240,6 +5467,7 @@ function renderJournalTrends() {
       .join('. ') + '.';
   }
 
+  // Tally the feelings chosen (journal "feeling", dream "felt waking") and show the top five.
   const counts = new Map();
   journalEntries
     .filter((e) => DATE_KEY_RE.test(e.date) && e.date >= since)
@@ -5253,6 +5481,7 @@ function renderJournalTrends() {
 
 document.getElementById('journal-trends').addEventListener('toggle', renderJournalTrends);
 
+// Short label for an entry's date chip, e.g. "Mar 4" (with the year only if it isn't this year).
 function journalChipLabel(entry) {
   if (!DATE_KEY_RE.test(entry.date)) return entry.date;
   const { y, m, d } = parseDateKey(entry.date);
@@ -5284,6 +5513,7 @@ function renderJournalDateStrip(visible) {
   });
 }
 
+// Smoothly scrolls the card row so the chosen entry is at the left edge.
 function scrollJournalToEntry(id) {
   const list = document.getElementById('journal-list');
   const card = [...list.children].find((c) => c.dataset.entryId === id);
@@ -5320,6 +5550,7 @@ function updateJournalActiveDate() {
   });
 }
 
+// Scrolling is handled at most once per animation frame so the date strip stays smooth.
 let journalScrollFrame = null;
 const journalListEl = document.getElementById('journal-list');
 journalListEl.addEventListener('scroll', () => {
@@ -5332,6 +5563,7 @@ journalListEl.addEventListener('scroll', () => {
   });
 });
 
+// Scrolls the card row by about a screenful; direction is -1 (back) or 1 (forward).
 function scrollJournalByPage(direction) {
   journalActiveOverride = null;
   const list = document.getElementById('journal-list');
@@ -5381,6 +5613,7 @@ document.getElementById('journal-skip-btn').addEventListener('click', () => {
 
 document.getElementById('journal-cancel-btn').addEventListener('click', closeJournalWizard);
 
+// Shows a message under the journal backup buttons; tone is 'ok' or 'failed'.
 function setJournalBackupStatus(text, tone) {
   const el = document.getElementById('journal-backup-status');
   el.textContent = text;
@@ -5389,6 +5622,7 @@ function setJournalBackupStatus(text, tone) {
   el.classList.toggle('sync-failed', tone === 'failed');
 }
 
+// Guards a restore from a backup file: true only for entries with an id, a known type, a date and answers.
 function isValidJournalEntry(item) {
   return !!item && typeof item.id === 'string' && !!JOURNAL_TEMPLATES[item.type]
     && typeof item.date === 'string' && !!item.answers && typeof item.answers === 'object';
@@ -5411,6 +5645,7 @@ function mergeJournalEntries(incoming) {
   return added;
 }
 
+// Downloads the journal as its own JSON file (the journal is not part of syncing) and notes the time.
 function downloadJournalBackup() {
   recordBackupTime(JOURNAL_BACKUP_AT_KEY);
   const json = JSON.stringify({ journal: journalEntries }, null, 2);
@@ -5467,6 +5702,7 @@ document.getElementById('journal-import-file').addEventListener('change', (e) =>
 // one. Built only from entries already on this device; printing uses the
 // browser's own Print / Save as PDF.
 
+// Therapy-session questions shown in the summary, with their wording there (order = display order).
 const SUMMARY_LABELS = {
   topics: 'What we talked about',
   insight: 'Biggest insight',
@@ -5476,6 +5712,7 @@ const SUMMARY_LABELS = {
   next: 'To bring up next time',
 };
 
+// The most recent therapy sessions, newest first, up to limit.
 function therapySessions(limit) {
   return journalEntries
     .filter((e) => e.type === 'therapy' && DATE_KEY_RE.test(e.date))
@@ -5483,6 +5720,7 @@ function therapySessions(limit) {
     .slice(0, limit);
 }
 
+// The answered summary questions of one session as { label, text } pairs.
 function sessionLines(entry) {
   return Object.keys(SUMMARY_LABELS)
     .filter((id) => hasJournalAnswer(entry.answers && entry.answers[id]))
@@ -5516,16 +5754,19 @@ function latestBringUpNote(sessions) {
   return { text: String(withNote.answers.next), date: withNote.date, fromLatest: withNote === sessions[0] };
 }
 
+// Heading for the bring-up note; adds the date when it comes from an older session.
 function bringUpHeading(note) {
   return note.fromLatest ? 'To bring up next time' : `To bring up next time (from ${formatDateKeyLong(note.date)})`;
 }
 
+// Gathers what the summary shows: the recent sessions and the journal activity since the latest one.
 function buildTherapySummaryData(limit) {
   const sessions = therapySessions(limit);
   const since = sessions.length ? sinceLastSession(sessions[0].date) : null;
   return { sessions, since };
 }
 
+// The same summary as plain text, for the Copy button.
 function buildTherapySummaryText({ sessions, since }) {
   if (sessions.length === 0) return 'No therapy sessions logged yet.';
   const lines = [`Therapy summary (${sessions.length} most recent session${sessions.length === 1 ? '' : 's'})`, `Prepared ${formatDateKeyLong(todayKey())}`, ''];
@@ -5545,6 +5786,7 @@ function buildTherapySummaryText({ sessions, since }) {
   return lines.join('\n').trim();
 }
 
+// Fills the summary sheet: the bring-up note, the journal since the last session, then each session.
 function renderTherapySummary() {
   const body = document.getElementById('therapy-summary-body');
   const limit = Number(document.getElementById('therapy-summary-count').value) || 5;
@@ -5618,14 +5860,17 @@ function renderTherapySummary() {
   });
 }
 
+// The control to hand focus back to when the summary sheet closes.
 let summaryReturnFocus = null;
 
+// Shows a short message in the summary sheet (such as "Copied"); an empty message hides it.
 function setSummaryStatus(text) {
   const el = document.getElementById('therapy-summary-status');
   el.textContent = text;
   el.hidden = !text;
 }
 
+// Opens the summary sheet and moves focus into it.
 function openTherapySummary() {
   summaryReturnFocus = document.getElementById('therapy-summary-btn');
   setSummaryStatus('');
@@ -5635,6 +5880,7 @@ function openTherapySummary() {
   document.getElementById('therapy-summary-close').focus();
 }
 
+// Closes the summary sheet and returns focus to the button that opened it.
 function closeTherapySummary() {
   document.getElementById('therapy-summary').hidden = true;
   document.body.classList.remove('summary-open');
@@ -5683,15 +5929,18 @@ document.addEventListener('keydown', (e) => {
 // Browsers can't write files in the background, so the app tracks the last
 // download and nags when it is overdue.
 
+// Where the time of the last journal backup / full export is remembered, and how many days before a reminder.
 const JOURNAL_BACKUP_AT_KEY = 'secondMemory.journalBackupAt.v1';
 const EXPORT_AT_KEY = 'secondMemory.exportAt.v1';
 const JOURNAL_BACKUP_DUE_DAYS = 7;
 const EXPORT_DUE_DAYS = 30;
 
+// Remembers that a backup file was just downloaded.
 function recordBackupTime(key) {
   try { localStorage.setItem(key, new Date().toISOString()); } catch { /* storage full: nothing to remember it in */ }
 }
 
+// Whole days since the last backup, or null if there has never been one.
 function daysSinceBackup(key) {
   try {
     const value = localStorage.getItem(key);
@@ -5703,14 +5952,18 @@ function daysSinceBackup(key) {
   }
 }
 
+// "never", "today", "yesterday" or "N days ago" for the backup reminders.
 function backupAgeText(days) {
   if (days === null) return 'never';
   if (days === 0) return 'today';
   return days === 1 ? 'yesterday' : `${days} days ago`;
 }
 
+// Set when the user dismisses the backup reminders; they stay hidden until the page is reloaded.
 let backupNotesDismissed = false;
 
+// Updates the "last journal backup" line and shows Home reminders when the journal or the
+// full export is overdue for a backup.
 function renderBackupNotes() {
   const lastEl = document.getElementById('journal-backup-last');
   if (lastEl) lastEl.textContent = `Last journal backup: ${backupAgeText(daysSinceBackup(JOURNAL_BACKUP_AT_KEY))}`;
@@ -5768,6 +6021,9 @@ function renderBackupNotes() {
 const SEARCH_RESULTS_PER_GROUP = 5;
 const SEARCH_MIN_LENGTH = 2;
 
+// What the Home search looks through. For each list: the tab to open, the heading, that tab's
+// own search box (inputId, or null if it has none), a getter for its records, how to title a
+// result, and which fields are searched.
 const SEARCH_SOURCES = [
   { tab: 'books', label: 'Books', inputId: 'books-search-input', items: () => books, title: (b) => b.title, fields: (b) => [b.title, b.author] },
   { tab: 'recipes', label: 'Recipes', inputId: 'recipes-search-input', items: () => recipes, title: (r) => r.title, fields: (r) => [r.title, r.category, ...(r.ingredients || []), ...(r.steps || []), r.notes] },
@@ -5781,6 +6037,7 @@ const SEARCH_SOURCES = [
   { tab: 'resume', label: 'Resume & Portfolio', inputId: 'resume-search-input', items: () => links, title: (l) => l.label, fields: (l) => [l.label, l.url, l.notes] },
 ];
 
+// Same shape as SEARCH_SOURCES, but only used when "Include my journal" is ticked.
 const JOURNAL_SEARCH_SOURCE = {
   tab: 'journal', label: 'Journal', inputId: 'journal-search-input', items: () => journalEntries,
   title: (e) => `${(JOURNAL_TEMPLATES[e.type] || { label: 'Entry' }).label} \u00b7 ${DATE_KEY_RE.test(e.date) ? formatDateKeyLong(e.date) : e.date}`,
@@ -5804,6 +6061,7 @@ function searchSnippet(values, needle) {
   return null;
 }
 
+// Searches every source for the phrase and returns the sources that have hits ([] if the phrase is too short).
 function runGlobalSearch(term, includeJournal) {
   const needle = term.trim().toLowerCase();
   if (needle.length < SEARCH_MIN_LENGTH) return [];
@@ -5823,6 +6081,7 @@ function runGlobalSearch(term, includeJournal) {
   return groups;
 }
 
+// Opens the result's tab and fills in that tab's own search box so the list is filtered to match.
 function openSearchResult(source, term) {
   goToTab(source.tab);
   const input = source.inputId && document.getElementById(source.inputId);
@@ -5832,6 +6091,7 @@ function openSearchResult(source, term) {
   }
 }
 
+// Redraws the Home search results: a hint, a "nothing found" note, or hits grouped by list.
 function renderGlobalSearch() {
   const termInput = document.getElementById('global-search-input');
   const resultsEl = document.getElementById('global-search-results');
@@ -5915,8 +6175,10 @@ document.getElementById('global-search-input').addEventListener('keydown', (e) =
 // end of renderBooks()/renderTodos()/renderBudget() rather than adding new
 // call sites at every mutation (see docs/specs/home-dashboard.md §5).
 
+// How many days ahead Home looks for things that are "due soon".
 const HOME_DUE_SOON_DAYS = 7;
 
+// Splits bills into overdue (unpaid balance before today) and due soon (unpaid, in the next week).
 function computeHomeBills(nonDeletedBills) {
   const todayK = todayKey();
   const yesterdayK = shiftDateKey(todayK, -1);
@@ -5948,6 +6210,7 @@ function computeHomeBills(nonDeletedBills) {
   return { overdue, dueSoon };
 }
 
+// Splits open to-dos into overdue and due within the next week, each ordered by due date.
 function computeHomeTodos(nonDeletedTodos) {
   const overdue = nonDeletedTodos
     .filter((t) => !t.completed && isTodoOverdue(t))
@@ -5966,6 +6229,7 @@ function computeHomeTodos(nonDeletedTodos) {
   return { overdue, dueSoon };
 }
 
+// Plain-English timing for Home rows, e.g. "today", "tomorrow", "in 4 days", "2 days ago".
 function whenLabel(days) {
   if (days < 0) return `${-days} day${days === -1 ? '' : 's'} ago`;
   if (days === 0) return 'today';
@@ -5973,12 +6237,14 @@ function whenLabel(days) {
   return `in ${days} days`;
 }
 
+// Medications whose refill date is overdue or within the next week, soonest first.
 function computeHomeRefills(nonDeletedMeds) {
   return nonDeletedMeds
     .filter((m) => m.refillDate && daysUntilDateKey(m.refillDate) <= HOME_DUE_SOON_DAYS)
     .sort(compareByField((m) => m.refillDate, 1, { text: false }));
 }
 
+// Appointments from today through the next week, soonest first.
 function computeHomeAppointments(nonDeletedAppointments) {
   return nonDeletedAppointments
     .filter((a) => {
@@ -5988,9 +6254,11 @@ function computeHomeAppointments(nonDeletedAppointments) {
     .sort(compareAppointments);
 }
 
+// How soon a bill must be due to appear in the banner at the top of every screen.
 const REMINDER_BANNER_DAYS = 3;
 let reminderBannerDismissed = false;
 
+// Shows or hides the bills banner (bills due within a few days, plus a count of overdue ones).
 function renderReminderBanner(overdueBills, dueSoonBills) {
   const banner = document.getElementById('reminder-banner');
   const cutoff = shiftDateKey(todayKey(), REMINDER_BANNER_DAYS);
@@ -6018,11 +6286,15 @@ document.getElementById('reminder-banner-dismiss').addEventListener('click', () 
   if (visibleHeading) { visibleHeading.tabIndex = -1; visibleHeading.focus(); }
 });
 
+// Books marked "currently reading", ordered by author.
 function computeCurrentlyReading(nonDeletedBooks) {
   return nonDeletedBooks.filter((b) => b.status === 'currently_reading').sort(BOOK_SORTS.author_asc);
 }
 
+// Redraws the Home dashboard: what needs attention this week (bills, to-dos, refills,
+// appointments) and the books being read.
 function renderHome() {
+  // Gather what to show.
   renderBackupNotes();
   const nonDeletedBills = bills.filter((b) => !b.deleted);
   const nonDeletedTodos = todos.filter((t) => !t.deleted);
@@ -6039,6 +6311,7 @@ function renderHome() {
   const actionableCount = overdueBills.length + dueSoonBills.length + overdueTodos.length + dueSoonTodos.length
     + homeRefills.length + homeAppointments.length;
 
+  // Grab the panels and clear their lists before refilling them.
   const statsEl = document.getElementById('home-stats');
   const emptyEl = document.getElementById('home-empty-state');
   const billsPanel = document.getElementById('home-bills-panel');
@@ -6059,6 +6332,7 @@ function renderHome() {
   refillsList.innerHTML = '';
   appointmentsList.innerHTML = '';
 
+  // One Home row: a button that jumps to the tab, plus an optional quick-action button (e.g. Mark paid).
   function makeHomeRow(onClick, buildContent, action) {
     const li = document.createElement('li');
     li.className = 'home-item';
@@ -6084,6 +6358,7 @@ function renderHome() {
     return li;
   }
 
+  // Bills and to-dos: overdue ones first, then those due soon; otherwise show the "all clear" message.
   if (actionableCount > 0) {
     statsEl.textContent = `${actionableCount} thing${actionableCount === 1 ? '' : 's'} ` +
       `need${actionableCount === 1 ? 's' : ''} your attention this week.`;
@@ -6146,6 +6421,7 @@ function renderHome() {
     todoPanel.hidden = true;
   }
 
+  // Medication refills.
   refillsPanel.hidden = homeRefills.length === 0;
   homeRefills.forEach((med) => {
     refillsList.appendChild(makeHomeRow(() => goToTab('medications'), (btn) => {
@@ -6160,6 +6436,7 @@ function renderHome() {
     }));
   });
 
+  // Upcoming appointments.
   appointmentsPanel.hidden = homeAppointments.length === 0;
   homeAppointments.forEach((appt) => {
     appointmentsList.appendChild(makeHomeRow(() => goToTab('appointments'), (btn) => {
@@ -6174,6 +6451,7 @@ function renderHome() {
     }));
   });
 
+  // Books currently being read.
   if (currentlyReading.length > 0) {
     readingPanel.hidden = false;
     currentlyReading.forEach((book) => {
@@ -6194,11 +6472,12 @@ function renderHome() {
 
 // ---- Device Sync ----
 // Optional: the app is fully functional offline with no sync configured, and
-// keeps working from local data if the server is ever unreachable — sync is
-// a best-effort background layer, never a requirement for any UI action.
+// keeps working from local data if the server is ever unreachable — sync only
+// happens when the user presses "Sync now", and is never a requirement for any UI action.
 
 const SYNC_CONFIG_KEY = 'secondMemory.syncConfig.v1';
 
+// Reads the saved sync settings (the access token); null if none, or if they are from the old server.
 function loadSyncConfig() {
   try {
     const raw = localStorage.getItem(SYNC_CONFIG_KEY);
@@ -6213,13 +6492,14 @@ function loadSyncConfig() {
   return null;
 }
 
+// Saves the sync settings on this device only.
 function saveSyncConfig(config) {
   localStorage.setItem(SYNC_CONFIG_KEY, JSON.stringify(config));
 }
 
 // Maps each collection to the wire-protocol name the server expects, its
 // localStorage key, and how to read/replace/render it — lets the sync
-// function stay generic instead of nine hand-written copies.
+// function stay generic instead of one hand-written copy per list.
 const SYNC_COLLECTIONS = [
   { name: 'books', label: 'Books', key: BOOKS_KEY, get: () => books, set: (v) => { books = v; }, render: renderBooks, delete: deleteBook, restore: restoreBook },
   { name: 'recipes', label: 'Recipes', key: RECIPES_KEY, get: () => recipes, set: (v) => { recipes = v; }, render: renderRecipes, delete: deleteRecipe, restore: restoreRecipe },
@@ -6238,16 +6518,20 @@ const SYNC_COLLECTIONS = [
 
 // ---- Undo/redo application mechanics ----
 // Applies one side (`before` on undo, `after` on redo) of a recorded entry
-// back onto the live collection, generalized across all nine collections via
+// back onto the live collection, generalized across every synced collection via
 // the get/set/render/delete/restore lookup above.
 
+// Replays one recorded change onto the live record. which is 'before' (undo) or 'after' (redo).
+// Adds and deletes go through the collection's own delete/restore; edits copy back only the fields that changed.
 function applyEntrySnapshot(entry, which) {
+  // Find the collection and the live record this entry is about.
   const target = entry[which]; // 'before' on undo, 'after' on redo
   const cfg = SYNC_COLLECTIONS.find((c) => c.name === entry.collection);
   if (!cfg) return;
   const items = cfg.get();
   const record = items.find((r) => r.id === entry.id);
 
+  // Case 1: the target state is "didn't exist", so soft-delete the record.
   if (target === null) {
     // Undoing an "add": there is no prior state, so the record must be
     // removed. Reuse the collection's own deleteX (tombstone), never a splice.
@@ -6257,6 +6541,7 @@ function applyEntrySnapshot(entry, which) {
 
   if (!record) return; // defensive: id no longer exists at all — see spec §7.1
 
+  // Case 2: the target state is deleted. Case 3: it is live but the record is deleted, so restore it first.
   if (target.deleted && !record.deleted) {
     cfg.delete(entry.id);
     return;
@@ -6281,6 +6566,7 @@ function applyEntrySnapshot(entry, which) {
   // predates it) is removed again. Bookkeeping fields are never replayed:
   // version is server-assigned, updatedAt/deviceId are freshly stamped below
   // because this undo IS a new local mutation, `deleted` is handled above.
+  // Apply the field-by-field difference, then stamp, save and redraw this one collection.
   new Set([...Object.keys(snapshot), ...Object.keys(other || {})]).forEach((key) => {
     if (BOOKKEEPING.includes(key)) return;
     if (other && JSON.stringify(snapshot[key]) === JSON.stringify(other[key])) return;
@@ -6292,6 +6578,7 @@ function applyEntrySnapshot(entry, which) {
   cfg.render(); // only this one collection re-renders — never the whole app
 }
 
+// Steps back the most recent change and moves it onto the redo list.
 function undo() {
   flushMedDateUndo();
   if (undoStack.length === 0) return;
@@ -6307,6 +6594,7 @@ function undo() {
   updateUndoRedoButtons();
 }
 
+// Re-applies the most recently undone change.
 function redo() {
   flushMedDateUndo();
   if (redoStack.length === 0) return;
@@ -6322,12 +6610,14 @@ function redo() {
   updateUndoRedoButtons();
 }
 
+// Which field names a record in each collection (used in the Undo/Redo tooltips).
 const RECORD_LABEL_FIELD = {
   books: 'title', recipes: 'title', medications: 'name', diagnoses: 'condition',
   todos: 'task', shoppingList: 'item', notes: 'title', links: 'label', bills: 'name',
   income: 'dateKey', recurringIncome: 'name', appointments: 'title', weights: 'date',
 };
 
+// Plain-English summary of an undo entry, e.g. "deleted 'Dune'", for the button tooltips.
 function describeEntry(entry) {
   const labelField = RECORD_LABEL_FIELD[entry.collection];
   const source = entry.after || entry.before;
@@ -6340,6 +6630,7 @@ function describeEntry(entry) {
   return identifier ? `${action} '${identifier}'` : `${action} an item`;
 }
 
+// Enables or disables Undo / Redo and updates their tooltips to name the change they'd apply.
 function updateUndoRedoButtons() {
   const undoBtn = document.getElementById('undo-btn');
   const redoBtn = document.getElementById('redo-btn');
@@ -6354,10 +6645,12 @@ function updateUndoRedoButtons() {
 document.getElementById('undo-btn').addEventListener('click', undo);
 document.getElementById('redo-btn').addEventListener('click', redo);
 
+// Sync progress state: a sync is running, when the last one finished, and whether its message was ok/failed.
 let syncInFlight = false;
 let lastSyncedAt = null;
 let lastSyncTone = null;
 
+// Shows a sync message in the sidebar; tone is 'ok', 'failed' or null (neutral).
 function setSyncStatus(text, tone) {
   lastSyncTone = tone;
   const el = document.getElementById('sync-status-text');
@@ -6372,6 +6665,7 @@ function setSyncStatus(text, tone) {
 // server last confirmed (the same comparison runSync uses to decide what to
 // send) and the Sync now button highlights itself while there is work to send.
 
+// How many records differ from what the server last confirmed; null if this device has never synced.
 function countUnsyncedChanges() {
   const snapshot = loadSyncSnapshot();
   if (!snapshot) return null; // never synced on this device: the status line already says so
@@ -6383,6 +6677,7 @@ function countUnsyncedChanges() {
   return count;
 }
 
+// Shows "N changes not synced" and highlights Sync now when there is something to send.
 function updateSyncPending() {
   const el = document.getElementById('sync-pending');
   const btn = document.getElementById('sync-now-btn');
@@ -6395,6 +6690,7 @@ function updateSyncPending() {
 }
 
 var syncPendingTimer = null; // var, not let: saveCollection runs before this line during startup
+// Refreshes the unsynced-changes indicator shortly after a save (a burst of saves refreshes it once).
 function scheduleSyncPending() {
   clearTimeout(syncPendingTimer);
   syncPendingTimer = setTimeout(() => safeRender(updateSyncPending), 250);
@@ -6406,6 +6702,7 @@ function scheduleSyncPending() {
 // deletes into duplicates. Never synced; purely local bookkeeping.
 const SYNC_SNAPSHOT_KEY = 'secondMemory.syncSnapshot.v1';
 
+// Reads the record of what the server last confirmed ({ collection: { id: json } }); null if none.
 function loadSyncSnapshot() {
   try {
     const raw = localStorage.getItem(SYNC_SNAPSHOT_KEY);
@@ -6424,6 +6721,7 @@ function loadSyncSnapshot() {
   }
 }
 
+// Saves that record; if storage is full it is dropped so the next sync starts fresh instead of trusting stale data.
 function saveSyncSnapshot(snapshot) {
   try {
     localStorage.setItem(SYNC_SNAPSHOT_KEY, JSON.stringify(snapshot));
@@ -6434,6 +6732,7 @@ function saveSyncSnapshot(snapshot) {
   }
 }
 
+// Maps each record's id to its JSON text, for comparing records before and after a sync.
 function snapshotOfItems(items) {
   const map = Object.create(null); // no prototype, so an id such as "__proto__" is just a key
   items.forEach((item) => { map[item.id] = JSON.stringify(item); });
@@ -6448,8 +6747,12 @@ function syncTokenHeader(token) {
 
 // A stalled connection would otherwise leave "Sync now" disabled until the browser gives up.
 let SYNC_WAKE_NOTICE_MS = 5000; // after this long with no answer, explain the wait
+// After SYNC_TIMEOUT_MS the request is abandoned and the sync reports a timeout.
 const SYNC_TIMEOUT_MS = 60000; // generous: a sleeping free-tier server can take ~30s to wake
 
+// Sends the changed records to the server and returns { kind: 'ok', data } or a failure kind:
+// 'unauthorized' (wrong passphrase), 'outdated' (this copy of the app is too old) or 'error'.
+// Gives up after SYNC_TIMEOUT_MS; network errors and timeouts are thrown to the caller.
 async function postSync(config, collections) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), SYNC_TIMEOUT_MS);
@@ -6573,7 +6876,10 @@ function reconcileServerReply(c, incoming, preFlightMap) {
   return { result, known };
 }
 
+// Runs one manual sync: send only what changed on this device, merge the server's reply
+// into the local lists without losing local work, then report the outcome in the sidebar.
 async function runSync() {
+  // Step 1: do nothing if sync isn't set up or one is already running; lock the button and show progress.
   const config = loadSyncConfig();
   if (!config || syncInFlight) return;
   syncInFlight = true;
@@ -6587,6 +6893,7 @@ async function runSync() {
   let incompleteReply = false;
 
   try {
+    // Step 2: first sync on this device (no snapshot yet): pull the server's data and reconcile without sending.
     let snapshot = loadSyncSnapshot();
     if (!snapshot) {
       const boot = await postSync(config, {});
@@ -6605,6 +6912,7 @@ async function runSync() {
       snapshot = bootstrapSyncSnapshot(boot.data);
     }
 
+    // Step 3: work out what changed here since the server last confirmed, and remember how every record looked when sent.
     const outgoing = {};
     const preFlight = {};
     SYNC_COLLECTIONS.forEach((c) => {
@@ -6614,6 +6922,7 @@ async function runSync() {
       preFlight[c.name] = snapshotOfItems(items);
     });
 
+    // Step 4: send the changes and stop with a message if the server refuses.
     const result = await postSync(config, outgoing);
     if (result.kind === 'unauthorized') {
       setSyncStatus('Sync failed — check passphrase', 'failed');
@@ -6629,6 +6938,7 @@ async function runSync() {
     }
     const data = result.data;
 
+    // Step 5: merge the server's reply into each list, redrawing only lists that changed.
     const nextSnapshot = { ...snapshot };
     SYNC_COLLECTIONS.forEach((c) => {
       const incoming = data.collections && Array.isArray(data.collections[c.name]) ? data.collections[c.name] : null;
@@ -6650,6 +6960,7 @@ async function runSync() {
     });
     saveSyncSnapshot(nextSnapshot);
 
+    // Step 6: report the outcome (conflicts, an incomplete reply, edits made mid-sync, or success).
     lastSyncedAt = new Date();
     const conflicts = Array.isArray(data.conflicts) ? data.conflicts : [];
     if (conflicts.length > 0) {
@@ -6667,6 +6978,7 @@ async function runSync() {
     } else {
       setSyncStatus('Synced just now', 'ok');
     }
+  // Network failures and timeouts end up here; always unlock the button afterwards.
   } catch (err) {
     setSyncStatus(
       err && err.name === 'AbortError'
@@ -6690,6 +7002,7 @@ setInterval(() => {
   setSyncStatus(minutes <= 0 ? 'Synced just now' : `Synced ${minutes}m ago`, 'ok');
 }, 30000);
 
+// Wires up the sidebar sync controls: the passphrase form, "change passphrase" and "Sync now".
 function initSyncUI() {
   const setupSection = document.getElementById('sync-setup');
   const statusSection = document.getElementById('sync-status');
@@ -6746,10 +7059,12 @@ function buildExportPayload() {
   return { collections, local };
 }
 
+// Today's date as YYYY-MM-DD for backup file names.
 function todayForFilename() {
   return new Date().toISOString().slice(0, 10);
 }
 
+// Downloads the full backup (all lists plus the journal and payday settings) as one JSON file.
 function exportData() {
   recordBackupTime(EXPORT_AT_KEY);
   const json = JSON.stringify(buildExportPayload(), null, 2);
@@ -6777,6 +7092,7 @@ function extractImportCollections(parsed) {
   return looksLikeCollections ? parsed : null;
 }
 
+// Structural equality for records (arrays and nested objects compared by content; null equals missing).
 function deepEqual(a, b) {
   if (a === b) return true;
   if (a == null && b == null) return true; // null and undefined both mean "no value" — treat as equal, matching Python's dict.get() semantics where a missing key and an explicit JSON null both deserialize to None
@@ -6925,6 +7241,7 @@ function mergeCollectionFromImport(localItems, importedItems, collectionName) {
   return { added, updated, duplicated, unchanged };
 }
 
+// Shows a message under the Export / Import buttons; tone is 'ok' or 'failed'.
 function setDataIoStatus(text, tone) {
   const el = document.getElementById('data-io-status');
   if (!el) return;
@@ -6934,6 +7251,7 @@ function setDataIoStatus(text, tone) {
   el.classList.toggle('sync-failed', tone === 'failed');
 }
 
+// The repeat options a bill from an import file may have (recurring income additionally rejects 'one_time').
 const IMPORT_FREQUENCIES = ['one_time', 'weekly', 'biweekly', 'monthly', 'yearly'];
 
 // Rejects records whose types would crash rendering later (e.g. a bill whose
@@ -6950,6 +7268,7 @@ function isValidImportRecord(collectionName, rec) {
   return true;
 }
 
+// Runs a redraw but logs instead of throwing, so one broken screen can't stop the others.
 function safeRender(fn) {
   try {
     fn();
@@ -6958,7 +7277,10 @@ function safeRender(fn) {
   }
 }
 
+// Merges a parsed backup file into the app without ever discarding local data, then reports
+// what happened (new, updated, merged-as-duplicates, skipped) under the Import button.
 function importData(parsed) {
+  // Step 1: make sure the file looks like an export.
   const importedCollections = extractImportCollections(parsed);
   if (!importedCollections) {
     setDataIoStatus("Import failed — that file doesn't look like a Second Memory export.", 'failed');
@@ -6969,6 +7291,7 @@ function importData(parsed) {
   let anyChanged = false;
   let skippedInvalid = 0;
 
+  // Step 2: merge each synced list, skipping records that would break rendering.
   SYNC_COLLECTIONS.forEach((c) => {
     const rawIncoming = importedCollections[c.name];
     if (!Array.isArray(rawIncoming) || rawIncoming.length === 0) return;
@@ -6989,7 +7312,7 @@ function importData(parsed) {
     summaries.push(`${parts.join(', ')} in ${c.label}`);
   });
 
-  // The journal and pay-period settings (only present in a full backup made by this version or later).
+  // Step 3: the journal and pay-period settings (only present in a full backup made by this version or later).
   const localPart = parsed && typeof parsed === 'object' && parsed.local && typeof parsed.local === 'object' ? parsed.local : null;
   if (localPart) {
     if (Array.isArray(localPart.journal)) {
@@ -7013,6 +7336,7 @@ function importData(parsed) {
     }
   }
 
+  // Step 4: summarise the result.
   const skippedNote = skippedInvalid ? ` ${skippedInvalid} unreadable record${skippedInvalid === 1 ? ' was' : 's were'} skipped.` : '';
   if (!anyChanged) {
     setDataIoStatus(`Import complete — nothing new to merge.${skippedNote}`, 'ok');
@@ -7057,6 +7381,7 @@ document.getElementById('import-file-input').addEventListener('change', (e) => {
 
 let lastRenderedDayKey = todayKey();
 
+// Redraws the date-dependent screens when the calendar day has changed since the last check.
 function refreshForNewDay() {
   const now = todayKey();
   if (now === lastRenderedDayKey) return;

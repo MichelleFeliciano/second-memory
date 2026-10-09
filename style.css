@@ -1,3 +1,36 @@
+/* Second Memory stylesheet.
+   Table of contents, in file order (search for the section name to jump to it):
+     1.  Theme and variables (light and dark colours)
+     2.  Base page, headings, focus ring
+     3.  Decorative background (corner branches, sidebar leaf, divider)
+     4.  Layout: app shell and sidebar (nav, undo/redo, sync panel, backup buttons)
+     5.  Content area, toolbars, search box
+     6.  Add forms and date fields
+     7.  Columns, phone breakpoint, column panels
+     8.  Cards shared by every list (hover, action buttons, empty state)
+     9.  Recipes, chips (filter buttons) and scrolling lists
+     10. Medications and Diagnoses
+     11. To-Do and Shopping List
+     12. Notes
+     13. Edit forms shared by most cards
+     14. Resume and Portfolio
+     15. Budget: bill cards, calendar, day cells, phone day sheet
+     16. Appointments
+     17. Reminder banner
+     18. Paid history
+     19. Journal: wizard, cards, timeline, search, trends
+     20. Storage warning and sync "changes not synced" note
+     21. Home: rows with a one-tap action, search everything
+     22. Therapy summary sheet and print styles
+     23. Recipe to shopping list, repeating to-dos
+     24. Weight
+     25. Phone polish (later fixes): small patches added over time for narrow screens
+   Several phone rules sit in later @media (max-width: 700px) blocks because they
+   must come after the base rules they override. */
+
+/* ===== Theme and variables ===== */
+/* Light palette by default; the dark block below swaps the same names. Use these
+   variables everywhere instead of raw colours so both themes stay in step. */
 :root {
   color-scheme: light dark;
   --bg: #F6FAF4;
@@ -16,6 +49,7 @@
     cursive, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
+/* Dark theme: follows the device setting, no toggle in the app. */
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #101C12;
@@ -33,6 +67,7 @@
   }
 }
 
+/* ===== Base page, headings, focus ring ===== */
 * { box-sizing: border-box; }
 
 body {
@@ -48,11 +83,13 @@ h1, h2, h3 {
   font-family: var(--font-heading);
 }
 
+/* Keyboard focus ring for every interactive element. */
 :is(button, input, select, textarea, a):focus-visible {
   outline: 2px solid var(--accent-lavender);
   outline-offset: 2px;
 }
 
+/* ===== Decorative background ===== */
 /* Decorative corner-branch frame, purely aesthetic (aria-hidden by
    construction — a pseudo-element is never exposed to assistive tech).
    Fixed + negative z-index + pointer-events:none keeps it behind all real
@@ -86,6 +123,7 @@ body::before {
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300' viewBox='0 0 300 300'%3E%3Cpath d='M286 274 C295 193 241 121 160 85 C169 166 196 238 259 292 Z' fill='%232E5D34' opacity='0.18'/%3E%3Cpath d='M286 274 C250 256 205 211 178 148' stroke='%232E5D34' stroke-width='3' fill='none' opacity='0.2'/%3E%3Cpath d='M259 247 L228 224 M241 211 L210 184 M223 175 L196 144' stroke='%232E5D34' stroke-width='1.8' fill='none' opacity='0.16'/%3E%3Cpath d='M210 290 C210 234 178 178 130 154 C141 210 162 258 202 295 Z' fill='%232E5D34' opacity='0.16'/%3E%3Cpath d='M210 290 C186 274 162 242 146 202' stroke='%232E5D34' stroke-width='2.4' fill='none' opacity='0.18'/%3E%3Cg%3E%3Cellipse cx='240' cy='172.4' rx='11.2' ry='22.4' fill='%23A24B68' opacity='0.16'/%3E%3Cellipse cx='240' cy='172.4' rx='11.2' ry='22.4' fill='%23A24B68' opacity='0.16' transform='rotate(72 240 150)'/%3E%3Cellipse cx='240' cy='172.4' rx='11.2' ry='22.4' fill='%23A24B68' opacity='0.16' transform='rotate(144 240 150)'/%3E%3Cellipse cx='240' cy='172.4' rx='11.2' ry='22.4' fill='%23A24B68' opacity='0.16' transform='rotate(216 240 150)'/%3E%3Cellipse cx='240' cy='172.4' rx='11.2' ry='22.4' fill='%23A24B68' opacity='0.16' transform='rotate(288 240 150)'/%3E%3Ccircle cx='240' cy='150' r='7.2' fill='%23A24B68' opacity='0.18'/%3E%3C/g%3E%3C/svg%3E");
 }
 
+/* Same four corner branches, recoloured for dark mode (the colours are baked into each image). */
 @media (prefers-color-scheme: dark) {
   body::before {
     background-image:
@@ -96,6 +134,7 @@ body::before {
   }
 }
 
+/* Small leaf in the corner of the sidebar title. */
 .sidebar-header {
   position: relative;
   overflow: visible;
@@ -118,6 +157,7 @@ body::before {
   }
 }
 
+/* Thin leafy line between the nav groups. */
 .leaf-divider {
   height: 32px;
   background: no-repeat center/160px url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='40' viewBox='0 0 200 40'%3E%3Cpath d='M10 20 C60 20 60 20 100 20 C140 20 140 20 190 20' stroke='%232E5D34' stroke-width='1.5' fill='none' opacity='0.35'/%3E%3Cpath d='M60 20 C55 10 45 8 38 12 C45 18 55 20 60 20 Z' fill='%232E5D34' opacity='0.3'/%3E%3Cpath d='M100 20 C100 8 92 2 84 4 C88 14 96 20 100 20 Z' fill='%232E5D34' opacity='0.32'/%3E%3Cpath d='M140 20 C145 10 155 8 162 12 C155 18 145 20 140 20 Z' fill='%232E5D34' opacity='0.3'/%3E%3Ccircle cx='100' cy='20' r='3' fill='%23A24B68' opacity='0.35'/%3E%3C/svg%3E");
@@ -129,6 +169,7 @@ body::before {
   }
 }
 
+/* ===== Layout: app shell and sidebar ===== */
 .app-shell {
   display: flex;
   min-height: 100vh;
@@ -156,9 +197,12 @@ body::before {
   font-size: 0.85rem;
 }
 
+/* The Menu button only exists on phones; the 700px media query below turns it on. */
 .sidebar-toggle {
   display: none;
 }
+
+/* Hamburger icon drawn from one bar plus a ::before and ::after bar. */
 
 .sidebar-toggle-icon {
   position: relative;
@@ -185,6 +229,7 @@ body::before {
   top: 6px;
 }
 
+/* Sidebar navigation: groups of tab buttons with small headings. */
 .nav-list {
   list-style: none;
   margin: 0;
@@ -238,6 +283,7 @@ body::before {
   background: var(--bg);
 }
 
+/* The tab currently showing (class set by app.js). */
 .nav-item.active {
   background: var(--accent);
   color: var(--accent-contrast);
@@ -247,6 +293,7 @@ body::before {
   flex: 0 0 auto;
 }
 
+/* Undo / redo buttons at the top of the sidebar. */
 .undo-redo-panel {
   display: flex;
   gap: 8px;
@@ -273,6 +320,7 @@ body::before {
   cursor: default;
 }
 
+/* Sync area at the bottom of the sidebar (margin-top: auto pushes it down). */
 .sync-panel {
   margin-top: auto;
   padding-top: 16px;
@@ -300,6 +348,7 @@ body::before {
   color: var(--muted);
 }
 
+/* Status colours: green after a good sync, orange-red after a failed one. */
 .sync-status-text.sync-ok { color: var(--accent); }
 .sync-status-text.sync-failed { color: var(--accent-2); }
 
@@ -318,6 +367,7 @@ body::before {
   border-color: var(--accent);
 }
 
+/* Passphrase form shown until sync is connected. */
 .sync-setup-form {
   display: flex;
   flex-direction: column;
@@ -348,6 +398,7 @@ body::before {
 
 .sync-setup-form button:hover { opacity: 0.9; }
 
+/* Export data / Import data buttons under the sync area. */
 .data-io {
   padding-top: 16px;
   border-top: 1px solid var(--border-soft);
@@ -377,6 +428,8 @@ body::before {
   border-color: var(--accent);
 }
 
+/* ===== Content area, toolbars, search box ===== */
+/* min-width: 0 lets the content column shrink instead of being pushed wider by long text. */
 .content {
   flex: 1;
   min-width: 0;
@@ -384,6 +437,7 @@ body::before {
   max-width: 960px;
 }
 
+/* Heading row at the top of each tab: title, then search box and sort menu. */
 .collection-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -395,6 +449,7 @@ body::before {
 
 .collection-toolbar h2 { margin: 0; }
 
+/* The small grey summary line under a heading ("12 books", totals, etc.). */
 .stats-line {
   margin: 0 0 16px;
   color: var(--muted);
@@ -417,6 +472,8 @@ body::before {
   display: none;
 }
 
+/* ===== Add forms and date fields ===== */
+/* Default add form lays its fields out in a wrapping row; .add-form-stacked (below) makes a single column. */
 .add-form {
   display: flex;
   flex-wrap: wrap;
@@ -487,6 +544,7 @@ body::before {
 
 .add-form button:hover { opacity: 0.9; }
 
+/* A label stacked above a date or time input. */
 .date-field {
   display: flex;
   flex-direction: column;
@@ -515,11 +573,13 @@ body::before {
   flex: none;
 }
 
+/* "unknown" note beside a blank medication date. */
 .unknown-hint {
   color: var(--muted);
   font-style: italic;
 }
 
+/* Validation message shown above a form's submit button. */
 .form-error {
   color: var(--accent-2);
   background: var(--bg);
@@ -530,6 +590,8 @@ body::before {
   font-size: 0.85rem;
 }
 
+/* ===== Columns, phone breakpoint, column panels ===== */
+/* Side-by-side panels (Books statuses, Diagnoses statuses, Home widgets). */
 .columns {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -540,6 +602,7 @@ body::before {
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
 }
 
+/* Main phone breakpoint: single-column panels, sidebar stacks on top and collapses behind the Menu button. */
 @media (max-width: 700px) {
   .columns { grid-template-columns: 1fr; }
   .app-shell { flex-direction: column; }
@@ -586,6 +649,7 @@ body::before {
   }
 }
 
+/* One panel in a .columns grid (for example "Owned - Unread"). */
 .column {
   background: var(--surface);
   border: 1px solid var(--border-soft);
@@ -632,6 +696,7 @@ body::before {
   }
 }
 
+/* ===== Cards shared by every list ===== */
 .column:hover {
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.055);
 }
@@ -645,6 +710,7 @@ body::before {
   color: var(--muted);
 }
 
+/* Little pill showing how many items are in a column. */
 .count {
   background: var(--tint-blush);
   color: var(--text);
@@ -656,6 +722,7 @@ body::before {
   font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
+/* The <ul> that holds a list of cards. */
 .card-list {
   list-style: none;
   margin: 0;
@@ -674,10 +741,12 @@ body::before {
   padding-right: 4px;
 }
 
+/* A single-column list with no .column wrapper (Recipes, To-Do, Notes, ...); slightly looser spacing. */
 .flat-list {
   gap: 16px;
 }
 
+/* Shared look for every kind of card: same border, radius, padding and shadow. */
 .book-card,
 .recipe-card,
 .med-card,
@@ -716,6 +785,7 @@ body::before {
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.055);
 }
 
+/* A Home row that is really a button: looks like plain text, opens the full tab when clicked. */
 .home-item-link {
   background: none;
   border: none;
@@ -733,6 +803,7 @@ body::before {
   overflow-wrap: anywhere;
 }
 
+/* ===== Books ===== */
 .book-info {
   display: flex;
   flex-direction: column;
@@ -777,6 +848,7 @@ body::before {
   display: none;
 }
 
+/* Delete button on every card; margin-left: auto pushes it to the right end of the button row. */
 .delete-btn {
   margin-left: auto;
   padding: 5px 12px;
@@ -793,6 +865,7 @@ body::before {
   border-color: var(--accent-2);
 }
 
+/* "Nothing here yet" message shown when a list is empty. */
 .empty-state {
   text-align: center;
   color: var(--muted);
@@ -811,6 +884,7 @@ body::before {
 
 .recipe-title { font-size: 1rem; }
 
+/* Small green pill used for categories and repeat labels. */
 .badge {
   background: var(--accent);
   color: var(--accent-contrast);
@@ -819,6 +893,7 @@ body::before {
   font-size: 0.75rem;
 }
 
+/* Filter chips (category / done / checked filters). Used by Recipes, To-Do, Shopping, Budget and Journal. */
 .chip-row {
   display: flex;
   flex-wrap: wrap;
@@ -845,6 +920,7 @@ body::before {
   color: var(--accent);
 }
 
+/* The chip whose filter is currently on. */
 .chip-active {
   background: var(--accent);
   border-color: var(--accent);
@@ -863,6 +939,7 @@ body::before {
   letter-spacing: 0.03em;
 }
 
+/* Long ingredient or step lists scroll inside the card instead of stretching it. */
 .scroll-block {
   margin: 0;
   padding-left: 20px;
@@ -921,6 +998,7 @@ body::before {
   margin-bottom: 8px;
 }
 
+/* Refill reminder text: red-orange when overdue, rose when coming up soon. */
 .refill-hint { font-weight: 600; }
 .refill-hint.overdue { color: var(--accent-2); }
 .refill-hint.soon { color: var(--accent-rose); }
@@ -943,6 +1021,7 @@ body::before {
 
 /* To-Do / Shopping List */
 
+/* Both lists are single-row cards: checkbox and name on the left, details and buttons on the right. */
 .todo-item,
 .shopping-item {
   display: flex;
@@ -960,6 +1039,7 @@ body::before {
   cursor: pointer;
 }
 
+/* Done / checked-off items are struck through and greyed. */
 .todo-item.completed .todo-task,
 .shopping-item.completed .shopping-item-name {
   text-decoration: line-through;
@@ -973,6 +1053,7 @@ body::before {
   white-space: nowrap;
 }
 
+/* Past-due dates for to-dos and bills. */
 .todo-due.overdue,
 .bill-due.overdue {
   color: var(--accent-2);
@@ -1035,6 +1116,7 @@ body::before {
   resize: vertical;
 }
 
+/* Edit and Cancel buttons used on every card (outlined, quiet). */
 .edit-btn,
 .cancel-btn {
   padding: 5px 12px;
@@ -1065,6 +1147,7 @@ body::before {
 
 .note-edit-form button[type="submit"]:hover { opacity: 0.9; }
 
+/* ===== Edit forms shared by most cards ===== */
 /* Edit-form pattern for the eight collections that gained an Edit button
    this cycle (Books, Recipes, Medications, Diagnoses, Resume & Portfolio
    use the same vertical-card shape as .note-view/.note-edit-form
@@ -1108,6 +1191,7 @@ body::before {
   display: none;
 }
 
+/* Text fields inside those edit forms. */
 .book-edit-form input,
 .book-edit-form textarea,
 .recipe-edit-form input,
@@ -1139,6 +1223,7 @@ body::before {
   resize: vertical;
 }
 
+/* Green Save button in those edit forms, and its hover state just below. */
 .book-edit-form button[type="submit"],
 .recipe-edit-form button[type="submit"],
 .med-edit-form button[type="submit"],
@@ -1287,6 +1372,7 @@ body::before {
   color: var(--muted);
 }
 
+/* "Mark oldest unpaid as paid" button on a bill card. */
 .mark-oldest-paid-btn {
   padding: 5px 12px;
   border: 1px solid var(--border);
@@ -1307,6 +1393,7 @@ body::before {
   cursor: default;
 }
 
+/* ----- Budget calendar: a Mon-Sun weekday header, then one block per week with seven day cells ----- */
 .budget-calendar {
   margin-bottom: 20px;
 }
@@ -1331,11 +1418,13 @@ body::before {
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.035);
 }
 
+/* Ring around the week that contains today. */
 .budget-week-current {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent) inset;
 }
 
+/* Month totals (bills, income, net) next to the month name. */
 .budget-month-total,
 .budget-month-income-total,
 .budget-month-net-total {
@@ -1352,6 +1441,7 @@ body::before {
 .amount-positive { color: var(--accent); }
 .amount-negative { color: var(--accent-rose); }
 
+/* The seven day cells of one week. */
 .budget-week-cells {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
@@ -1366,10 +1456,13 @@ body::before {
    Part 2.1/2.2. Must come AFTER the base .budget-week-cells/.budget-weekday-row
    rules above — same specificity, so source order decides the cascade tie,
    and a media query earlier in the file than the rule it overrides loses. */
+/* On desktop the day's body wrapper adds no box of its own, and the phone-only
+   Close and open-day buttons stay hidden. The 900px media query below turns them on. */
 .budget-day-body { display: contents; }
 .budget-day-close { display: none; }
 .budget-day-open-btn { display: none; }
 
+/* One day in the calendar. */
 .budget-day-cell {
   display: flex;
   flex-direction: column;
@@ -1398,6 +1491,7 @@ body::before {
   color: var(--muted);
 }
 
+/* The bills and income listed inside a day cell; scrolls if there are many. */
 .budget-day-occurrences {
   max-height: 72px;
   padding-left: 0;
@@ -1429,6 +1523,7 @@ body::before {
   gap: 4px;
 }
 
+/* Coloured dot before a bill name; its colour is set by app.js. */
 .budget-occurrence-dot {
   flex: 0 0 auto;
   width: 8px;
@@ -1444,6 +1539,7 @@ body::before {
   white-space: nowrap;
 }
 
+/* Unpaid and past due is orange-red; due soon is rose. */
 .budget-occurrence.overdue .budget-occurrence-name {
   color: var(--accent-2);
   font-weight: 600;
@@ -1454,6 +1550,7 @@ body::before {
   font-weight: 600;
 }
 
+/* Bottom of a day cell: the manual income box and income dot. */
 .budget-day-footer {
   margin-top: auto;
   display: flex;
@@ -1489,6 +1586,7 @@ body::before {
 .budget-income-dot.amount-positive { background: var(--accent); }
 .budget-income-dot.amount-negative { background: var(--accent-rose); }
 
+/* Weekly totals under each week's day cells. */
 .budget-week-total,
 .budget-week-income-total,
 .budget-week-net-total {
@@ -1733,6 +1831,7 @@ body::before {
   font-size: 0.8rem;
 }
 
+/* Small headings like "Upcoming" and "Past" (also Weight "History"). */
 .subsection-heading {
   margin: 20px 0 8px;
   font-size: 1rem;
@@ -1803,7 +1902,10 @@ body::before {
 
 /* Journal */
 
+/* Privacy note under the Journal heading. */
 .journal-privacy { margin-bottom: 14px; }
+
+/* The start buttons are hidden while the wizard (the step-by-step form for a new entry) is open. */
 
 .journal-start[hidden] { display: none; }
 
@@ -1899,6 +2001,7 @@ body::before {
 
 .journal-secondary-btn:hover { color: var(--accent); border-color: var(--accent); }
 
+/* A saved entry shown in the timeline. */
 .journal-card {
   display: flex;
   flex-direction: column;
@@ -1928,6 +2031,7 @@ body::before {
 
 .journal-card-date { color: var(--muted); font-size: 0.85rem; }
 
+/* Question-and-answer pairs inside a saved entry. */
 .journal-qa { margin: 0; }
 .journal-qa dt { color: var(--muted); font-size: 0.8rem; margin-top: 8px; }
 .journal-qa dd { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: break-word; }
@@ -1983,6 +2087,7 @@ body::before {
   cursor: pointer;
 }
 
+/* Small note in the bill edit form about already-paid amounts. */
 .bill-edit-hint {
   display: block;
   color: var(--muted);
@@ -2035,6 +2140,7 @@ body::before {
 
 .journal-date-chip small { margin-left: 4px; opacity: 0.75; }
 
+/* The id selector is needed to beat .card-list's column layout and make the list scroll sideways. */
 #journal-list.journal-timeline {
   flex-direction: row;
   align-items: flex-start;
@@ -2094,11 +2200,13 @@ body::before {
   background: var(--surface);
 }
 
+/* Trends is a collapsible <details> panel. */
 .journal-trends summary { cursor: pointer; font-weight: 600; }
 
 .journal-trend-summary,
 .journal-trend-feelings { margin: 8px 0 0; font-size: 0.85rem; color: var(--muted); }
 
+/* The trend chart is an SVG drawn by app.js; these style its grid, labels, lines and dots. */
 .journal-chart { margin-top: 8px; }
 .journal-chart svg { width: 100%; height: auto; display: block; }
 .journal-chart .trend-grid { stroke: var(--border-soft); stroke-width: 1; }
@@ -2106,6 +2214,7 @@ body::before {
 .journal-chart .trend-line { fill: none; stroke-width: 2; }
 .journal-chart .trend-dot { stroke: var(--bg); stroke-width: 1.5; }
 
+/* Daily day-rating is green, therapy mood is rose. */
 .trend-daily.trend-line { stroke: var(--accent); }
 .trend-daily.trend-dot { fill: var(--accent); }
 .trend-therapy.trend-line { stroke: var(--accent-rose); }
@@ -2121,6 +2230,7 @@ body::before {
 }
 .journal-trend-legend[hidden] { display: none; }
 
+/* Coloured dots in the chart legend. */
 .trend-swatch {
   display: inline-block;
   width: 10px;
@@ -2170,6 +2280,7 @@ body::before {
   font-weight: 600;
 }
 
+/* Dark full-screen backdrop behind the summary sheet. */
 .summary-overlay {
   position: fixed;
   inset: 0;
@@ -2217,6 +2328,7 @@ body::before {
 .summary-status { margin: 0 0 10px; font-size: 0.85rem; color: var(--accent); }
 .summary-status[hidden] { display: none; }
 
+/* Content of the summary, built by renderTherapySummary. */
 .summary-body h2 { margin: 0 0 4px; font-size: 1.4rem; }
 .summary-body h3 { margin: 18px 0 6px; font-size: 1.05rem; }
 .summary-body .summary-meta { margin: 0 0 8px; color: var(--muted); font-size: 0.85rem; }
@@ -2226,6 +2338,7 @@ body::before {
 .summary-body .summary-session { padding-bottom: 10px; border-bottom: 1px solid var(--border-soft); break-inside: avoid; }
 .summary-body ul { margin: 6px 0 0; padding-left: 20px; }
 
+/* Printing while the summary is open: hide everything except the sheet, and use plain black on white. */
 @media print {
   body.summary-open > *:not(#therapy-summary) { display: none !important; }
   body.summary-open #therapy-summary {
@@ -2262,6 +2375,7 @@ body::before {
 .add-to-shopping-btn:hover { background: var(--accent); color: var(--accent-contrast); }
 .add-to-shopping-btn[hidden] { display: none; }
 
+/* Confirmation line under a recipe after adding it to the shopping list. */
 .recipe-shop-status {
   display: flex;
   flex-wrap: wrap;
@@ -2325,6 +2439,7 @@ body::before {
 #global-search-results h3 { margin: 14px 0 6px; font-size: 0.95rem; color: var(--muted); }
 #global-search-results ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 
+/* One clickable result in the search-everything list. */
 .search-hit {
   width: 100%;
   text-align: left;
@@ -2349,6 +2464,7 @@ body::before {
 
 /* Weight */
 
+/* Four headline figures (oldest, highest, lowest, most recent) above the form. */
 .weight-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -2407,6 +2523,11 @@ body::before {
   font-weight: 600;
   font-size: 0.8rem;
 }
+
+/* ===== Phone polish (later fixes) ===== */
+/* Everything from here to the end of the file was added over time as small fixes
+   found on real phones. Each block carries its own comment. They sit at the end on
+   purpose: they override earlier rules of equal strength, so order matters. */
 
 /* Phone polish: date fields.
    iPhone Safari gives date inputs their own minimum width and centres the date text, so

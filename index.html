@@ -14,7 +14,9 @@
 <meta name="theme-color" content="#2E5D34">
 </head>
 <body>
+<!-- App shell: sidebar on the left, one visible tab section on the right. app.js shows a tab by un-hiding its section. -->
 <div class="app-shell">
+  <!-- Sidebar: app title, undo/redo, tab navigation (grouped), then sync and backup controls. On phones it collapses behind the Menu button. -->
   <nav class="sidebar" id="sidebar-nav-content" aria-label="Collections">
     <div class="sidebar-header">
       <h1>Second Memory</h1>
@@ -24,11 +26,13 @@
         Menu
       </button>
     </div>
+    <!-- Undo/redo for the last add, edit, delete or move; enabled and labelled by app.js. -->
     <div class="undo-redo-panel" id="undo-redo-panel">
       <button type="button" id="undo-btn" disabled>Undo</button>
       <button type="button" id="redo-btn" disabled>Redo</button>
     </div>
 
+    <!-- Tab navigation. Each button's data-tab names the section whose id is "<tab>-collection". -->
     <ul class="nav-list">
       <li class="nav-group">
         <ul class="nav-group-items">
@@ -177,6 +181,8 @@
       </li>
     </ul>
 
+    <!-- Sync area: status line with Sync now / Change buttons, an unsynced-changes note, and the
+         passphrase form shown until sync is set up. Sync only runs when the user asks. -->
     <div class="sync-panel">
       <div class="sync-status" id="sync-status" hidden>
         <span class="sync-status-text" id="sync-status-text" role="status">Sync not set up</span>
@@ -192,6 +198,7 @@
       </div>
     </div>
 
+    <!-- Backup area: export all data to a JSON file, or import one back (import merges, never wipes). -->
     <div class="data-io">
       <div class="data-io-buttons">
         <button type="button" id="export-data-btn" class="data-io-btn">Export data</button>
@@ -202,13 +209,16 @@
     </div>
   </nav>
 
+  <!-- Main content: the reminder banner, then one <section> per tab. Only the active one is visible. -->
   <main class="content">
+    <!-- Banner for a due refill, appointment or similar; filled by renderReminderBanner. -->
     <div class="reminder-banner" id="reminder-banner" role="status" hidden>
       <span class="reminder-banner-text" id="reminder-banner-text"></span>
       <button type="button" id="reminder-banner-view" class="reminder-banner-btn">View</button>
       <button type="button" id="reminder-banner-dismiss" class="reminder-banner-btn" aria-label="Dismiss reminder">&times;</button>
     </div>
 
+    <!-- Home tab: search-everything box, plus "needs attention" panels (bills, to-dos, refills, appointments, reading). Filled by renderHome. -->
     <section class="collection" id="home-collection" hidden>
       <div class="collection-toolbar">
         <h2>Home</h2>
@@ -250,6 +260,7 @@
       </div>
     </section>
 
+    <!-- Books tab: add form and one column per reading status. Cards come from books-card-template via renderBooks. -->
     <section class="collection" id="books-collection" hidden>
       <div class="collection-toolbar">
         <h2>Books</h2>
@@ -318,6 +329,7 @@
       <p class="empty-state" id="books-empty-state" hidden>No books yet — add your first one above.</p>
     </section>
 
+    <!-- Recipes tab: add form, category chips and a flat list. Cards come from recipes-card-template via renderRecipes. -->
     <section class="collection" id="recipes-collection" hidden>
       <div class="collection-toolbar toolbar-leaf">
         <h2>Recipes</h2>
@@ -345,6 +357,7 @@
       <p class="empty-state" id="recipes-empty-state" hidden>No recipes yet — add your first one above.</p>
     </section>
 
+    <!-- Medications tab: add form and list with start and refill dates. Cards come from medications-card-template via renderMedications. -->
     <section class="collection" id="medications-collection" hidden>
       <div class="collection-toolbar">
         <h2>Medications</h2>
@@ -377,6 +390,7 @@
       <p class="empty-state" id="medications-empty-state" hidden>No medications yet — add your first one above.</p>
     </section>
 
+    <!-- Appointments tab: add form, then Upcoming and Past lists. Cards come from appointments-card-template via renderAppointments. -->
     <section class="collection" id="appointments-collection" hidden>
       <div class="collection-toolbar">
         <h2>Appointments</h2>
@@ -405,6 +419,9 @@
       <ul class="card-list flat-list" id="appointments-past-list"></ul>
     </section>
 
+    <!-- Journal tab: private, device-only entries (never synced). A step-by-step wizard for new entries,
+         search and filters, a trends chart, a sideways timeline, and journal-only backup/restore.
+         Built by renderJournal; the wizard by renderJournalStep. Uses no <template>. -->
     <section class="collection" id="journal-collection" hidden>
       <div class="collection-toolbar">
         <h2>Journal</h2>
@@ -465,6 +482,7 @@
       <p class="sync-status-text" id="journal-backup-status" role="status" hidden></p>
     </section>
 
+    <!-- Weight tab: four headline figures (renderWeightStats), add form, and history. Cards come from weight-card-template via renderWeights. -->
     <section class="collection" id="weight-collection" hidden>
       <div class="collection-toolbar">
         <h2>Weight</h2>
@@ -508,6 +526,7 @@
       <p class="empty-state" id="weight-empty-state" hidden>No weights yet &mdash; add your first one above.</p>
     </section>
 
+    <!-- Diagnoses tab: add form and Active / Monitoring / Resolved columns. Cards come from diagnoses-card-template via renderDiagnoses. -->
     <section class="collection" id="diagnoses-collection" hidden>
       <div class="collection-toolbar">
         <h2>Diagnoses</h2>
@@ -547,6 +566,7 @@
       <p class="empty-state" id="diagnoses-empty-state" hidden>No diagnoses yet — add your first one above.</p>
     </section>
 
+    <!-- To-Do tab: add form (with optional repeat), done/not-done chips and a flat list. Cards come from todo-card-template via renderTodos. -->
     <section class="collection" id="todo-collection" hidden>
       <div class="collection-toolbar toolbar-leaf">
         <h2>To-Do</h2>
@@ -580,6 +600,7 @@
       <p class="empty-state" id="todo-empty-state" hidden>No to-dos yet — add your first one above.</p>
     </section>
 
+    <!-- Shopping List tab: add form, category and checked chips, flat list. Cards come from shopping-card-template via renderShoppingList. -->
     <section class="collection" id="shopping-collection" hidden>
       <div class="collection-toolbar toolbar-leaf">
         <h2>Shopping List</h2>
@@ -606,6 +627,7 @@
       <p class="empty-state" id="shopping-empty-state" hidden>Your shopping list is empty — add an item above.</p>
     </section>
 
+    <!-- Notes tab: add form and a list of note previews. Cards come from notes-card-template via renderNotes. -->
     <section class="collection" id="notes-collection" hidden>
       <div class="collection-toolbar toolbar-leaf">
         <h2>Notes</h2>
@@ -631,6 +653,9 @@
       <p class="empty-state" id="notes-empty-state" hidden>No notes yet — add your first one above.</p>
     </section>
 
+    <!-- Budget tab, top to bottom: month calendar with totals (renderBudgetCalendar), current pay period
+         (renderPayPeriod), paid history (renderPaidHistory), bills (budget-card-template via renderBudgetList),
+         and recurring income (recurring-income-card-template via renderRecurringIncomeList). renderBudget runs them all. -->
     <section class="collection" id="budget-collection" hidden>
       <div class="collection-toolbar">
         <h2 id="budget-month-label">September 2026</h2>
@@ -736,6 +761,7 @@
       <p class="empty-state" id="recurring-income-empty-state" hidden>No recurring income sources yet.</p>
     </section>
 
+    <!-- Resume & Portfolio tab: saved links with notes. Cards come from resume-card-template via renderLinks. -->
     <section class="collection" id="resume-collection" hidden>
       <div class="collection-toolbar toolbar-leaf">
         <h2>Resume &amp; Portfolio</h2>
@@ -763,6 +789,10 @@
   </main>
 </div>
 
+<!-- Card templates. app.js clones each one per record and fills in the text; a template is never shown
+     itself. Every card has a view block and a hidden edit form that the Edit button swaps in. -->
+
+<!-- One book in a status column on the Books tab (renderBooks). -->
 <template id="books-card-template">
   <li class="book-card">
     <div class="book-view">
@@ -808,6 +838,7 @@
   </li>
 </template>
 
+<!-- One recipe on the Recipes tab (renderRecipes). -->
 <template id="recipes-card-template">
   <li class="recipe-card">
     <div class="recipe-view">
@@ -848,6 +879,7 @@
   </li>
 </template>
 
+<!-- One medication on the Medications tab (renderMedications). -->
 <template id="medications-card-template">
   <li class="med-card">
     <div class="med-view">
@@ -889,6 +921,7 @@
   </li>
 </template>
 
+<!-- One weight entry in the Weight history (renderWeights). -->
 <template id="weight-card-template">
   <li class="weight-card">
     <div class="weight-view">
@@ -915,6 +948,7 @@
   </li>
 </template>
 
+<!-- One appointment in the Upcoming or Past list (renderAppointments, via renderAppointmentCards). -->
 <template id="appointments-card-template">
   <li class="appt-card">
     <div class="appt-view">
@@ -946,6 +980,7 @@
   </li>
 </template>
 
+<!-- One diagnosis in a status column on the Diagnoses tab (renderDiagnoses). -->
 <template id="diagnoses-card-template">
   <li class="diagnosis-card">
     <div class="diagnosis-view">
@@ -980,6 +1015,7 @@
   </li>
 </template>
 
+<!-- One task on the To-Do tab (renderTodos). -->
 <template id="todo-card-template">
   <li class="todo-item">
     <div class="todo-view">
@@ -1009,6 +1045,7 @@
   </li>
 </template>
 
+<!-- One item on the Shopping List tab (renderShoppingList). -->
 <template id="shopping-card-template">
   <li class="shopping-item">
     <div class="shopping-view">
@@ -1031,6 +1068,7 @@
   </li>
 </template>
 
+<!-- One note on the Notes tab (renderNotes). -->
 <template id="notes-card-template">
   <li class="note-card">
     <div class="note-view">
@@ -1054,6 +1092,7 @@
   </li>
 </template>
 
+<!-- One bill in the Bills list on the Budget tab (renderBudgetList). -->
 <template id="budget-card-template">
   <li class="bill-card">
     <div class="bill-view">
@@ -1094,6 +1133,7 @@
   </li>
 </template>
 
+<!-- One recurring income source on the Budget tab (renderRecurringIncomeList). -->
 <template id="recurring-income-card-template">
   <li class="recurring-income-card">
     <div class="recurring-income-view">
@@ -1131,6 +1171,7 @@
   </li>
 </template>
 
+<!-- One saved link on the Resume & Portfolio tab (renderLinks). -->
 <template id="resume-card-template">
   <li class="link-card">
     <div class="link-view">
@@ -1157,6 +1198,8 @@
   </li>
 </template>
 
+<!-- Therapy summary dialog, opened from the Journal tab. A full-screen overlay that can be printed,
+     saved as PDF or copied as text; its body is filled by renderTherapySummary. -->
 <div class="summary-overlay" id="therapy-summary" role="dialog" aria-modal="true" aria-labelledby="therapy-summary-title" hidden>
   <div class="summary-sheet">
     <div class="summary-toolbar summary-no-print">
@@ -1176,6 +1219,7 @@
   </div>
 </div>
 
+<!-- All app behaviour lives in app.js; it must load last so every element above exists. -->
 <script src="app.js"></script>
 </body>
 </html>

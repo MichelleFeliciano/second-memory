@@ -8,6 +8,29 @@ files (index.html/style.css/app.js) are hosted separately on GitHub Pages —
 this server does not serve them. Stdlib only — no pip installs.
 """
 
+# Endpoints (both POST, both need the X-Sync-Token header to match SYNC_TOKEN):
+#   /api/sync    The app sends its collections; the server merges them into the
+#                stored data and replies with the full merged result plus a list
+#                of any conflicts it had to fork.
+#   /api/backup  With no body, lists the daily restore points. With
+#                {"date": "YYYY-MM-DD"}, returns that day's saved data.
+#
+# Merge rules (see merge_collection):
+#   - The server owns each record's `version`; clients never choose it.
+#   - Tombstones (deleted: true) win over stale live copies, so deletes stick.
+#   - If two live copies conflict, the client's copy is saved as a new record
+#     (a fork) so nothing is silently lost.
+#   - Income is the exception: one entry per date, and the newest edit wins.
+#   - Resending identical content is a no-op and does not bump the version.
+#
+# Backups: the first save each UTC day keeps a copy of the data as it was before
+# that save, under DATA_DIR/backups, and the newest 30 are kept.
+#
+# Environment variables:
+#   PORT        Port to listen on (default 8443).
+#   SYNC_TOKEN  Shared passphrase clients must send; the server refuses to start without it.
+#   DATA_DIR    Folder holding sync_data.json and backups/ (default /var/data, the Render disk).
+
 import hmac
 import json
 import os
@@ -49,10 +72,14 @@ data_lock = threading.Lock()
 
 
 def empty_dataset():
+    """A fresh dataset: every known collection present and empty."""
     return {name: [] for name in COLLECTION_NAMES}
 
 
 def load_dataset():
+    """Reads the stored data file, repairing it if needed (corrupt file falls
+    back to the .bak copy, missing collections are added, retired ones dropped).
+    Callers must hold data_lock."""
     if not DATA_PATH.exists():
         return empty_dataset()
     # A transient OSError must NOT be treated as "no data": the next save would
@@ -89,6 +116,9 @@ def load_dataset():
 
 
 def save_dataset(data):
+    """Writes the data file safely: write to a temp file, keep a .bak of the
+    previous version, take the daily snapshot, then swap the new file in.
+    Callers must hold data_lock."""
     # The threading.Lock around every caller of this function is the real
     # correctness mechanism; os.replace() is defense in depth on top of it
     # (its atomicity isn't fully guaranteed on Windows, per CPython #143909).
@@ -120,6 +150,7 @@ def snapshot_daily():
 
 
 def list_backups():
+    """The available daily restore points, oldest first, as {"date", "bytes"}."""
     if not BACKUP_DIR.exists():
         return []
     out = []
@@ -292,13 +323,16 @@ def merge_collection(server_items, client_items, collection_name):
 
 
 class SyncHandler(BaseHTTPRequestHandler):
+    """Handles the HTTP requests: /api/sync, /api/backup, and CORS preflights."""
     server_version = "SecondMemorySync/1"
 
     def _allowed_origin(self):
+        """The request's Origin if it is on the allowlist, otherwise None."""
         origin = self.headers.get("Origin")
         return origin if origin in ALLOWED_SYNC_ORIGINS else None
 
     def _send_json(self, status, payload):
+        """Sends a JSON response with the given status, including CORS headers."""
         body = json.dumps(payload).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
@@ -315,6 +349,7 @@ class SyncHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _check_token(self):
+        """True if the X-Sync-Token header matches SYNC_TOKEN (constant-time compare)."""
         expected = self.server.sync_token
         got = self.headers.get("X-Sync-Token", "")
         # Compare bytes: str comparison raises TypeError on non-ASCII input.
@@ -326,6 +361,7 @@ class SyncHandler(BaseHTTPRequestHandler):
         return any(hmac.compare_digest(c.encode("utf-8"), expected.encode("utf-8")) for c in candidates)
 
     def do_OPTIONS(self):
+        """CORS preflight: tells the browser which origins, methods and headers are allowed."""
         if self.path not in ("/api/sync", "/api/backup"):
             self.send_response(404)
             self.send_header("Content-Length", "0")
@@ -372,6 +408,9 @@ class SyncHandler(BaseHTTPRequestHandler):
         self._send_json(200, {"date": date, "collections": data})
 
     def do_POST(self):
+        """Routes POSTs: /api/backup goes to _handle_backup; /api/sync validates
+        the request, merges each collection under the lock, saves, and replies
+        with the merged data and any conflicts."""
         if self.path == "/api/backup":
             self._handle_backup()
             return
@@ -424,13 +463,16 @@ class SyncHandler(BaseHTTPRequestHandler):
         self._send_json(200, {"collections": response_collections, "conflicts": all_conflicts})
 
     def do_GET(self):
+        """No GET endpoints exist; everything is POST."""
         self._send_json(404, {"error": "not found"})
 
     def log_message(self, fmt, *args):
+        """Silences the default per-request logging."""
         pass
 
 
 def main():
+    """Starts the server: requires SYNC_TOKEN, makes sure the data file exists, then serves forever."""
     token = os.environ.get("SYNC_TOKEN", "").strip()
     if not token:
         print("FATAL: SYNC_TOKEN environment variable is not set. Set it in "

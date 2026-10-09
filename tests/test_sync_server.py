@@ -28,6 +28,7 @@ import sync_server as s  # noqa: E402
 
 
 def rec(record_id, version=1, deleted=False, **extra):
+    """Builds a sample record; extra keyword arguments add or override fields."""
     base = {"id": record_id, "name": "item", "version": version, "deleted": deleted,
             "updatedAt": "2026-10-07T10:00:00Z", "deviceId": "A", "dateAdded": "2026-10-01T00:00:00Z"}
     base.update(extra)
@@ -35,7 +36,9 @@ def rec(record_id, version=1, deleted=False, **extra):
 
 
 class MergeRules(unittest.TestCase):
+    """merge_collection: versioning, no-op resends, tombstones, conflict forks, income, bad input."""
     def merge(self, server_items, client_items, name="shoppingList"):
+        """Runs one merge and returns (the updated server list, the conflicts)."""
         conflicts = s.merge_collection(server_items, client_items, name)
         return server_items, conflicts
 
@@ -117,6 +120,7 @@ class MergeRules(unittest.TestCase):
 
 
 class Storage(unittest.TestCase):
+    """Loading and saving the data file: defaults, retired lists, daily backups, corruption, read errors."""
     def setUp(self):
         self.dir = pathlib.Path(tempfile.mkdtemp(prefix="sm-store-"))
         s.DATA_DIR = self.dir
@@ -196,6 +200,7 @@ class Storage(unittest.TestCase):
 
 
 class Http(unittest.TestCase):
+    """The real server on a local port: auth, bad requests, round trips, CORS, and /api/backup."""
     @classmethod
     def setUpClass(cls):
         cls.dir = pathlib.Path(tempfile.mkdtemp(prefix="sm-http-"))
@@ -213,6 +218,7 @@ class Http(unittest.TestCase):
         cls.server.shutdown()
 
     def call(self, body, token="test-secret", path="/api/sync", raw=None, origin=None):
+        """POSTs to the test server and returns (status, parsed JSON or None, response headers)."""
         data = raw if raw is not None else (json.dumps(body).encode() if body is not None else b"")
         headers = {"Content-Type": "application/json", "X-Sync-Token": token}
         if origin:

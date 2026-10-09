@@ -37,6 +37,8 @@ Serve the project folder first (<code>python -m http.server</code>) and open <co
 // Suite files are plain async-function bodies. They are evaluated INSIDE a fresh copy of the app,
 // so they can use the app's own globals (books, todos, renderHome, ...) plus these helpers:
 //   check(name, condition, detail?)   nav(tab)   set(id, value)   sleep(ms)   dk(daysFromToday)   $(id)
+// Test runner for the front-end. Each suite is [title, file]; all of them run one after another.
+// A first line like "// @width 390" in a suite file sets the frame width (e.g. to test phone layout).
 const SUITES = [
   ['Core: tabs, lists, edit, delete, undo, import/export', 'suites/01-core.js'],
   ['Budget: dates, totals, pay period, paid history', 'suites/02-budget.js'],
@@ -46,6 +48,9 @@ const SUITES = [
   ['Weight: stats, validation, edit, undo', 'suites/06-weight.js'],
 ];
 
+// Injected into the app's <head> before its own scripts run. Swaps localStorage for an in-memory
+// copy (so real data is never touched), disables the network, and stubs print/confirm/service worker.
+// "failWrites" lets a suite simulate a full disk.
 const MEMORY_SHIM = `<script>
 (function () {
   var store = new Map();
@@ -69,6 +74,7 @@ const MEMORY_SHIM = `<script>
 
 let appHtml = null;
 
+// Loads a fresh copy of index.html into a hidden iframe (with the shim above) and waits for it to start.
 async function loadApp(width) {
   if (!appHtml) {
     const res = await fetch('../index.html', { cache: 'no-store' });
@@ -87,6 +93,8 @@ async function loadApp(width) {
   return frame;
 }
 
+// Runs one suite in its own app copy, adds its PASS/FAIL lines under a collapsible heading,
+// and returns the pass/fail counts. A suite that throws is reported as a failure, not a crash.
 async function runSuite(title, file, out) {
   const section = document.createElement('details');
   const head = document.createElement('summary');
@@ -117,9 +125,11 @@ async function runSuite(title, file, out) {
     const widthMatch = source.match(/^\/\/ @width (\d+)/m);
     frame = await loadApp(widthMatch ? Number(widthMatch[1]) : 1100);
     const win = frame.contentWindow;
+    // Any error the app throws on its own during the suite counts as a failure too.
     const uncaught = [];
     win.addEventListener('error', (e) => uncaught.push(e.message));
     win.addEventListener('unhandledrejection', (e) => uncaught.push(String(e.reason)));
+    // The helpers described at the top of this script, made available to the suite code.
     win.check = (name, cond, detail) => add(!!cond, name, cond ? '' : detail === undefined ? '' : String(detail));
     win.sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     win.$ = (id) => win.document.getElementById(id);
@@ -143,6 +153,8 @@ async function runSuite(title, file, out) {
   return { passed, failed };
 }
 
+// Runs every suite in order, keeps a running total in the summary bar, and records the final
+// counts in the page title and window.__testResults so they can be read without opening the page.
 async function runAll() {
   const summary = document.getElementById('summary');
   const out = document.getElementById('out');
