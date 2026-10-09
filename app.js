@@ -5906,9 +5906,9 @@ document.getElementById('therapy-summary-copy').addEventListener('click', async 
 // Esc closes; Tab stays inside the sheet while it is open (listening on the document, because
 // after clicking the summary text focus is on the page body, not inside the dialog).
 document.addEventListener('keydown', (e) => {
-  const overlay = document.getElementById('therapy-summary');
-  if (overlay.hidden) return;
-  if (e.key === 'Escape') { closeTherapySummary(); return; }
+  const overlay = document.querySelector('.summary-overlay:not([hidden])');
+  if (!overlay) return;
+  if (e.key === 'Escape') { (overlay.id === 'health-summary' ? closeHealthSummary : closeTherapySummary)(); return; }
   if (e.key !== 'Tab') return;
   const focusable = [...overlay.querySelectorAll('select, button:not(:disabled)')];
   if (focusable.length === 0) return;
@@ -7391,7 +7391,7 @@ document.addEventListener('visibilitychange', () => {
 
 // The build number shown in the Menu. Keep it equal to the number in CACHE_NAME in sw.js
 // (a test checks this), so "which version am I on?" has a one-glance answer.
-const APP_VERSION = 59;
+const APP_VERSION = 60;
 const THEME_KEY = 'secondMemory.theme.v1';
 const THEMES = ['auto', 'light', 'dark'];
 
@@ -7440,6 +7440,365 @@ document.getElementById('quick-add-form').addEventListener('submit', (e) => {
   status.hidden = false;
   input.focus();
 });
+
+// ---- Health summary ----
+// One printable page for a doctor: current medications, diagnoses, and weight. The journal is
+// never included. The page is built as plain sections so the same data makes both the on-screen
+// sheet and the "Copy text" version.
+
+// Builds the summary: [{ title, empty, entries: [{ head, lines: [] }] }].
+function buildHealthSummaryData() {
+  const today = todayKey();
+  const sections = [];
+
+  // Medications you are taking now (no end date), by name.
+  const meds = medications.filter((m) => !m.deleted && !m.endDate)
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  sections.push({
+    title: 'Medications',
+    empty: 'No current medications recorded.',
+    entries: meds.map((m) => {
+      const lines = [];
+      const how = [m.dosage, m.frequency].filter(Boolean).join(', ');
+      if (how) lines.push(how);
+      if (m.prescribingDoctor) lines.push(`Prescribed by ${m.prescribingDoctor}`);
+      if (m.startDate) lines.push(`Started ${formatDateKeyLong(m.startDate)}`);
+      if (m.refillDate) lines.push(`Next refill ${formatDateKeyLong(m.refillDate)}`);
+      if (takenDatesOf(m).length > 0) lines.push(`Taken on ${medicationTakenSummary(m).last7} of the last 7 days`);
+      if (m.notes) lines.push(m.notes);
+      return { head: m.name, lines };
+    }),
+  });
+
+  // Diagnoses, active first, then monitoring, then resolved.
+  const diags = diagnoses.filter((d) => !d.deleted)
+    .sort((a, b) => DIAGNOSIS_STATUSES.indexOf(a.status) - DIAGNOSIS_STATUSES.indexOf(b.status)
+      || a.condition.localeCompare(b.condition, undefined, { sensitivity: 'base' }));
+  sections.push({
+    title: 'Diagnoses',
+    empty: 'No diagnoses recorded.',
+    entries: diags.map((d) => {
+      const lines = [`Status: ${d.status.charAt(0).toUpperCase()}${d.status.slice(1)}`];
+      if (d.dateDiagnosed) lines.push(`Diagnosed ${isRealDateKey(d.dateDiagnosed) ? formatDateKeyLong(d.dateDiagnosed) : d.dateDiagnosed}`);
+      if (d.provider) lines.push(`Provider: ${d.provider}`);
+      if (d.notes) lines.push(d.notes);
+      return { head: d.condition, lines };
+    }),
+  });
+
+  // Weight: the four figures, the goal, the 30-day change and the last five entries.
+  const live = weights.filter((w) => !w.deleted);
+  const stats = computeWeightStats(live);
+  const weightLines = [];
+  if (stats) {
+    weightLines.push(`Most recent: ${formatWeight(stats.recent.weight)} on ${formatDateKeyLong(stats.recent.date)}`);
+    weightLines.push(`Oldest: ${formatWeight(stats.oldest.weight)} on ${formatDateKeyLong(stats.oldest.date)}`);
+    weightLines.push(`Highest: ${formatWeight(stats.highest.weight)} on ${formatDateKeyLong(stats.highest.date)}`);
+    weightLines.push(`Lowest: ${formatWeight(stats.lowest.weight)} on ${formatDateKeyLong(stats.lowest.date)}`);
+    const goal = loadWeightGoal();
+    if (goal !== null) weightLines.push(`Goal: ${formatWeight(goal)}`);
+    const trend = weightChangeLast30(live);
+    if (trend) weightLines.push(`Change over the last 30 days: ${trend.change > 0 ? '+' : ''}${trend.change.toFixed(1)} ${WEIGHT_UNIT}`);
+    const recent = weightEntriesForChart(live, 0).slice(-5).reverse()
+      .map((w) => `${formatDateKeyLong(w.date)}: ${formatWeight(w.weight)}`);
+    weightLines.push(`Recent entries: ${recent.join('; ')}`);
+  }
+  sections.push({ title: 'Weight', empty: 'No weights recorded.', entries: stats ? [{ head: '', lines: weightLines }] : [] });
+
+  return { prepared: today, sections };
+}
+
+// The plain-text version of the summary, for "Copy text".
+function buildHealthSummaryText(data) {
+  const out = ['Health summary', `Prepared ${formatDateKeyLong(data.prepared)}`, ''];
+  data.sections.forEach((s) => {
+    out.push(s.title.toUpperCase());
+    if (s.entries.length === 0) out.push(s.empty);
+    s.entries.forEach((e) => {
+      if (e.head) out.push(e.head);
+      e.lines.forEach((l) => out.push(e.head ? `  ${l}` : l));
+    });
+    out.push('');
+  });
+  return out.join('\n').trim();
+}
+
+// Fills the on-screen sheet.
+function renderHealthSummary() {
+  const body = document.getElementById('health-summary-body');
+  const data = buildHealthSummaryData();
+  body.innerHTML = '';
+  const title = document.createElement('h2');
+  title.id = 'health-summary-title';
+  title.textContent = 'Health summary';
+  const meta = document.createElement('p');
+  meta.className = 'summary-meta';
+  meta.textContent = `Prepared ${formatDateKeyLong(data.prepared)}`;
+  body.append(title, meta);
+  data.sections.forEach((s) => {
+    const h = document.createElement('h3');
+    h.textContent = s.title;
+    body.appendChild(h);
+    if (s.entries.length === 0) {
+      const none = document.createElement('p');
+      none.className = 'summary-meta';
+      none.textContent = s.empty;
+      body.appendChild(none);
+    }
+    s.entries.forEach((e) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'summary-session';
+      if (e.head) {
+        const name = document.createElement('strong');
+        name.textContent = e.head;
+        wrap.appendChild(name);
+      }
+      const list = document.createElement('ul');
+      e.lines.forEach((l) => {
+        const li = document.createElement('li');
+        li.textContent = l;
+        list.appendChild(li);
+      });
+      wrap.appendChild(list);
+      body.appendChild(wrap);
+    });
+  });
+}
+
+// Shows a short message on the sheet (such as "Copied"); an empty message hides it.
+function setHealthSummaryStatus(text) {
+  const el = document.getElementById('health-summary-status');
+  el.textContent = text;
+  el.hidden = !text;
+}
+
+// Opens the sheet and moves focus into it.
+function openHealthSummary() {
+  setHealthSummaryStatus('');
+  renderHealthSummary();
+  document.getElementById('health-summary').hidden = false;
+  document.body.classList.add('summary-open');
+  document.getElementById('health-summary-close').focus();
+}
+
+// Closes the sheet and gives focus back to the button that opened it.
+function closeHealthSummary() {
+  document.getElementById('health-summary').hidden = true;
+  document.body.classList.remove('summary-open');
+  document.getElementById('health-summary-btn').focus();
+}
+
+document.getElementById('health-summary-btn').addEventListener('click', openHealthSummary);
+document.getElementById('health-summary-close').addEventListener('click', closeHealthSummary);
+document.getElementById('health-summary-print').addEventListener('click', () => window.print());
+document.getElementById('health-summary-copy').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(buildHealthSummaryText(buildHealthSummaryData()));
+    setHealthSummaryStatus('Copied. Paste it into a message or note.');
+  } catch {
+    // Clipboard access can be blocked: select the text so Copy works by hand.
+    const range = document.createRange();
+    range.selectNodeContents(document.getElementById('health-summary-body'));
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    setHealthSummaryStatus('Your browser blocked copying. The summary is selected: press Ctrl+C (or Cmd+C).');
+  }
+});
+
+// ---- App lock ----
+// A PIN that hides the app until it is typed. It keeps other people out of the screen; it does
+// NOT encrypt the data stored on the device. The PIN is never stored: only a salted PBKDF2 hash.
+// The lock starts shown (a script in index.html sets data-locked on <html> before the page paints),
+// comes back after the app has been in the background a couple of minutes, and "Lock now" locks at once.
+
+const LOCK_KEY = 'secondMemory.lock.v1';
+const LOCK_AFTER_MS = 2 * 60 * 1000;
+const LOCK_PIN_RE = /^\d{4,12}$/;
+const LOCK_MAX_TRIES = 5;
+const LOCK_COOLDOWN_MS = 30000;
+let lockFailures = 0;
+let lockBlockedUntil = 0;
+let lockHiddenAt = null;
+
+// The saved { salt, hash } (hex strings), or null when no lock is set or the saved value is damaged.
+function loadLock() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LOCK_KEY) || 'null');
+    if (parsed && /^[0-9a-f]{32}$/.test(parsed.salt) && /^[0-9a-f]{64}$/.test(parsed.hash)) return parsed;
+  } catch { /* fall through */ }
+  return null;
+}
+
+// Whether this browser can compute the PIN hash (it needs a secure page: https or localhost).
+function lockSupported() {
+  return !!(window.crypto && crypto.subtle && window.TextEncoder);
+}
+
+const toHex = (bytes) => [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, '0')).join('');
+const fromHex = (hex) => Uint8Array.from(hex.match(/../g).map((h) => parseInt(h, 16)));
+
+// Turns a PIN and a salt into the stored hash (PBKDF2, SHA-256, 150,000 rounds).
+async function hashPin(pin, saltHex) {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(pin), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: fromHex(saltHex), iterations: 150000, hash: 'SHA-256' }, key, 256);
+  return toHex(bits);
+}
+
+// True when the PIN matches the saved lock.
+async function checkPin(pin) {
+  const lock = loadLock();
+  return !!lock && (await hashPin(pin, lock.salt)) === lock.hash;
+}
+
+// Saves a new PIN (replacing any old one). Returns false if the PIN is not 4 to 12 digits or saving failed.
+async function setAppLock(pin) {
+  if (!LOCK_PIN_RE.test(pin) || !lockSupported()) return false;
+  const salt = toHex(crypto.getRandomValues(new Uint8Array(16)));
+  const hash = await hashPin(pin, salt);
+  try {
+    localStorage.setItem(LOCK_KEY, JSON.stringify({ salt, hash }));
+  } catch {
+    return false;
+  }
+  updateLockButtons();
+  return true;
+}
+
+// Removes the lock and shows the app.
+function clearAppLock() {
+  try { localStorage.removeItem(LOCK_KEY); } catch { /* nothing to remove it from */ }
+  document.documentElement.removeAttribute('data-locked');
+  updateLockButtons();
+}
+
+// Shows the lock screen (if a lock is set) and puts the cursor in the PIN box.
+function lockNow() {
+  if (!loadLock()) return;
+  document.documentElement.setAttribute('data-locked', '1');
+  const input = document.getElementById('lock-pin-input');
+  input.value = '';
+  document.getElementById('lock-error').hidden = true;
+  input.focus();
+}
+
+// Keeps the Menu buttons in step with whether a lock is set.
+function updateLockButtons() {
+  const on = !!loadLock();
+  document.getElementById('lock-btn').textContent = `App lock: ${on ? 'On' : 'Off'}`;
+  document.getElementById('lock-now-btn').hidden = !on;
+}
+
+// Erases everything this app keeps on this device (all secondMemory.* entries). Used by "Forgot PIN".
+function wipeDeviceData() {
+  const keys = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && key.startsWith('secondMemory.')) keys.push(key);
+  }
+  keys.forEach((key) => localStorage.removeItem(key));
+  return keys.length;
+}
+
+document.getElementById('lock-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errorEl = document.getElementById('lock-error');
+  if (Date.now() < lockBlockedUntil) {
+    errorEl.textContent = `Too many tries. Wait ${Math.ceil((lockBlockedUntil - Date.now()) / 1000)} seconds.`;
+    errorEl.hidden = false;
+    return;
+  }
+  const input = document.getElementById('lock-pin-input');
+  if (await checkPin(input.value)) {
+    lockFailures = 0;
+    document.documentElement.removeAttribute('data-locked');
+    input.value = '';
+    errorEl.hidden = true;
+    return;
+  }
+  lockFailures += 1;
+  input.value = '';
+  if (lockFailures >= LOCK_MAX_TRIES) {
+    lockFailures = 0;
+    lockBlockedUntil = Date.now() + LOCK_COOLDOWN_MS;
+    errorEl.textContent = 'Too many tries. Wait 30 seconds.';
+  } else {
+    errorEl.textContent = 'That PIN is not right.';
+  }
+  errorEl.hidden = false;
+  input.focus();
+});
+
+document.getElementById('lock-forgot-btn').addEventListener('click', () => {
+  const ok = window.confirm('Forgot your PIN?\n\nThe only way in is to erase everything stored on THIS device. Your synced lists come back when you sync again, but your journal exists only on this device unless you saved a backup file.\n\nErase this device and start over?');
+  if (!ok) return;
+  wipeDeviceData();
+  window.location.reload();
+});
+
+// The turn-on / turn-off dialog.
+let lockSetupMode = 'on';
+function openLockSetup(mode) {
+  lockSetupMode = mode;
+  const turningOff = mode === 'off';
+  document.getElementById('lock-setup-title').textContent = turningOff ? 'Turn off app lock' : 'Turn on app lock';
+  document.getElementById('lock-setup-note').textContent = turningOff
+    ? 'Enter your PIN to turn the lock off.'
+    : 'Choose a PIN of 4 to 12 digits. It keeps other people out of the app on this device; it does not encrypt your data. If you forget it, the only way back in is to erase this device.';
+  document.getElementById('lock-setup-current').hidden = !turningOff;
+  document.getElementById('lock-setup-new').hidden = turningOff;
+  document.getElementById('lock-setup-confirm').hidden = turningOff;
+  ['lock-setup-current', 'lock-setup-new', 'lock-setup-confirm'].forEach((id) => { document.getElementById(id).value = ''; });
+  document.getElementById('lock-setup-error').hidden = true;
+  document.getElementById('lock-setup').hidden = false;
+  document.getElementById(turningOff ? 'lock-setup-current' : 'lock-setup-new').focus();
+}
+
+function closeLockSetup() {
+  document.getElementById('lock-setup').hidden = true;
+  document.getElementById('lock-btn').focus();
+}
+
+document.getElementById('lock-btn').addEventListener('click', () => {
+  if (!lockSupported()) {
+    setDataIoStatus('App lock needs a secure page (https). It is not available here.', 'failed');
+    return;
+  }
+  openLockSetup(loadLock() ? 'off' : 'on');
+});
+document.getElementById('lock-now-btn').addEventListener('click', lockNow);
+document.getElementById('lock-setup-cancel').addEventListener('click', closeLockSetup);
+document.getElementById('lock-setup').addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLockSetup(); });
+
+document.getElementById('lock-setup-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errorEl = document.getElementById('lock-setup-error');
+  const fail = (text) => { errorEl.textContent = text; errorEl.hidden = false; };
+  if (lockSetupMode === 'off') {
+    if (!(await checkPin(document.getElementById('lock-setup-current').value))) { fail('That PIN is not right.'); return; }
+    clearAppLock();
+    closeLockSetup();
+    return;
+  }
+  const pin = document.getElementById('lock-setup-new').value;
+  if (!LOCK_PIN_RE.test(pin)) { fail('Use 4 to 12 digits, numbers only.'); return; }
+  if (pin !== document.getElementById('lock-setup-confirm').value) { fail('The two PINs do not match.'); return; }
+  if (!(await setAppLock(pin))) { fail('Could not save the PIN on this device.'); return; }
+  closeLockSetup();
+});
+
+// Re-lock after the app has been out of sight for a couple of minutes.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    lockHiddenAt = Date.now();
+  } else if (lockHiddenAt !== null && Date.now() - lockHiddenAt >= LOCK_AFTER_MS) {
+    lockNow();
+  }
+  if (document.visibilityState === 'visible') lockHiddenAt = null;
+});
+
+updateLockButtons();
+if (loadLock()) lockNow(); // a locked app opens locked (the lock screen is already showing)
 
 // ---- Init ----
 

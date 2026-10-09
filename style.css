@@ -2320,8 +2320,8 @@ body::before {
 
 /* Printing while the summary is open: hide everything except the sheet, and use plain black on white. */
 @media print {
-  body.summary-open > *:not(#therapy-summary) { display: none !important; }
-  body.summary-open #therapy-summary {
+  body.summary-open > *:not(.summary-overlay) { display: none !important; }
+  body.summary-open .summary-overlay:not([hidden]) {
     position: static;
     padding: 0;
     overflow: visible;
@@ -2754,3 +2754,84 @@ select[id$="-sort-input"],
 @media (max-width: 700px) {
   input[type="number"].weight-goal-input, .weight-goal-form input { font-size: 16px; }
 }
+
+/* ===== Health summary and app lock ===== */
+.home-actions { margin: 0 0 16px; }
+
+/* The lock screen covers everything until the PIN is right. It is shown purely by CSS (the
+   data-locked attribute on <html>), so a locked app never flashes its content while loading. */
+.lock-screen {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: var(--bg);
+}
+
+html[data-locked] .lock-screen { display: flex; }
+html[data-locked] .app-shell,
+html[data-locked] .storage-warning { visibility: hidden; }
+
+/* The dialog for turning the lock on or off sits over the page like a small sheet. */
+.lock-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.lock-backdrop[hidden] { display: none; }
+
+.lock-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(100%, 340px);
+  padding: 22px;
+  border: 1px solid var(--border-soft);
+  border-radius: 18px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.lock-card h2 { margin: 0 0 4px; font-size: 1.2rem; }
+.lock-note { margin: 0; font-size: 0.85rem; color: var(--muted); }
+
+.lock-card input {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 16px;
+}
+
+.lock-card button {
+  padding: 10px 18px;
+  border: none;
+  border-radius: 13px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.lock-card .lock-forgot,
+.lock-card #lock-setup-cancel {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 0.85rem;
+}
+
+.lock-buttons { display: flex; gap: 8px; }
+.lock-buttons button { flex: 1; }

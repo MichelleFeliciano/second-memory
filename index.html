@@ -7,6 +7,8 @@
 <!-- Applies a Light/Dark theme chosen in the Menu before the page paints, so it does not flash. -->
 <script>
 try { var t = localStorage.getItem('secondMemory.theme.v1'); if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); } catch (e) { /* storage unavailable: follow the device */ }
+// If an app lock is set, start locked (the lock screen is shown by CSS until the PIN is entered).
+try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement.setAttribute('data-locked', '1'); } catch (e) { /* storage unavailable: no lock */ }
 </script>
 <link rel="stylesheet" href="style.css">
 <link rel="manifest" href="manifest.json">
@@ -207,6 +209,8 @@ try { var t = localStorage.getItem('secondMemory.theme.v1'); if (t === 'light' |
     <div class="data-io">
       <div class="data-io-buttons">
         <button type="button" id="theme-btn" class="data-io-btn">Theme: Auto</button>
+        <button type="button" id="lock-btn" class="data-io-btn">App lock: Off</button>
+        <button type="button" id="lock-now-btn" class="data-io-btn" hidden>Lock now</button>
       </div>
       <p class="app-version" id="app-version"></p>
     </div>
@@ -244,6 +248,8 @@ try { var t = localStorage.getItem('secondMemory.theme.v1'); if (t === 'light' |
         <button type="submit">Add</button>
         <p class="quick-add-status" id="quick-add-status" role="status" hidden></p>
       </form>
+
+      <p class="home-actions"><button type="button" class="journal-summary-btn" id="health-summary-btn">Health summary</button></p>
 
       <p class="stats-line" id="home-stats"></p>
       <div id="home-backup-notes" hidden></div>
@@ -1192,6 +1198,47 @@ try { var t = localStorage.getItem('secondMemory.theme.v1'); if (t === 'light' |
     <p class="summary-status summary-no-print" id="therapy-summary-status" role="status" hidden></p>
     <div id="therapy-summary-body" class="summary-body"></div>
   </div>
+</div>
+
+<!-- Health summary: medications, diagnoses and weight on one printable page (no journal). Opened from Home;
+     filled by renderHealthSummary. Uses the same sheet styles as the therapy summary. -->
+<div class="summary-overlay" id="health-summary" role="dialog" aria-modal="true" aria-labelledby="health-summary-title" hidden>
+  <div class="summary-sheet">
+    <div class="summary-toolbar summary-no-print">
+      <button type="button" id="health-summary-print" class="summary-btn">Print or save as PDF</button>
+      <button type="button" id="health-summary-copy" class="summary-btn">Copy text</button>
+      <button type="button" id="health-summary-close" class="summary-btn">Close</button>
+    </div>
+    <p class="summary-status summary-no-print" id="health-summary-status" role="status" hidden></p>
+    <div id="health-summary-body" class="summary-body"></div>
+  </div>
+</div>
+
+<!-- App lock screen: shown (by the data-locked attribute on <html>) until the right PIN is typed. -->
+<div class="lock-screen" id="lock-screen" role="dialog" aria-modal="true" aria-labelledby="lock-screen-title">
+  <form class="lock-card" id="lock-form">
+    <h2 id="lock-screen-title">Second Memory is locked</h2>
+    <input type="password" id="lock-pin-input" inputmode="numeric" autocomplete="off" placeholder="PIN" aria-label="PIN" required>
+    <p class="form-error" id="lock-error" role="alert" hidden></p>
+    <button type="submit">Unlock</button>
+    <button type="button" class="lock-forgot" id="lock-forgot-btn">Forgot PIN?</button>
+  </form>
+</div>
+
+<!-- Turn the app lock on or off. In "on" mode it asks for a new PIN twice; in "off" mode, for the current PIN. -->
+<div class="lock-backdrop" id="lock-setup" role="dialog" aria-modal="true" aria-labelledby="lock-setup-title" hidden>
+  <form class="lock-card" id="lock-setup-form">
+    <h2 id="lock-setup-title">App lock</h2>
+    <p class="lock-note" id="lock-setup-note"></p>
+    <input type="password" id="lock-setup-current" inputmode="numeric" autocomplete="off" placeholder="Current PIN" aria-label="Current PIN">
+    <input type="password" id="lock-setup-new" inputmode="numeric" autocomplete="off" placeholder="New PIN (4 to 12 digits)" aria-label="New PIN">
+    <input type="password" id="lock-setup-confirm" inputmode="numeric" autocomplete="off" placeholder="Type it again" aria-label="Confirm new PIN">
+    <p class="form-error" id="lock-setup-error" role="alert" hidden></p>
+    <div class="lock-buttons">
+      <button type="submit" id="lock-setup-save">Save</button>
+      <button type="button" id="lock-setup-cancel">Cancel</button>
+    </div>
+  </form>
 </div>
 
 <!-- All app behaviour lives in app.js; it must load last so every element above exists. -->
