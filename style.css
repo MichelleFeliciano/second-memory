@@ -494,6 +494,7 @@ body::before {
   font-size: 0.85rem;
   color: var(--muted);
   flex: 1 1 160px;
+  min-width: 0; /* lets the date box shrink to fit a phone screen */
 }
 
 .date-field input[type="date"] {
@@ -724,6 +725,12 @@ body::before {
   font: inherit;
   color: inherit;
   cursor: pointer;
+  /* name on one line, its detail (amount, due date) underneath */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  overflow-wrap: anywhere;
 }
 
 .book-info {
@@ -828,6 +835,9 @@ body::before {
   color: var(--text);
   cursor: pointer;
   font-family: inherit;
+  max-width: 100%; /* a very long label wraps instead of poking past the screen */
+  overflow-wrap: anywhere;
+  text-align: left;
 }
 
 .chip:hover {
@@ -946,6 +956,7 @@ body::before {
   align-items: center;
   gap: 10px;
   flex: 1;
+  min-width: 0; /* a long task wraps instead of widening the row */
   cursor: pointer;
 }
 
@@ -2415,8 +2426,6 @@ input[type="date"]::-webkit-date-and-time-value {
   min-width: 0;
 }
 
-.date-field { min-width: 0; }
-
 @media (max-width: 700px) {
   /* Weight: two figures per row instead of one tall column */
   .weight-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
@@ -2469,11 +2478,6 @@ select[id$="-sort-input"],
   overflow-wrap: anywhere;
 }
 
-.todo-check,
-.shopping-check {
-  min-width: 0;
-}
-
 @media (max-width: 700px) {
   /* The to-do / shopping row holds a task plus a due date, badge and two buttons: let it
      wrap onto a second line instead of squeezing everything onto one. */
@@ -2504,14 +2508,6 @@ select[id$="-sort-input"],
 
 /* Home rows: put the name and its detail (amount, due date) on separate lines, like the
    bill and to-do cards, instead of running them together in a narrow column. */
-.home-item-link {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  overflow-wrap: anywhere;
-}
-
 .home-item-link .bill-name,
 .home-item-link .bill-due,
 .home-item-link .todo-task,
@@ -2534,13 +2530,6 @@ select[id$="-sort-input"],
 
 /* Space between the paid-history note and the Bills heading below it */
 #paid-history-empty + .collection-toolbar { margin-top: 28px; }
-
-/* A very long filter-chip label wraps inside the screen instead of poking past it. */
-.chip {
-  max-width: 100%;
-  overflow-wrap: anywhere;
-  text-align: left;
-}
 
 .bill-info > *,
 .recurring-income-info > * {
