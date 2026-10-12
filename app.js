@@ -1,4 +1,4 @@
-// Second Memory — Books, Recipes, Medications, Diagnoses
+// Second Memory — a personal, local-first set of lists (books, recipes, health, to-dos, journal, ...)
 // All persistence is local (localStorage). No network calls, no dependencies.
 //
 // How this file is organised (top to bottom, one section per area):
@@ -363,7 +363,7 @@ function rejectBlank(input, message) {
 
 // ---- Undo/Redo ----
 // In-memory only, never persisted. One entry per changed record (never a
-// whole-array snapshot). See docs/specs/edit-everywhere-and-undo-redo.md.
+// whole-array snapshot).
 
 // Each entry is { collection, id, before, after, timestamp }; before is null for a brand-new record.
 let undoStack = [];
@@ -448,10 +448,10 @@ if (sidebarToggleBtn) {
 // ---- Books ----
 
 const BOOKS_KEY = 'secondMemory.books.v1';
-// The shelves a book can be on; stored in each book's status field.
 // Shelves that count as "finished" for the reading goal and get a finished date.
 const READ_STATUSES = ['owned_read', 'jons_bookshelf_read'];
-const BOOK_STATUSES = ['want_to_buy', 'owned_unread', 'currently_reading', 'owned_read', 'textbook', 'textbook_read', 'jons_bookshelf', 'jons_bookshelf_read'];
+// Every shelf a book can be on; stored in each book's status field (also the order of the columns).
+const BOOK_STATUSES =['want_to_buy', 'owned_unread', 'currently_reading', 'owned_read', 'textbook', 'textbook_read', 'jons_bookshelf', 'jons_bookshelf_read'];
 
 // The only address the app ever talks to, and only when the user presses "Sync now".
 const SYNC_SERVER_URL = 'https://second-memory-mwm3.onrender.com';
@@ -569,10 +569,10 @@ function matchesBookSearch(book, term) {
   return haystack.includes(term.toLowerCase());
 }
 
-// 'author_asc' is the default/initial state, matching the previously
-// hardcoded (and now user-facing) sort behavior exactly.
+// The chosen sort for the Books screen; 'author_asc' is the default.
 let selectedBooksSort = 'author_asc';
 
+// Sort options by the value of the Books sort dropdown.
 const BOOK_SORTS = {
   author_asc: compareByField((b) => (b.author || '').trim(), 1),
   title_asc: compareByField((b) => b.title, 1),
@@ -658,6 +658,7 @@ function renderReadingGoal(nonDeletedBooks) {
   if (document.activeElement !== input) input.value = goal === null ? '' : String(goal);
 }
 
+// Set goal: accepts a whole number from 1 to 1000 for this year and shows a message otherwise.
 document.getElementById('reading-goal-form').addEventListener('submit', (e) => {
   e.preventDefault();
   const errorEl = document.getElementById('reading-goal-error');
@@ -677,6 +678,7 @@ document.getElementById('reading-goal-form').addEventListener('submit', (e) => {
   renderReadingGoal(books.filter((b) => !b.deleted));
 });
 
+// Clear: removes this year's goal.
 document.getElementById('reading-goal-clear').addEventListener('click', () => {
   const errorEl = document.getElementById('reading-goal-error');
   errorEl.hidden = true;
@@ -903,6 +905,7 @@ function scaleIngredientLine(line, factor) {
   if (!m) return line;
   const first = parseQuantity(m[2]);
   if (first === null) return line;
+  if (/^\s*%/.test(line.slice(m[0].length))) return line; // "2% milk" is a fat content, not an amount
   let out = `${m[1]}${formatQuantity(first * factor)}`;
   let consumed = m[0].length;
   let last = first * factor;
@@ -935,6 +938,7 @@ function scaledIngredients(recipe, factor) {
 
 let cookState = null; // { recipe, factor, step }
 let cookWakeLock = null;
+let cookReturnFocus = null; // the control that opened cook mode, so closing gives focus back to it
 
 // Asks the browser to keep the screen on; harmless if unsupported or refused.
 async function requestCookWakeLock() {
@@ -967,6 +971,7 @@ function openCookMode(recipeId) {
   const recipe = recipes.find((r) => r.id === recipeId && !r.deleted);
   if (!recipe) return;
   const factor = recipeScales.get(recipe.id) || 1;
+  if (!cookState) cookReturnFocus = document.activeElement;
   cookState = { recipe, factor, step: 0 };
   document.getElementById('cook-title').textContent = recipe.title + (factor === 1 ? '' : ` (${factor === 0.5 ? '\u00bd' : factor}\u00d7)`);
   const list = document.getElementById('cook-ingredients-list');
@@ -983,11 +988,14 @@ function openCookMode(recipeId) {
   requestCookWakeLock();
 }
 
-// Closes cook mode and lets the screen sleep again.
+// Closes cook mode, lets the screen sleep again and returns focus to the button that opened it.
 function closeCookMode() {
   document.getElementById('cook-mode').hidden = true;
   cookState = null;
   if (cookWakeLock) { cookWakeLock.release().catch(() => {}); cookWakeLock = null; }
+  const back = cookReturnFocus;
+  cookReturnFocus = null;
+  if (back && document.contains(back) && !back.hidden) back.focus({ preventScroll: true });
 }
 
 // Moves one step (Next on the last step finishes and closes).
@@ -1004,8 +1012,20 @@ function cookStepBy(delta) {
 document.getElementById('cook-next').addEventListener('click', () => cookStepBy(1));
 document.getElementById('cook-prev').addEventListener('click', () => cookStepBy(-1));
 document.getElementById('cook-close').addEventListener('click', closeCookMode);
+// Esc closes, arrows step, and Tab stays inside the dialog while it is open.
 document.addEventListener('keydown', (e) => {
   if (!cookState) return;
+  if (e.key === 'Tab') {
+    const overlay = document.getElementById('cook-mode');
+    const focusable = [...overlay.querySelectorAll('button:not(:disabled), summary')];
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const inside = overlay.contains(document.activeElement);
+    if (!inside || (e.shiftKey && document.activeElement === first)) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    return;
+  }
   if (e.key === 'Escape') closeCookMode();
   else if (e.key === 'ArrowRight' && cookState.step < (cookState.recipe.steps || []).length - 1) cookStepBy(1); // Done is a button press, not an arrow
   else if (e.key === 'ArrowLeft') cookStepBy(-1);
@@ -1014,6 +1034,8 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('visibilitychange', () => {
   if (cookState && document.visibilityState === 'visible') requestCookWakeLock();
 });
+
+// ---- Recipe list (add, edit, delete, search, screen) ----
 
 // Turns a block of text into a list of non-empty trimmed lines.
 function splitLines(text) {
@@ -1152,10 +1174,10 @@ function renderRecipeCategoryFilters(nonDeletedRecipes) {
   );
 }
 
-// 'date_added_asc' is the default — a no-op relative to the previously
-// unsorted (≈ insertion-order) rendering, so existing users see zero change.
+// The chosen sort for the Recipes screen; 'date_added_asc' (oldest first) is the default.
 let selectedRecipesSort = 'date_added_asc';
 
+// Sort options by the value of the Recipes sort dropdown.
 const RECIPE_SORTS = {
   date_added_asc: compareByField((r) => r.dateAdded, 1, { text: false }),
   date_added_desc: compareByField((r) => r.dateAdded, -1, { text: false }),
@@ -1324,7 +1346,7 @@ function renderRecipes() {
     list.appendChild(node);
   });
 
-  document.getElementById('recipes-empty-state').hidden = recipes.filter((r) => !r.deleted).length !== 0;
+  document.getElementById('recipes-empty-state').hidden = nonDeleted.length !== 0;
 }
 
 document.getElementById('recipes-add-form').addEventListener('submit', (e) => {
@@ -1439,7 +1461,8 @@ function takenDatesOf(med) {
 // Summarises the check-off: taken today?, the current streak of days in a row, the last day taken,
 // and how many of the last 7 days (today included) were ticked.
 function medicationTakenSummary(med) {
-  const taken = new Set(takenDatesOf(med));
+  const days = takenDatesOf(med); // already sorted
+  const taken = new Set(days);
   const today = todayKey();
   const takenToday = taken.has(today);
   let cursor = takenToday ? today : shiftDateKey(today, -1);
@@ -1448,10 +1471,9 @@ function medicationTakenSummary(med) {
     streak += 1;
     cursor = shiftDateKey(cursor, -1);
   }
-  const sorted = [...taken].sort();
   let last7 = 0;
   for (let i = 0; i < 7; i++) if (taken.has(shiftDateKey(today, -i))) last7 += 1;
-  return { takenToday, streak, lastTaken: sorted.length ? sorted[sorted.length - 1] : null, last7 };
+  return { takenToday, streak, lastTaken: days.length ? days[days.length - 1] : null, last7 };
 }
 
 // Ticks or unticks "taken" for one day (defaults to today) and saves it as one undoable change.
@@ -1558,10 +1580,10 @@ function matchesMedicationSearch(med, term) {
   return haystack.includes(term.toLowerCase());
 }
 
-// 'name_asc' is the proposed default — medications have no natural
-// chronological default the way Recipes' insertion order does.
+// The chosen sort for the Medications screen; 'name_asc' is the default.
 let selectedMedicationsSort = 'name_asc';
 
+// Sort options by the value of the Medications sort dropdown.
 const MEDICATION_SORTS = {
   name_asc: compareByField((m) => m.name, 1),
   start_date_desc: compareByField((m) => m.startDate, -1, { text: false }),
@@ -1723,11 +1745,11 @@ function renderMedicationList(items, template, openEdit) {
 function renderMedications() {
   flushMedDateUndo(); // a redraw replaces the date boxes, so close any typing burst first
   const searchTerm = document.getElementById('medications-search-input').value;
-  const visible = medications.filter((m) => !m.deleted).filter((m) => matchesMedicationSearch(m, searchTerm));
+  const nonDeleted = medications.filter((m) => !m.deleted);
   const template = document.getElementById('medications-card-template');
   const comparator = MEDICATION_SORTS[selectedMedicationsSort] || MEDICATION_SORTS.name_asc;
 
-  const sorted = visible.sort(comparator);
+  const sorted = nonDeleted.filter((m) => matchesMedicationSearch(m, searchTerm)).sort(comparator);
 
   const list = document.getElementById('medications-list');
   let openEdit = null;
@@ -1745,7 +1767,7 @@ function renderMedications() {
 
   renderMedicationList(sorted, template, openEdit);
 
-  document.getElementById('medications-empty-state').hidden = medications.filter((m) => !m.deleted).length !== 0;
+  document.getElementById('medications-empty-state').hidden = nonDeleted.length !== 0;
 
   renderHome(); // Home shows upcoming refills -- keep this in sync
 }
@@ -1800,7 +1822,7 @@ document.getElementById('medications-sort-input').addEventListener('change', (e)
 // entries each time: the oldest (earliest date), the highest, the lowest and the most recent.
 
 const WEIGHTS_KEY = 'secondMemory.weights.v1';
-// Weights are stored in pounds; anything above WEIGHT_MAX is rejected as a typo.
+// Weights are stored in pounds (WEIGHT_UNIT); anything above WEIGHT_MAX is rejected as a typo.
 const WEIGHT_UNIT = 'lb';
 const WEIGHT_MAX = 1500;
 
@@ -2183,6 +2205,7 @@ function renderWeightChart() {
   if (document.activeElement !== goalInput) goalInput.value = goal === null ? '' : String(goal);
 }
 
+// Range chips (All / 90 days / 30 days) switch what the chart shows.
 document.getElementById('weight-range-row').addEventListener('click', (e) => {
   const chip = e.target.closest('.chip');
   if (!chip) return;
@@ -2190,6 +2213,7 @@ document.getElementById('weight-range-row').addEventListener('click', (e) => {
   renderWeightChart();
 });
 
+// Goal form: validates and saves the goal weight (kept on this device only).
 document.getElementById('weight-goal-form').addEventListener('submit', (e) => {
   e.preventDefault();
   const errorEl = document.getElementById('weight-goal-error');
@@ -2201,13 +2225,23 @@ document.getElementById('weight-goal-form').addEventListener('submit', (e) => {
     return;
   }
   errorEl.hidden = true;
-  saveWeightGoal(Math.round(value * 10) / 10);
+  if (!saveWeightGoal(Math.round(value * 10) / 10)) {
+    errorEl.textContent = 'Could not save the goal (the browser refused to store it).';
+    errorEl.hidden = false;
+    return;
+  }
   renderWeightChart();
 });
 
+// Clear button: removes the saved goal (and says so if the browser refuses).
 document.getElementById('weight-goal-clear').addEventListener('click', () => {
-  document.getElementById('weight-goal-error').hidden = true;
-  saveWeightGoal(null);
+  const errorEl = document.getElementById('weight-goal-error');
+  errorEl.hidden = true;
+  if (!saveWeightGoal(null)) {
+    errorEl.textContent = 'Could not clear the goal (the browser refused to store it).';
+    errorEl.hidden = false;
+    return;
+  }
   document.getElementById('weight-goal-input').value = '';
   renderWeightChart();
 });
@@ -2300,7 +2334,7 @@ function updateDiagnosis(id, fields) {
 // True if the search text appears in the condition, provider or notes.
 function matchesDiagnosisSearch(diagnosis, term) {
   if (!term) return true;
-  const haystack = `${diagnosis.condition} ${diagnosis.provider} ${diagnosis.notes}`.toLowerCase();
+  const haystack = `${diagnosis.condition} ${diagnosis.provider || ''} ${diagnosis.notes || ''}`.toLowerCase();
   return haystack.includes(term.toLowerCase());
 }
 
@@ -2384,8 +2418,8 @@ function renderDiagnoses() {
         });
         editConditionInput.value = diagnosis.condition;
         editDateInput.value = diagnosis.dateDiagnosed || '';
-        editProviderInput.value = diagnosis.provider;
-        editNotesInput.value = diagnosis.notes;
+        editProviderInput.value = diagnosis.provider || '';
+        editNotesInput.value = diagnosis.notes || '';
         viewSection.hidden = true;
         editForm.hidden = false;
       });
@@ -3002,7 +3036,7 @@ function renderShoppingList() {
         otherOpenForm.closest('.shopping-item').querySelector('.shopping-view').hidden = false;
       }
       editItemInput.value = item.item;
-      editQuantityInput.value = item.quantity;
+      editQuantityInput.value = item.quantity || '';
       editCategoryInput.value = item.category || '';
       viewSection.hidden = true;
       editForm.hidden = false;
@@ -3138,13 +3172,13 @@ function restoreNote(id) {
 // True if the search text appears in the note's title or body.
 function matchesNoteSearch(note, term) {
   if (!term) return true;
-  const haystack = `${note.title} ${note.body}`.toLowerCase();
+  const haystack = `${note.title || ''} ${note.body || ''}`.toLowerCase();
   return haystack.includes(term.toLowerCase());
 }
 
 // The start of a note's body for the card preview, cut off with "…" if it's long.
 function noteBodySnippet(body, length = 150) {
-  const trimmed = body.trim();
+  const trimmed = (body || '').trim();
   return trimmed.length > length ? `${trimmed.slice(0, length)}…` : trimmed;
 }
 
@@ -3221,8 +3255,8 @@ function renderNotes() {
         otherOpenForm.hidden = true;
         otherOpenForm.closest('.note-card').querySelector('.note-view').hidden = false;
       }
-      editTitleInput.value = note.title;
-      editBodyInput.value = note.body;
+      editTitleInput.value = note.title || '';
+      editBodyInput.value = note.body || '';
       editError.hidden = true;
       viewSection.hidden = true;
       editForm.hidden = false;
@@ -3365,7 +3399,7 @@ function updateLink(id, fields) {
 // True if the search text appears in the link's label, address or notes.
 function matchesLinkSearch(link, term) {
   if (!term) return true;
-  const haystack = `${link.label} ${link.url} ${link.notes}`.toLowerCase();
+  const haystack = `${link.label || ''} ${link.url || ''} ${link.notes || ''}`.toLowerCase();
   return haystack.includes(term.toLowerCase());
 }
 
@@ -3441,9 +3475,9 @@ function renderLinks() {
         otherOpenForm.hidden = true;
         otherOpenForm.closest('.link-card').querySelector('.link-view').hidden = false;
       }
-      editLabelInput.value = link.label;
-      editUrlInput.value = link.url;
-      editNotesInput.value = link.notes;
+      editLabelInput.value = link.label || '';
+      editUrlInput.value = link.url || '';
+      editNotesInput.value = link.notes || '';
       editError.hidden = true;
       viewSection.hidden = true;
       editForm.hidden = false;
@@ -3525,16 +3559,12 @@ function isRealDateKey(value) {
   return date.getFullYear() === y && date.getMonth() === m && date.getDate() === d;
 }
 
-// ---- Shared date helpers ----
-// These used to sit inside the Budget section (Budget is now its own app). Books, weights, the
-// journal, medications and the date checks on forms still use them.
-
 // ---- Date helpers ----
-// All date-key values are local-date-derived 'YYYY-MM-DD' strings — never
-// `toISOString()`-derived, which is UTC, not local (the existing
-// `isTodoOverdue()`/`todayForFilename()` bug pattern this new code must not
-// repeat). Comparisons between two date keys use plain string comparison,
-// which is correct for this fixed zero-padded format.
+// Shared by books, weights, the journal, medications, to-dos and the date checks on forms.
+// All date-key values are local-date-derived 'YYYY-MM-DD' strings, never
+// `toISOString()`-derived (that is UTC, not local, so it is a day off in the evening in the
+// US timezones). Comparisons between two date keys use plain string comparison, which is
+// correct for this fixed zero-padded format.
 
 // A date key is a 'YYYY-MM-DD' string; this checks the shape (not that the date is real).
 const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -3566,9 +3596,9 @@ function daysInMonth(year, monthIndex) {
   return new Date(year, monthIndex + 1, 0).getDate();
 }
 
-// Local calendar-day arithmetic (safe from the DST pitfall above because it
-// increments the day-of-month FIELD, letting Date's constructor normalize
-// month/year rollover — the same technique the calendar window math uses).
+// Moves a date key by a number of days (negative = earlier). It changes the day-of-month
+// field and lets Date's constructor handle month/year rollover, so DST changes cannot
+// shift the result by a day.
 function shiftDateKey(key, deltaDays) {
   const { y, m, d } = parseDateKey(key);
   return dateKeyFromLocalDate(new Date(y, m, d + deltaDays));
@@ -3577,7 +3607,6 @@ function shiftDateKey(key, deltaDays) {
 // Month names indexed by 0-based month number.
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
   'August', 'September', 'October', 'November', 'December'];
-
 
 // Dates outside this range are almost always a typo (typing "26" for the year gives 0026),
 // and a year before 1000 breaks date math (repeats, charts) and can make a screen crawl.
@@ -3889,8 +3918,15 @@ function renderJournalStep() {
 // Saves the wizard's draft as a new entry or as edits to the one being edited.
 // Needs at least one answer; if storage is full the journal is rolled back and an error shown.
 function finishJournalEntry() {
-  // Keep only answered questions, and refuse an entry with none.
+  // Refuse a mistyped year (a date input accepts "0026"), then keep only answered questions
+  // and refuse an entry with none.
   const { type, editingId, date, answers } = journalDraft;
+  if (!isReasonableDateKey(date)) {
+    const errorEl = document.getElementById('journal-error');
+    errorEl.textContent = DATE_RANGE_MESSAGE;
+    errorEl.hidden = false;
+    return;
+  }
   const questionIds = JOURNAL_TEMPLATES[type].questions.map((q) => q.id);
   const cleaned = {};
   questionIds.forEach((id) => { if (hasJournalAnswer(answers[id])) cleaned[id] = String(answers[id]).trim(); });
@@ -4269,6 +4305,8 @@ function renderJournalDateStrip(visible) {
     kind.textContent = { dream: 'D', therapy: 'T', daily: 'J' }[entry.type] || '?';
     kind.title = JOURNAL_TEMPLATES[entry.type].label;
     chip.appendChild(kind);
+    // Spell the type out for screen readers (otherwise the chip reads like "Mar 4J").
+    chip.setAttribute('aria-label', `${journalChipLabel(entry)}, ${JOURNAL_TEMPLATES[entry.type].label}`);
     chip.addEventListener('click', () => {
       journalActiveOverride = entry.id;
       scrollJournalToEntry(entry.id);
@@ -4311,6 +4349,8 @@ function updateJournalActiveDate() {
   strip.querySelectorAll('.journal-date-chip').forEach((chip) => {
     const isActive = chip.dataset.entryId === active.dataset.entryId;
     chip.classList.toggle('journal-date-chip-active', isActive);
+    if (isActive) chip.setAttribute('aria-current', 'true');
+    else chip.removeAttribute('aria-current');
     if (isActive) strip.scrollLeft = chip.offsetLeft - (strip.clientWidth - chip.offsetWidth) / 2;
   });
 }
@@ -4949,10 +4989,9 @@ document.getElementById('global-search-input').addEventListener('keydown', (e) =
 });
 
 // ---- Home ----
-// Pure, render-only aggregation over the live books/todos/medications arrays — no
-// own storage key, nothing to sync/export/undo. Re-rendered by hooking the
-// end of renderBooks()/renderTodos() rather than adding new
-// call sites at every mutation (see docs/specs/home-dashboard.md §5).
+// Pure, render-only aggregation over the live books/todos/medications arrays: no own
+// storage key, nothing to sync/export/undo. Called at the end of the books, to-dos and
+// medications renderers rather than at every mutation.
 
 // How many days ahead Home looks for things that are "due soon".
 const HOME_DUE_SOON_DAYS = 7;
@@ -5025,8 +5064,8 @@ function renderHome() {
   readingList.innerHTML = '';
   refillsList.innerHTML = '';
 
-  // One Home row: a button that jumps to the tab, plus an optional quick-action button.
-  function makeHomeRow(onClick, buildContent, action) {
+  // One Home row: a button (filled in by buildContent) that jumps to the tab.
+  function makeHomeRow(onClick, buildContent) {
     const li = document.createElement('li');
     li.className = 'home-item';
     const btn = document.createElement('button');
@@ -5035,19 +5074,6 @@ function renderHome() {
     buildContent(btn);
     btn.addEventListener('click', onClick);
     li.appendChild(btn);
-    if (action) {
-      li.classList.add('home-item-with-action');
-      const act = document.createElement('button');
-      act.type = 'button';
-      act.className = 'home-item-action';
-      act.textContent = action.label;
-      act.setAttribute('aria-label', action.ariaLabel || action.label);
-      act.addEventListener('click', (e) => {
-        if (e.detail > 1) return; // the second click of a double-click would hit whatever row slid into place
-        action.run();
-      });
-      li.appendChild(act);
-    }
     return li;
   }
 
@@ -5247,7 +5273,7 @@ function redo() {
   updateUndoRedoButtons();
 }
 
-// Which field names a record in each collection (used in the Undo/Redo tooltips).
+// The field that names a record in each collection (shown in the Undo/Redo tooltips).
 const RECORD_LABEL_FIELD = {
   books: 'title', recipes: 'title', medications: 'name', diagnoses: 'condition',
   todos: 'task', shoppingList: 'item', notes: 'title', links: 'label', weights: 'date',
@@ -5347,14 +5373,10 @@ function loadSyncSnapshot() {
     const raw = localStorage.getItem(SYNC_SNAPSHOT_KEY);
     const parsed = raw ? JSON.parse(raw) : null;
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      // Lists this app no longer syncs (Budget moved to its own app) are dropped from the bookkeeping.
-      if ('courses' in parsed || 'deadlines' in parsed || 'appointments' in parsed || 'bills' in parsed || 'income' in parsed || 'recurringIncome' in parsed) {
-        delete parsed.courses;
-        delete parsed.deadlines;
-        delete parsed.appointments;
-        delete parsed.bills;
-        delete parsed.income;
-        delete parsed.recurringIncome;
+      // Lists this app no longer syncs (coursework, appointments, Budget) are dropped from the bookkeeping.
+      const retired = ['courses', 'deadlines', 'appointments', 'bills', 'income', 'recurringIncome'];
+      if (retired.some((name) => name in parsed)) {
+        retired.forEach((name) => { delete parsed[name]; });
         saveSyncSnapshot(parsed);
       }
       return parsed;
@@ -5439,7 +5461,7 @@ function bootstrapSyncSnapshot(serverData) {
         merged.push(local);
         return;
       }
-      const sameContent = contentMatchesIgnoringVersion(local, server, c.name);
+      const sameContent = contentMatchesIgnoringVersion(local, server);
       if (!sameContent && (local.updatedAt || '') > (server.updatedAt || '')) {
         merged.push(local);
         return;
@@ -5455,7 +5477,7 @@ function bootstrapSyncSnapshot(serverData) {
 
     c.set(merged);
     saveCollection(c.key, merged);
-    c.render();
+    safeRender(() => c.render()); // one broken screen must not abort the whole first sync
     snapshot[c.name] = known;
   });
   saveSyncSnapshot(snapshot);
@@ -5491,7 +5513,7 @@ function reconcileServerReply(c, incoming, preFlightMap) {
       // re-sent record again at version 1: if the content is the same, just take the server's copy
       // (otherwise it would never count as confirmed). Different content means the server really is
       // behind, so keep ours and send it again.
-      if (contentMatchesIgnoringVersion(local, server, c.name) && JSON.stringify(local) === preFlightMap[local.id]) {
+      if (contentMatchesIgnoringVersion(local, server) && JSON.stringify(local) === preFlightMap[local.id]) {
         result.push(server);
         known[server.id] = JSON.stringify(server);
         return;
@@ -5505,7 +5527,7 @@ function reconcileServerReply(c, incoming, preFlightMap) {
       return;
     }
     const sent = preFlightMap[local.id] ? JSON.parse(preFlightMap[local.id]) : null;
-    if (sent && contentMatchesIgnoringVersion(sent, server, c.name)) {
+    if (sent && contentMatchesIgnoringVersion(sent, server)) {
       local.version = server.version;
     }
     result.push(local);
@@ -5741,7 +5763,7 @@ function extractImportCollections(parsed) {
 // Structural equality for records (arrays and nested objects compared by content; null equals missing).
 function deepEqual(a, b) {
   if (a === b) return true;
-  if (a == null && b == null) return true; // null and undefined both mean "no value" — treat as equal, matching Python's dict.get() semantics where a missing key and an explicit JSON null both deserialize to None
+  if (a == null && b == null) return true; // null and a missing value are equal (Python's dict.get() does the same)
   if (Array.isArray(a) && Array.isArray(b)) {
     return a.length === b.length && a.every((v, i) => deepEqual(v, b[i]));
   }
@@ -5753,47 +5775,35 @@ function deepEqual(a, b) {
 }
 
 // Fields that describe who/when touched a record rather than its actual
-// data. Mirrors sync_server.py's _BOOKKEEPING_FIELDS — see
-// docs/research/sync-version-inflation-bug.md §2 for the full reasoning.
-// `dateAdded` and `deleted` are deliberately NOT here — they're meaningful
-// data, not bookkeeping.
+// data. Mirrors sync_server.py's _BOOKKEEPING_FIELDS. `dateAdded` and
+// `deleted` are deliberately NOT here — they're meaningful data.
 const BOOKKEEPING_FIELDS = new Set(['version', 'updatedAt', 'deviceId']);
-
-// Per-collection extra bookkeeping fields, beyond the universal set above. None of the lists in
-// this app need any (Budget's `income` list, which did, now lives in the Budget app).
-const EXTRA_BOOKKEEPING_FIELDS_BY_COLLECTION = {};
 
 // Port of sync_server.py's _content_matches(): true if two records
 // describe the same real-world data — i.e. this import record is a
 // re-import of something already merged in (or a no-op resend), not a
-// genuine conflicting edit. Already uses deepEqual() (not ===/==), so
-// array-valued fields like `paidDates` are compared correctly (JS's own
-// ===/== do NOT deep-compare arrays — confirmed this function already
-// avoids that footgun, see §3).
-function contentMatchesIgnoringVersion(a, b, collectionName) {
+// genuine conflicting edit. Uses deepEqual() so array fields such as
+// `takenDates` are compared by content, not by reference.
+function contentMatchesIgnoringVersion(a, b) {
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
   BOOKKEEPING_FIELDS.forEach((k) => keys.delete(k));
-  const extra = EXTRA_BOOKKEEPING_FIELDS_BY_COLLECTION[collectionName];
-  if (extra) extra.forEach((k) => keys.delete(k));
   return [...keys].every((k) => deepEqual(a[k], b[k]));
 }
 
 // Port of sync_server.py's merge_collection(), adapted to merge an imported
 // file's records onto the in-memory client collection instead of the
-// server's onto a client's. Four cases now (previously three — see
-// docs/research/sync-version-inflation-bug.md §5.2): (a) new id -> add as a
-// new record; (b) known id, incoming version equal-or-newer, content
-// IDENTICAL -> true no-op, don't touch the local record at all (THE FIX:
-// previously this unconditionally overwrote, silently replacing
-// updatedAt/deviceId with the import file's stale values and misreporting
-// it as "updated"); (c) known id, incoming version equal-or-newer, content
-// genuinely differs -> replace the local record with the imported one;
-// (d) known id, incoming version older, content identical -> no-op
-// (already existed); (e) known id, incoming version older, content
-// genuinely differs -> kept as a new record under a freshly generated id,
-// local record left untouched, so nothing is ever silently discarded.
-// Mutates `localItems` in place and returns counts for the summary message.
-function mergeCollectionFromImport(localItems, importedItems, collectionName) {
+// server's onto a client's. Cases: (a) new id -> add as a new record;
+// (b) known id, incoming version equal-or-newer, content identical -> no-op
+// (the local record, with its own updatedAt/deviceId, is left alone);
+// (c) known id, incoming version equal-or-newer, content differs -> replace the
+// local record, unless it is deleted here or was edited more recently;
+// (d) known id, incoming version older, content identical -> no-op;
+// (e) known id, incoming version older, content differs -> kept as a new record
+// under a fresh id only if the backup copy is newer than the local one, so a
+// stale backup never piles up duplicates.
+// A deleted record is never brought back. Mutates `localItems` in place and
+// returns counts for the summary message.
+function mergeCollectionFromImport(localItems, importedItems) {
   const byId = new Map(localItems.map((item) => [item.id, item]));
   let added = 0;
   let updated = 0;
@@ -5816,12 +5826,9 @@ function mergeCollectionFromImport(localItems, importedItems, collectionName) {
     const existingVersion = existing.version || 0;
 
     if (incomingVersion >= existingVersion) {
-      // THE FIX: a content-identical import is a true no-op. Don't
-      // overwrite the local record (which would silently replace its
-      // updatedAt/deviceId with the import file's — possibly stale —
-      // values) and don't count it as "updated" in the summary shown to
-      // the user.
-      if (contentMatchesIgnoringVersion(existing, incoming, collectionName)) {
+      // A content-identical import is a true no-op: keep the local record (and its
+      // updatedAt/deviceId) and don't count it as "updated".
+      if (contentMatchesIgnoringVersion(existing, incoming)) {
         unchanged += 1;
         return;
       }
@@ -5845,7 +5852,7 @@ function mergeCollectionFromImport(localItems, importedItems, collectionName) {
       return;
     }
 
-    if (contentMatchesIgnoringVersion(existing, incoming, collectionName)) {
+    if (contentMatchesIgnoringVersion(existing, incoming)) {
       unchanged += 1;
       return;
     }
@@ -5900,7 +5907,11 @@ function isValidImportRecord(collectionName, rec) {
   if (collectionName === 'shoppingList') return isText(rec.item) && textOrMissing(rec.category) && textOrMissing(rec.quantity);
   if (collectionName === 'notes') return textOrMissing(rec.title) && textOrMissing(rec.body);
   if (collectionName === 'links') return textOrMissing(rec.label) && textOrMissing(rec.url);
-  if (collectionName === 'medications') return isText(rec.name) && (rec.takenDates === undefined || Array.isArray(rec.takenDates));
+  if (collectionName === 'medications') {
+    const dateOrBlank = (v) => v == null || v === '' || isDate(v); // a bad date would print "undefined NaN" in the summary
+    return isText(rec.name) && (rec.takenDates === undefined || Array.isArray(rec.takenDates))
+      && dateOrBlank(rec.startDate) && dateOrBlank(rec.refillDate) && dateOrBlank(rec.endDate);
+  }
   if (collectionName === 'weights') return isNum(rec.weight) && rec.weight > 0 && rec.weight <= WEIGHT_MAX && isDate(rec.date);
   return true;
 }
@@ -5936,7 +5947,7 @@ function importData(parsed) {
     skippedInvalid += rawIncoming.length - incoming.length;
     if (incoming.length === 0) return;
     const localItems = c.get();
-    const result = mergeCollectionFromImport(localItems, incoming, c.name);
+    const result = mergeCollectionFromImport(localItems, incoming);
     if (!result.added && !result.updated && !result.duplicated) return;
 
     anyChanged = true;
@@ -6042,7 +6053,7 @@ document.addEventListener('visibilitychange', () => {
 
 // The build number shown in the Menu. Keep it equal to the number in CACHE_NAME in sw.js
 // (a test checks this), so "which version am I on?" has a one-glance answer.
-const APP_VERSION = 68;
+const APP_VERSION = 69;
 const THEME_KEY = 'secondMemory.theme.v1';
 const THEMES = ['auto', 'light', 'dark'];
 
@@ -6068,6 +6079,7 @@ function applyTheme(theme) {
   if (btn) btn.textContent = `Theme: ${theme.charAt(0).toUpperCase()}${theme.slice(1)}`;
 }
 
+// The Menu theme button cycles Auto -> Light -> Dark.
 document.getElementById('theme-btn').addEventListener('click', () => {
   applyTheme(THEMES[(THEMES.indexOf(loadTheme()) + 1) % THEMES.length]);
 });
@@ -6113,8 +6125,8 @@ function buildHealthSummaryData() {
       const how = [m.dosage, m.frequency].filter(Boolean).join(', ');
       if (how) lines.push(how);
       if (m.prescribingDoctor) lines.push(`Prescribed by ${m.prescribingDoctor}`);
-      if (m.startDate) lines.push(`Started ${formatDateKeyLong(m.startDate)}`);
-      if (m.refillDate) lines.push(`Next refill ${formatDateKeyLong(m.refillDate)}`);
+      if (isRealDateKey(m.startDate)) lines.push(`Started ${formatDateKeyLong(m.startDate)}`);
+      if (isRealDateKey(m.refillDate)) lines.push(`Next refill ${formatDateKeyLong(m.refillDate)}`);
       if (takenDatesOf(m).length > 0) lines.push(`Taken on ${medicationTakenSummary(m).last7} of the last 7 days`);
       if (m.notes) lines.push(m.notes);
       return { head: m.name, lines };
@@ -6279,13 +6291,19 @@ let lockChecking = false; // true while a PIN is being checked, so a double tap 
 function saveLockTries() {
   try { localStorage.setItem(LOCK_TRIES_KEY, JSON.stringify({ fails: lockFailures, until: lockBlockedUntil })); } catch { /* storage full: the in-memory count still applies */ }
 }
-try {
-  const savedTries = JSON.parse(localStorage.getItem(LOCK_TRIES_KEY) || 'null');
-  if (savedTries && Number.isFinite(savedTries.fails) && Number.isFinite(savedTries.until)) {
-    lockFailures = Math.max(0, Math.min(LOCK_MAX_TRIES, savedTries.fails));
-    lockBlockedUntil = savedTries.until;
-  }
-} catch { /* damaged: start from zero */ }
+
+// Reads the saved wrong-try count and pause end time at startup. A pause can never run longer than
+// one cooldown from now, so a wrong clock or damaged value cannot lock you out for hours.
+function restoreLockTries() {
+  try {
+    const savedTries = JSON.parse(localStorage.getItem(LOCK_TRIES_KEY) || 'null');
+    if (savedTries && Number.isFinite(savedTries.fails) && Number.isFinite(savedTries.until)) {
+      lockFailures = Math.max(0, Math.min(LOCK_MAX_TRIES, savedTries.fails));
+      lockBlockedUntil = Math.min(savedTries.until, Date.now() + LOCK_COOLDOWN_MS);
+    }
+  } catch { /* damaged: start from zero */ }
+}
+restoreLockTries();
 
 // The saved { salt, hash } (hex strings), or null when no lock is set or the saved value is damaged.
 function loadLock() {
@@ -6301,6 +6319,7 @@ function lockSupported() {
   return !!(window.crypto && crypto.subtle && window.TextEncoder);
 }
 
+// Bytes to a hex string, and back (the salt and hash are stored as hex text).
 const toHex = (bytes) => [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, '0')).join('');
 const fromHex = (hex) => Uint8Array.from(hex.match(/../g).map((h) => parseInt(h, 16)));
 
@@ -6371,6 +6390,7 @@ function wipeDeviceData() {
   return keys.length;
 }
 
+// The lock screen's PIN form: checks the PIN, counts wrong tries and pauses after too many.
 document.getElementById('lock-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const errorEl = document.getElementById('lock-error');
@@ -6409,6 +6429,7 @@ document.getElementById('lock-form').addEventListener('submit', async (e) => {
   }
 });
 
+// "Forgot PIN": after a confirmation, erases this device's data and reloads (the only way back in).
 document.getElementById('lock-forgot-btn').addEventListener('click', () => {
   const ok = window.confirm('Forgot your PIN?\n\nThe only way in is to erase everything stored on THIS device. Your synced lists come back when you sync again, but changes you have not synced yet, your sync passphrase and your journal (unless you saved a backup file) exist only on this device and will be lost.\n\nErase this device and start over?');
   if (!ok) return;
@@ -6434,6 +6455,7 @@ function openLockSetup(mode) {
   document.getElementById(turningOff ? 'lock-setup-current' : 'lock-setup-new').focus();
 }
 
+// Hides the lock dialog and returns focus to the Menu button.
 function closeLockSetup() {
   document.getElementById('lock-setup').hidden = true;
   document.getElementById('lock-btn').focus();
@@ -6450,6 +6472,7 @@ document.getElementById('lock-now-btn').addEventListener('click', lockNow);
 document.getElementById('lock-setup-cancel').addEventListener('click', closeLockSetup);
 document.getElementById('lock-setup').addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLockSetup(); });
 
+// The turn-on / turn-off dialog's form: turning off needs the current PIN; turning on needs a valid PIN typed twice.
 document.getElementById('lock-setup-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const errorEl = document.getElementById('lock-setup-error');

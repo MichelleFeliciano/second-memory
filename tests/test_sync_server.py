@@ -372,6 +372,16 @@ class Http(unittest.TestCase):
         self.assertEqual(self.call({"date": "2020-01-01"}, path="/api/backup")[0], 404)
         self.assertEqual(self.call({"date": "../sync_data"}, path="/api/backup")[0], 400)
         self.assertEqual(self.call({"date": "2026-01-01/../../x"}, path="/api/backup")[0], 400)
+        self.assertEqual(self.call({"date": "٢٠٢٦-٠١-٠١"}, path="/api/backup")[0], 400)  # non-ASCII digits
+
+    def test_nan_and_infinity_are_refused_so_replies_stay_valid_json(self):
+        """Python's json accepts NaN; stored, it would make every later reply unparseable in a browser."""
+        for bad in (b'{"clientVersion": 2, "collections": {"notes": [{"id": "n1", "x": NaN}]}}',
+                    b'{"clientVersion": 2, "collections": {"notes": [{"id": "n2", "x": Infinity}]}}'):
+            self.assertEqual(self.call(None, raw=bad)[0], 400)
+        _, body, _ = self.call({"clientVersion": 2, "collections": {}})
+        self.assertNotIn("n1", json.dumps(body))
+        self.assertNotIn("n2", json.dumps(body))
 
 
 if __name__ == "__main__":

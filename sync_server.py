@@ -56,6 +56,8 @@ BACKUP_DIR = DATA_DIR / "backups"
 BACKUP_KEEP = 30
 BACKUP_NAME_RE = re.compile(r"^sync_data-(\d{4}-\d{2}-\d{2})\.json$")
 
+# Every list the server stores. Second Memory itself syncs only 9 of them; "bills", "income" and
+# "recurringIncome" belong to the separate Budget app, which uses this same server. Do not remove them.
 COLLECTION_NAMES = [
     "books", "recipes", "medications", "diagnoses", "todos",
     "shoppingList", "notes", "links", "bills", "income",
@@ -202,6 +204,12 @@ def _content_matches(a, b, collection_name):
     return all(a.get(k) == b.get(k) for k in keys)
 
 
+def _reject_constant(name):
+    """json.loads hook: Python accepts NaN/Infinity, but they are not valid JSON, so storing one
+    would make every later reply unparseable in the browser for all devices."""
+    raise ValueError(f"{name} is not valid JSON")
+
+
 def _usable_id(value):
     """Record ids are strings (UUIDs / date keys). Anything unhashable or odd is skipped
     rather than crashing the whole sync request."""
@@ -211,6 +219,15 @@ def _usable_id(value):
 def _safe_version(value):
     """Versions are whole numbers; treat anything else (null, text, floats) as 0."""
     return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def _replace_record(server_items, by_id, record_id, replacement):
+    """Swaps the stored record with this id for `replacement`, keeping its position in the list."""
+    by_id[record_id] = replacement
+    for i, item in enumerate(server_items):
+        if item.get("id") == record_id:
+            server_items[i] = replacement
+            return
 
 
 def merge_collection(server_items, client_items, collection_name):
@@ -265,11 +282,7 @@ def merge_collection(server_items, client_items, collection_name):
                     and str(incoming.get("updatedAt", "")) > str(existing.get("updatedAt", ""))):
                 replacement = dict(incoming)
                 replacement["version"] = server_version + 1
-                by_id[record_id] = replacement
-                for i, item in enumerate(server_items):
-                    if item.get("id") == record_id:
-                        server_items[i] = replacement
-                        break
+                _replace_record(server_items, by_id, record_id, replacement)
                 continue
             if existing.get("deleted"):
                 continue
@@ -283,11 +296,7 @@ def merge_collection(server_items, client_items, collection_name):
                 tombstone["updatedAt"] = incoming.get("updatedAt", existing.get("updatedAt"))
                 tombstone["deviceId"] = incoming.get("deviceId", existing.get("deviceId"))
                 tombstone["version"] = server_version + 1
-                by_id[record_id] = tombstone
-                for i, item in enumerate(server_items):
-                    if item.get("id") == record_id:
-                        server_items[i] = tombstone
-                        break
+                _replace_record(server_items, by_id, record_id, tombstone)
                 continue
 
             # Income is one entry per date (its id IS the date), so a conflict must never
@@ -297,11 +306,7 @@ def merge_collection(server_items, client_items, collection_name):
                 if str(incoming.get("updatedAt", "")) > str(existing.get("updatedAt", "")):
                     replacement = dict(incoming)
                     replacement["version"] = server_version + 1
-                    by_id[record_id] = replacement
-                    for i, item in enumerate(server_items):
-                        if item.get("id") == record_id:
-                            server_items[i] = replacement
-                            break
+                    _replace_record(server_items, by_id, record_id, replacement)
                 continue
 
             # The same device editing its own record again (typically after a reply to its earlier
@@ -313,11 +318,7 @@ def merge_collection(server_items, client_items, collection_name):
             if same_device and str(incoming.get("updatedAt", "")) > str(existing.get("updatedAt", "")):
                 replacement = dict(incoming)
                 replacement["version"] = server_version + 1
-                by_id[record_id] = replacement
-                for i, item in enumerate(server_items):
-                    if item.get("id") == record_id:
-                        server_items[i] = replacement
-                        break
+                _replace_record(server_items, by_id, record_id, replacement)
                 continue
 
             # Genuine conflict: someone else's write already landed on this
@@ -338,25 +339,17 @@ def merge_collection(server_items, client_items, collection_name):
         # accepted the same defensive way — e.g. if the datastore file was
         # ever reset — so a client is never left permanently stuck.
         #
-        # THE FIX: check content-equality before deciding this is a real
-        # update. Every sync resends every record (runSync() has no delta
-        # logic), so this branch fires for every unchanged record on every
-        # 60-second tick from every open device — without this check, that
-        # unconditionally bumped `version` and rewrote every record,
-        # inflating version numbers into the hundreds and widening the
-        # window for the conflict-fork path above to misfire (see the root
-        # cause writeup above this section). A content-identical resend is a
-        # true no-op: don't touch `existing` at all.
+        # Check content-equality before treating this as a real update. Every sync resends every
+        # record, so this branch is reached for each unchanged record: without the check each sync
+        # bumped every `version` (it once reached the hundreds), which made the conflict-fork path
+        # above misfire (docs/research/sync-version-inflation-bug.md). A content-identical resend
+        # is a true no-op: leave `existing` untouched.
         if _content_matches(existing, incoming, collection_name):
             continue
 
         new_record = dict(incoming)
         new_record["version"] = max(server_version, client_version) + 1
-        by_id[record_id] = new_record
-        for i, item in enumerate(server_items):
-            if item.get("id") == record_id:
-                server_items[i] = new_record
-                break
+        _replace_record(server_items, by_id, record_id, new_record)
 
     return conflicts
 
@@ -399,7 +392,10 @@ class SyncHandler(BaseHTTPRequestHandler):
         candidates = [got]
         if got.startswith("u:"):
             candidates.append(unquote(got[2:]))
-        return any(hmac.compare_digest(c.encode("utf-8"), expected.encode("utf-8")) for c in candidates)
+        matched = False
+        for c in candidates:  # no early exit, so timing does not reveal which form matched
+            matched |= hmac.compare_digest(c.encode("utf-8"), expected.encode("utf-8"))
+        return matched
 
     def do_OPTIONS(self):
         """CORS preflight: tells the browser which origins, methods and headers are allowed."""
@@ -433,24 +429,29 @@ class SyncHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "invalid request"})
             return
         date = body.get("date") if isinstance(body, dict) else None
+        if date is None:
+            with data_lock:
+                backups = list_backups()
+            self._send_json(200, {"backups": backups})
+            return
+        # ASCII digits only (\d would also accept other scripts' digits); this also rules out any path tricks.
+        if not isinstance(date, str) or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", date):
+            self._send_json(400, {"error": "date must look like 2026-10-08"})
+            return
+        path = BACKUP_DIR / f"sync_data-{date}.json"
+        # Files are read under the lock (a save may be pruning old ones), but replies are sent
+        # after releasing it so a slow client cannot hold up syncing.
         with data_lock:
-            if date is None:
-                self._send_json(200, {"backups": list_backups()})
-                return
-            if not isinstance(date, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
-                self._send_json(400, {"error": "date must look like 2026-10-08"})
-                return
-            path = BACKUP_DIR / f"sync_data-{date}.json"
             if not path.is_file():
-                self._send_json(404, {"error": "no backup for that date"})
-                return
-            try:
-                with path.open("r", encoding="utf-8") as f:
-                    data = json.load(f)
-            except (OSError, ValueError):
-                self._send_json(500, {"error": "that backup could not be read"})
-                return
-        self._send_json(200, {"date": date, "collections": data})
+                status, payload = 404, {"error": "no backup for that date"}
+            else:
+                try:
+                    with path.open("r", encoding="utf-8") as f:
+                        payload = {"date": date, "collections": json.load(f)}
+                    status = 200
+                except (OSError, ValueError):
+                    status, payload = 500, {"error": "that backup could not be read"}
+        self._send_json(status, payload)
 
     def do_POST(self):
         """Runs the POST handler; an unexpected error becomes a clean 500 reply instead of a dropped connection."""
@@ -486,7 +487,7 @@ class SyncHandler(BaseHTTPRequestHandler):
             self._send_json(413, {"error": "payload too large"})
             return
         try:
-            body = json.loads(self.rfile.read(length) or b"{}")
+            body = json.loads(self.rfile.read(length) or b"{}", parse_constant=_reject_constant)
         except ValueError:  # JSONDecodeError and UnicodeDecodeError
             self._send_json(400, {"error": "invalid JSON"})
             return
@@ -532,7 +533,7 @@ def main():
     token = os.environ.get("SYNC_TOKEN", "").strip()
     if not token:
         print("FATAL: SYNC_TOKEN environment variable is not set. Set it in "
-              "the Render dashboard before starting this service.")
+              "the Render dashboard before starting this service.", file=sys.stderr)
         sys.exit(1)
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)

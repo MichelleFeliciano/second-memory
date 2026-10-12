@@ -121,3 +121,25 @@ check('"See all" opens that tab, filtered', !$('shopping-collection').hidden && 
 nav('home'); await sleep(30); find('garlic');
 $('global-search-input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 check('Escape clears the search and brings Home back', $('global-search-input').value === '' && !$('home-collection').classList.contains('is-searching') && $('global-search-results').hidden);
+
+// ---- records with optional text fields missing (older backups / other devices) ----
+{
+  const stamp = { dateAdded: new Date().toISOString(), updatedAt: new Date().toISOString(), deviceId: 'test', deleted: false, version: 1 };
+  const sizes = [notes.length, links.length, diagnoses.length, shoppingItems.length];
+  notes.push({ ...stamp, id: 'mf-note', title: 'Title only', dateModified: stamp.updatedAt });
+  links.push({ ...stamp, id: 'mf-link', label: 'Bare link', url: 'example.com' });
+  diagnoses.push({ ...stamp, id: 'mf-dx', condition: 'Bare condition', status: 'active' });
+  shoppingItems.push({ ...stamp, id: 'mf-shop', item: 'Bare item', checked: false });
+  ['notes-search-input', 'resume-search-input', 'diagnoses-search-input', 'shopping-search-input'].forEach((id) => { $(id).value = ''; }); // earlier checks left filters set
+  let threw = false;
+  try { renderNotes(); renderLinks(); renderDiagnoses(); renderShoppingList(); } catch (e) { threw = true; }
+  check('a note with no body, and items with no notes/provider/quantity, still draw', !threw);
+  document.querySelector('[data-note-id="mf-note"] .edit-btn').click();
+  document.querySelector('[data-link-id="mf-link"] .edit-btn').click();
+  document.querySelector('[data-diagnosis-id="mf-dx"] .edit-btn').click();
+  document.querySelector('[data-shopping-id="mf-shop"] .edit-btn').click();
+  const boxes = ['#notes-list [data-note-id="mf-note"] .note-edit-body', '#resume-list [data-link-id="mf-link"] .link-edit-notes', '[data-diagnosis-id="mf-dx"] .diagnosis-edit-provider', '[data-diagnosis-id="mf-dx"] .diagnosis-edit-notes', '#shopping-list [data-shopping-id="mf-shop"] .shopping-edit-quantity'].map((sel) => document.querySelector(sel));
+  check('their edit boxes start empty, never the word "undefined"', boxes.every((el) => el && el.value === ''));
+  notes.length = sizes[0]; links.length = sizes[1]; diagnoses.length = sizes[2]; shoppingItems.length = sizes[3];
+  renderNotes(); renderLinks(); renderDiagnoses(); renderShoppingList();
+}

@@ -191,3 +191,20 @@ importData({ collections: {}, local: { journal: [entry('ok1', 'daily', dk(0), { 
 check('only valid journal entries are taken from a backup', journalEntries.length === 3 && journalEntries.some((e) => e.id === 'ok1'));
 importData({ collections: {} });
 check('an older backup without a local part still imports', true);
+
+// ---- review fixes: mistyped year, date strip accessibility ----
+journalEntries.length = 0; saveJournalEntries();
+nav('journal');
+openJournalWizard('daily');
+journalDraft.date = '0026-05-05';
+journalDraft.answers.on_mind = 'typed the year wrong';
+finishJournalEntry();
+check('a journal entry with a mistyped year is refused, not saved', journalEntries.length === 0 && !$('journal-error').hidden && $('journal-error').textContent === DATE_RANGE_MESSAGE && journalDraft !== null);
+closeJournalWizard();
+journalEntries.push(entry('ds1', 'daily', dk(-2), { on_mind: 'a' }), entry('ds2', 'dream', dk(-1), { story: 'b' }));
+saveJournalEntries();
+renderJournal();
+const chips = [...document.querySelectorAll('#journal-date-strip .journal-date-chip')];
+check('each date chip names its entry type for screen readers', chips.length === 2 && /Journal$/.test(chips[0].getAttribute('aria-label')) && /Dream$/.test(chips[1].getAttribute('aria-label')));
+check('exactly one date chip is marked as the current one', document.querySelectorAll('#journal-date-strip [aria-current="true"]').length === 1);
+journalEntries.length = 0; saveJournalEntries(); renderJournal();

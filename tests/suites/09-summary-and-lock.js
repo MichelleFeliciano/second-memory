@@ -81,3 +81,16 @@ localStorage.setItem('secondMemory.testKey.v1', 'x'); localStorage.setItem('unre
 const erased = wipeDeviceData();
 check('forgot-PIN wipes only the app data, nothing else', erased >= 1 && localStorage.getItem('secondMemory.testKey.v1') === null && localStorage.getItem('unrelated') === 'keep');
 localStorage.removeItem('unrelated');
+
+// ================= review fixes: import, summary and lock pause =================
+check('the import check refuses a medication with an impossible date', !isValidImportRecord('medications', { id: 'm', name: 'x', startDate: 'soon' }) && !isValidImportRecord('medications', { id: 'm', name: 'x', refillDate: '2024-13-40' }) && isValidImportRecord('medications', { id: 'm', name: 'x', startDate: null, refillDate: '', endDate: '2024-05-01' }));
+medications.length = 0;
+medications.push({ ...base0, id: 'hm9', name: 'Odd dates', dosage: '', frequency: '', prescribingDoctor: '', startDate: 'garbage', endDate: null, refillDate: 'nope', notes: '' });
+const oddSummary = buildHealthSummaryText(buildHealthSummaryData());
+check('the summary never prints "undefined" or "NaN" for a damaged medication date', /Odd dates/.test(oddSummary) && !/undefined|NaN/.test(oddSummary), oddSummary);
+medications.length = 0;
+localStorage.setItem('secondMemory.lockTries.v1', JSON.stringify({ fails: 2, until: Date.now() + 10 * 3600 * 1000 }));
+lockBlockedUntil = 0; lockFailures = 0;
+restoreLockTries();
+check('a saved pause can never be longer than one cooldown', lockFailures === 2 && lockBlockedUntil <= Date.now() + LOCK_COOLDOWN_MS, String(lockBlockedUntil - Date.now()));
+lockBlockedUntil = 0; lockFailures = 0; localStorage.removeItem('secondMemory.lockTries.v1');

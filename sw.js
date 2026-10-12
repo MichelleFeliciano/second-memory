@@ -8,11 +8,11 @@
 // Old caches are deleted on activate, so only the current version is kept.
 //
 // IMPORTANT: bump this string on every deploy that touches any app-shell file
-// (index.html, style.css, app.js, manifest.json, icons/apple-touch-icon.png).
+// (index.html, style.css, app.js, manifest.json, anything in icons/).
 // The browser only detects a Service Worker update when sw.js's bytes change —
 // if this string is left unchanged, sw.js is byte-identical after a deploy, the
 // browser never notices, and users silently stay on old code forever.
-const CACHE_NAME = 'second-memory-v68';
+const CACHE_NAME = 'second-memory-v69';
 
 // Files pre-cached at install time: everything needed to run with no network.
 const APP_SHELL = [

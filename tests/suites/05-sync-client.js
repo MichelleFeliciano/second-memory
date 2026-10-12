@@ -148,3 +148,15 @@ await runSync(); await sleep(30);
 check('a request that times out says so', /timed out/i.test(status()), status());
 window.fetch = realFetch;
 SYNC_WAKE_NOTICE_MS = 5000;
+
+// ---- first sync survives a screen that fails to draw ----
+{
+  const cfg = SYNC_COLLECTIONS[0];
+  const realRender = cfg.render;
+  cfg.render = () => { throw new Error('broken screen'); };
+  let threw = false;
+  try { bootstrapSyncSnapshot({ collections: {} }); } catch { threw = true; }
+  cfg.render = realRender;
+  check('a draw error during the first sync does not abort it', !threw && loadSyncSnapshot() !== null);
+  localStorage.removeItem('secondMemory.syncSnapshot.v1');
+}

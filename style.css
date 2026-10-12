@@ -1,31 +1,36 @@
 /* Second Memory stylesheet.
-   Table of contents, in file order (search for the section name to jump to it):
-     1.  Theme and variables (light and dark colours)
-     2.  Base page, headings, focus ring
-     3.  Decorative background (corner branches, sidebar leaf, divider)
-     4.  Layout: app shell and sidebar (nav, undo/redo, sync panel, backup buttons)
-     5.  Content area, toolbars, search box
-     6.  Add forms and date fields
-     7.  Columns, phone breakpoint, column panels
-     8.  Cards shared by every list (hover, action buttons, empty state)
-     9.  Recipes, chips (filter buttons) and scrolling lists
-     10. Medications and Diagnoses
-     11. To-Do and Shopping List
-     12. Notes
-     13. Edit forms shared by most cards
-     14. Resume and Portfolio
-     15. Reminder banner (backup and sync reminders)
-     16. Journal: wizard, cards, timeline, search, trends
-     17. Storage warning and sync "changes not synced" note
-     18. Home: rows with a one-tap action, search everything
-     19. Therapy summary sheet and print styles
-     20. Recipe to shopping list, repeating to-dos
-     21. Weight
-     22. Phone polish (later fixes): small patches added over time for narrow screens
-   Several phone rules sit in later @media (max-width: 700px) blocks because they
-   must come after the base rules they override. */
+   Table of contents, in file order (search for the heading to jump to it):
+      1. Theme and variables (light and dark colours)
+      2. Base page, headings, focus ring
+      3. Decorative background (corner branches, sidebar leaf, divider)
+      4. Layout: app shell and sidebar (nav, undo/redo, sync, backup, theme and lock buttons)
+      5. Content area, toolbars, search box
+      6. Add forms and date fields
+      7. Columns, phone breakpoint, column panels, corner leaves
+      8. Cards, buttons, badges and chips shared by every list
+      9. Books and the reading goal
+     10. Recipes, scaling and add-to-shopping-list
+     11. Medications
+     12. Diagnoses
+     13. To-Do and Shopping List
+     14. Notes
+     15. Resume and Portfolio
+     16. Edit forms shared by most cards
+     17. Reminder banner (backup and sync reminders)
+     18. Journal: wizard, cards, timeline, search, trends, prompts
+     19. Home: rows, search everything, quick add
+     20. Weight: stats, history, chart, goal
+     21. Therapy and health summary sheets, print styles
+     22. Recipe cook mode
+     23. App lock
+     24. Storage warning
+     25. Phone polish and final overrides
+   Notes for editing:
+   - Every dark-mode block appears twice, once for the device setting (@media prefers-color-scheme)
+     and once for the Menu's hand-picked Dark theme (data-theme="dark"). Change both together.
+   - Rules in section 25 come last on purpose: they override equal-strength rules above them. */
 
-/* ===== Theme and variables ===== */
+/* ===== 1. Theme and variables (light and dark colours) ===== */
 /* Light palette by default; the dark block below swaps the same names. Use these
    variables everywhere instead of raw colours so both themes stay in step. */
 :root {
@@ -81,7 +86,11 @@
   --border-soft: #33452F;
 }
 
-/* ===== Base page, headings, focus ring ===== */
+/* The hand-picked themes also tell the browser which colour scheme to use for scroll bars and form controls. */
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+
+/* ===== 2. Base page, headings, focus ring ===== */
 * { box-sizing: border-box; }
 
 body {
@@ -98,12 +107,12 @@ h1, h2, h3 {
 }
 
 /* Keyboard focus ring for every interactive element. */
-:is(button, input, select, textarea, a):focus-visible {
+:is(button, input, select, textarea, a, summary):focus-visible {
   outline: 2px solid var(--accent-lavender);
   outline-offset: 2px;
 }
 
-/* ===== Decorative background ===== */
+/* ===== 3. Decorative background (corner branches, sidebar leaf, divider) ===== */
 /* Decorative corner-branch frame, purely aesthetic (aria-hidden by
    construction — a pseudo-element is never exposed to assistive tech).
    Fixed + negative z-index + pointer-events:none keeps it behind all real
@@ -202,7 +211,7 @@ body::before {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='40' viewBox='0 0 200 40'%3E%3Cpath d='M10 20 C60 20 60 20 100 20 C140 20 140 20 190 20' stroke='%237BC174' stroke-width='1.5' fill='none' opacity='0.35'/%3E%3Cpath d='M60 20 C55 10 45 8 38 12 C45 18 55 20 60 20 Z' fill='%237BC174' opacity='0.3'/%3E%3Cpath d='M100 20 C100 8 92 2 84 4 C88 14 96 20 100 20 Z' fill='%237BC174' opacity='0.32'/%3E%3Cpath d='M140 20 C145 10 155 8 162 12 C155 18 145 20 140 20 Z' fill='%237BC174' opacity='0.3'/%3E%3Ccircle cx='100' cy='20' r='3' fill='%23E8A9BE' opacity='0.35'/%3E%3C/svg%3E");
 }
 
-/* ===== Layout: app shell and sidebar ===== */
+/* ===== 4. Layout: app shell and sidebar (nav, undo/redo, sync, backup, theme and lock buttons) ===== */
 .app-shell {
   display: flex;
   min-height: 100vh;
@@ -236,7 +245,6 @@ body::before {
 }
 
 /* Hamburger icon drawn from one bar plus a ::before and ::after bar. */
-
 .sidebar-toggle-icon {
   position: relative;
   width: 20px;
@@ -332,7 +340,8 @@ body::before {
   gap: 8px;
 }
 
-.undo-redo-panel button {
+.undo-redo-panel button,
+.data-io-btn {
   flex: 1;
   padding: 6px 10px;
   border: 1px solid var(--border);
@@ -370,8 +379,7 @@ body::before {
   gap: 8px;
 }
 
-/* Same [hidden]-vs-unconditional-display landmine guarded elsewhere in this
-   file (see .rating-label, .note-view). */
+/* An explicit display would otherwise beat the hidden attribute (same guard as .collection[hidden]). */
 .sync-status[hidden] {
   display: none;
 }
@@ -393,11 +401,6 @@ body::before {
   color: var(--muted);
   cursor: pointer;
   font-size: 0.72rem;
-}
-
-.sync-change-btn:hover {
-  color: var(--accent);
-  border-color: var(--accent);
 }
 
 /* Passphrase form shown until sync is connected. */
@@ -445,23 +448,33 @@ body::before {
   gap: 8px;
 }
 
-.data-io-btn {
-  flex: 1;
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
+/* "N changes not synced" note under the sync status, and the Sync now button
+   highlighting itself when there is something to send. */
+.sync-pending {
+  margin: 6px 0 0;
   font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--accent-rose);
 }
 
-.data-io-btn:hover {
-  color: var(--accent);
+.sync-pending[hidden] { display: none; }
+
+#sync-now-btn.sync-needed {
+  background: var(--accent);
   border-color: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
 }
 
-/* ===== Content area, toolbars, search box ===== */
+/* Menu footer: the version label under the Theme and App lock buttons. */
+.app-version {
+  margin: 4px 0 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* ===== 5. Content area, toolbars, search box ===== */
 /* min-width: 0 lets the content column shrink instead of being pushed wider by long text. */
 .content {
   flex: 1;
@@ -505,7 +518,7 @@ body::before {
   display: none;
 }
 
-/* ===== Add forms and date fields ===== */
+/* ===== 6. Add forms and date fields ===== */
 /* Default add form lays its fields out in a wrapping row; .add-form-stacked (below) makes a single column. */
 .add-form {
   display: flex;
@@ -606,6 +619,9 @@ body::before {
   flex: none;
 }
 
+/* .date-field sets display:flex, which would otherwise beat [hidden]. */
+.date-field[hidden] { display: none; }
+
 /* "unknown" note beside a blank medication date. */
 .unknown-hint {
   color: var(--muted);
@@ -623,7 +639,7 @@ body::before {
   font-size: 0.85rem;
 }
 
-/* ===== Columns, phone breakpoint, column panels ===== */
+/* ===== 7. Columns, phone breakpoint, column panels, corner leaves ===== */
 /* Side-by-side panels (Books statuses, Diagnoses statuses, Home widgets). */
 .columns {
   display: grid;
@@ -639,7 +655,12 @@ body::before {
 @media (max-width: 700px) {
   .columns { grid-template-columns: 1fr; }
   .app-shell { flex-direction: column; }
-  .sidebar { flex: 0 0 auto; }
+  /* Stacked on top, the sidebar's divider line belongs underneath it, not down its right edge. */
+  .sidebar {
+    flex: 0 0 auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
 
   .sidebar-toggle {
     display: flex;
@@ -655,29 +676,11 @@ body::before {
     margin-top: 12px;
   }
 
-  .sidebar-toggle:hover {
-    color: var(--accent);
-    border-color: var(--accent);
-  }
-
   .sidebar:not(.sidebar-open) #undo-redo-panel,
   .sidebar:not(.sidebar-open) .nav-list,
   .sidebar:not(.sidebar-open) .sync-panel,
   .sidebar:not(.sidebar-open) .data-io {
     display: none;
-  }
-
-  /* iOS Safari zooms the viewport on focusing any form control whose
-     computed font-size is under 16px. App-wide: every
-     collection's inputs/selects are candidates. See docs/research/mobile-pwa.md Part 2.3. */
-  input[type="text"],
-  input[type="search"],
-  input[type="number"],
-  input[type="date"],
-  input[type="password"],
-  textarea,
-  select {
-    font-size: 16px;
   }
 }
 
@@ -734,7 +737,7 @@ body::before {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='36' viewBox='0 0 36 36'%3E%3Cpath d='M34 2 C20 4 8 14 4 28 C16 24 28 16 34 2 Z' fill='%237BC174' opacity='0.16'/%3E%3Cpath d='M30 6 C22 12 14 20 8 26' stroke='%237BC174' stroke-width='1' fill='none' opacity='0.18'/%3E%3C/svg%3E");
 }
 
-/* ===== Cards shared by every list ===== */
+/* ===== 8. Cards, buttons, badges and chips shared by every list ===== */
 .column:hover {
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.055);
 }
@@ -817,72 +820,10 @@ body::before {
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.055);
 }
 
-/* A Home row that is really a button: looks like plain text, opens the full tab when clicked. */
-.home-item-link {
-  background: none;
-  border: none;
-  width: 100%;
-  text-align: left;
-  padding: 0;
-  font: inherit;
-  color: inherit;
-  cursor: pointer;
-  /* name on one line, its detail (amount, due date) underneath */
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  overflow-wrap: anywhere;
-}
-
-/* ===== Books ===== */
-.book-info {
-  display: flex;
-  flex-direction: column;
-  margin-bottom: 8px;
-}
-
-.book-title { font-size: 0.95rem; }
-.book-author { color: var(--muted); font-size: 0.85rem; }
-.book-rating { color: var(--accent-rose); font-size: 0.85rem; }
-
-.book-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-}
-
-.book-actions select,
-.diagnosis-actions select {
-  /* A <select>'s closed-state width is intrinsic to its widest <option> text
-     ("Move: Currently Reading", "Move: Jon's Bookshelf") — without a cap it
-     overflows a card at Books' narrower 5-column width. flex-wrap alone
-     doesn't stop a single item from being wider than its container. */
-  max-width: 100%;
-  padding: 5px 8px;
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  background: var(--surface);
-  color: var(--text);
-  font-size: 0.8rem;
-}
-
-.rating-label {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 0.8rem;
-  color: var(--muted);
-}
-
-.rating-label[hidden] {
-  display: none;
-}
-
-/* Delete button on every card; margin-left: auto pushes it to the right end of the button row. */
+/* Edit, Cancel and Delete buttons used on every card (outlined, quiet). */
+.edit-btn,
+.cancel-btn,
 .delete-btn {
-  margin-left: auto;
   padding: 5px 12px;
   border: 1px solid var(--border);
   border-radius: 13px;
@@ -890,6 +831,22 @@ body::before {
   color: var(--muted);
   cursor: pointer;
   font-size: 0.8rem;
+}
+
+/* margin-left: auto pushes Delete to the right end of the button row. */
+.delete-btn { margin-left: auto; }
+
+/* Quiet outlined buttons all turn green on hover; Delete turns orange-red. */
+.edit-btn:hover,
+.cancel-btn:hover,
+.data-io-btn:hover,
+.sync-change-btn:hover,
+.sidebar-toggle:hover,
+.reminder-banner-btn:hover,
+.recipe-open-shopping:hover,
+.journal-secondary-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 .delete-btn:hover {
@@ -903,18 +860,6 @@ body::before {
   color: var(--muted);
   margin-top: 24px;
 }
-
-/* Recipes */
-
-.recipe-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.recipe-title { font-size: 1rem; }
 
 /* Small green pill used for categories and repeat labels. */
 .badge {
@@ -960,6 +905,143 @@ body::before {
   color: var(--accent-contrast); /* stays readable while hovered (phones keep :hover after a tap) */
 }
 
+/* Notes and button rows on cards (Recipes, Medications, Diagnoses). */
+.recipe-notes,
+.med-notes,
+.diagnosis-notes {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-style: italic;
+  margin: 0 0 8px;
+}
+
+.recipe-actions,
+.med-actions,
+.diagnosis-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* ===== 9. Books and the reading goal ===== */
+.book-info {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 8px;
+}
+
+.book-title { font-size: 0.95rem; }
+.book-author { color: var(--muted); font-size: 0.85rem; }
+.book-rating { color: var(--accent-rose); font-size: 0.85rem; }
+
+.book-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.book-actions select,
+.diagnosis-actions select {
+  /* A <select>'s closed-state width is intrinsic to its widest <option> text
+     ("Move: Currently Reading", "Move: Jon's Bookshelf") — without a cap it
+     overflows a card at Books' narrower 5-column width. flex-wrap alone
+     doesn't stop a single item from being wider than its container. */
+  max-width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.8rem;
+}
+
+.rating-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.rating-label[hidden] {
+  display: none;
+}
+
+/* Reading goal for this year (progress bar and goal form). */
+.reading-goal {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.reading-goal-text { margin: 0 0 6px; font-weight: 600; overflow-wrap: anywhere; }
+.reading-goal-undated { margin: 6px 0 0; font-size: 0.8rem; color: var(--muted); }
+
+.reading-goal-bar {
+  display: block;
+  width: 100%;
+  height: 10px;
+  border: none;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--border-soft);
+  accent-color: var(--accent);
+}
+
+.reading-goal-bar::-webkit-progress-bar { background: var(--border-soft); }
+.reading-goal-bar::-webkit-progress-value { background: var(--accent); border-radius: 999px; }
+.reading-goal-bar::-moz-progress-bar { background: var(--accent); }
+.reading-goal-bar[hidden] { display: none; }
+
+.reading-goal-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.reading-goal-form label { font-size: 0.85rem; color: var(--muted); }
+
+.reading-goal-form input {
+  width: 6em;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+}
+
+.reading-goal-form button {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.reading-goal-form button[type="submit"] { border: none; background: var(--accent); color: var(--accent-contrast); font-weight: 600; }
+
+.book-finished { font-size: 0.85rem; color: var(--muted); }
+
+/* ===== 10. Recipes, scaling and add-to-shopping-list ===== */
+
+.recipe-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere; /* a long title wraps instead of widening the page */
+}
+
+.recipe-title {
+  font-size: 1rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .recipe-section {
   margin-bottom: 8px;
 }
@@ -985,25 +1067,51 @@ body::before {
   margin-bottom: 2px;
 }
 
-.recipe-notes,
-.med-notes,
-.diagnosis-notes {
-  color: var(--muted);
-  font-size: 0.85rem;
-  font-style: italic;
-  margin: 0 0 8px;
+.recipe-scale { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 6px; }
+.recipe-scale-label { font-size: 0.8rem; color: var(--muted); }
+
+/* Recipe -> shopping list */
+.add-to-shopping-btn,
+.cook-mode-btn {
+  padding: 5px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 13px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
 }
 
-.recipe-actions,
-.med-actions,
-.diagnosis-actions {
+.add-to-shopping-btn:hover,
+.cook-mode-btn:hover { background: var(--accent); color: var(--accent-contrast); }
+.add-to-shopping-btn[hidden],
+.cook-mode-btn[hidden] { display: none; }
+
+/* Confirmation line under a recipe after adding it to the shopping list. */
+.recipe-shop-status {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 6px;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 0;
+  font-size: 0.85rem;
+  color: var(--accent);
 }
 
-/* Medications */
+.recipe-shop-status[hidden] { display: none; }
+
+.recipe-open-shopping {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+/* ===== 11. Medications ===== */
 
 .med-info {
   display: flex;
@@ -1036,7 +1144,24 @@ body::before {
 .refill-hint.overdue { color: var(--accent-2); }
 .refill-hint.soon { color: var(--accent-rose); }
 
-/* Diagnoses */
+.med-taken { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 6px 0; }
+
+.med-taken-btn {
+  padding: 6px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 13px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.med-taken-btn[aria-pressed="true"] { background: var(--accent); color: var(--accent-contrast); }
+
+.med-taken-note { font-size: 0.85rem; color: var(--muted); }
+
+/* ===== 12. Diagnoses ===== */
 
 .diagnosis-info {
   display: flex;
@@ -1052,7 +1177,7 @@ body::before {
   font-size: 0.85rem;
 }
 
-/* To-Do / Shopping List */
+/* ===== 13. To-Do and Shopping List ===== */
 
 /* Both lists are single-row cards: checkbox and name on the left, details and buttons on the right. */
 .todo-item,
@@ -1079,193 +1204,34 @@ body::before {
   color: var(--muted);
 }
 
-.todo-due,
-.shopping-quantity {
+.todo-due {
   font-size: 0.85rem;
   color: var(--muted);
   white-space: nowrap;
 }
 
-/* Past-due dates for to-dos and medication refills (.bill-due is the Home row's date label). */
+/* A long quantity ("2 gallons of ...") wraps inside its card instead of running off the edge. */
+.shopping-quantity {
+  font-size: 0.85rem;
+  color: var(--muted);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+/* Past-due dates for to-dos and medication refills (.bill-due is the Home refill row's date label;
+   the odd name is left over from the removed Budget tab and app.js still uses it). */
 .todo-due.overdue,
 .bill-due.overdue {
   color: var(--accent-2);
   font-weight: 600;
 }
 
-/* Notes */
-
-.note-view,
-.note-edit-form {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-/* Both toggled via [hidden] while also carrying an unconditional `display`
-   declaration above — the same landmine class noted in DECISIONS.md for
-   .rating-label, guarded against the same way. */
-.note-view[hidden],
-.note-edit-form[hidden] {
-  display: none;
-}
-
-.note-title {
-  font-size: 1rem;
-  overflow-wrap: break-word;
-}
-
-.note-body-preview {
-  margin: 0;
-  color: var(--muted);
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
-}
-
-.note-modified {
-  font-size: 0.75rem;
-  color: var(--muted);
-}
-
-.note-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.note-edit-form input,
-.note-edit-form textarea {
-  width: 100%;
-  padding: 9px 12px;
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  background: var(--surface);
-  color: var(--text);
-  font-family: inherit;
-}
-
-.note-edit-form textarea {
-  resize: vertical;
-}
-
-/* Edit and Cancel buttons used on every card (outlined, quiet). */
-.edit-btn,
-.cancel-btn {
-  padding: 5px 12px;
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  font-size: 0.8rem;
-}
-
-.edit-btn:hover,
-.cancel-btn:hover {
-  color: var(--accent);
-  border-color: var(--accent);
-}
-
-.note-edit-form button[type="submit"] {
-  padding: 5px 14px;
-  border: none;
-  border-radius: 13px;
-  background: var(--accent);
-  color: var(--accent-contrast);
-  cursor: pointer;
-  font-weight: 600;
-  font-size: 0.8rem;
-}
-
-.note-edit-form button[type="submit"]:hover { opacity: 0.9; }
-
-/* ===== Edit forms shared by most cards ===== */
-/* Edit-form pattern for the eight collections that gained an Edit button
-   this cycle (Books, Recipes, Medications, Diagnoses, Resume & Portfolio
-   use the same vertical-card shape as .note-view/.note-edit-form
-   above; To-Do/Shopping List use their own horizontal-row variant below). */
-
-.book-view,
-.book-edit-form,
-.recipe-view,
-.recipe-edit-form,
-.med-view,
-.med-edit-form,
-.diagnosis-view,
-.diagnosis-edit-form,
-.link-view,
-.link-edit-form {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-/* Same [hidden]-vs-unconditional-display landmine guarded elsewhere in this
-   file (see .rating-label, .note-view). */
-.book-view[hidden],
-.book-edit-form[hidden],
-.recipe-view[hidden],
-.recipe-edit-form[hidden],
-.med-view[hidden],
-.med-edit-form[hidden],
-.diagnosis-view[hidden],
-.diagnosis-edit-form[hidden],
-.link-view[hidden],
-.link-edit-form[hidden] {
-  display: none;
-}
-
-/* Text fields inside those edit forms. */
-.book-edit-form input,
-.book-edit-form textarea,
-.recipe-edit-form input,
-.recipe-edit-form textarea,
-.med-edit-form input,
-.med-edit-form textarea,
-.diagnosis-edit-form input,
-.diagnosis-edit-form textarea,
-.link-edit-form input,
-.link-edit-form textarea {
-  width: 100%;
-  padding: 9px 12px;
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  background: var(--surface);
-  color: var(--text);
-  font-family: inherit;
-}
-
-.book-edit-form textarea,
-.recipe-edit-form textarea,
-.med-edit-form textarea,
-.diagnosis-edit-form textarea,
-.link-edit-form textarea {
-  resize: vertical;
-}
-
-/* Green Save button in those edit forms, and its hover state just below. */
-.book-edit-form button[type="submit"],
-.recipe-edit-form button[type="submit"],
-.med-edit-form button[type="submit"],
-.diagnosis-edit-form button[type="submit"],
-.link-edit-form button[type="submit"] {
-  padding: 5px 14px;
-  border: none;
-  border-radius: 13px;
-  background: var(--accent);
-  color: var(--accent-contrast);
-  cursor: pointer;
-  font-weight: 600;
-  font-size: 0.8rem;
-}
-
-.book-edit-form button[type="submit"]:hover,
-.recipe-edit-form button[type="submit"]:hover,
-.med-edit-form button[type="submit"]:hover,
-.diagnosis-edit-form button[type="submit"]:hover,
-.link-edit-form button[type="submit"]:hover {
-  opacity: 0.9;
+/* Long words (a long to-do or item name) must wrap instead of widening the page. */
+.todo-task,
+.shopping-item-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* To-Do / Shopping List keep their existing horizontal-row card shape — the
@@ -1301,22 +1267,58 @@ body::before {
   font-size: 0.85rem;
 }
 
-.todo-edit-form button[type="submit"], .shopping-edit-form button[type="submit"] {
-  padding: 5px 14px;
-  border: none;
+.todo-repeat[hidden] { display: none; }
+.todo-edit-form select {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
   border-radius: 13px;
-  background: var(--accent);
-  color: var(--accent-contrast);
-  cursor: pointer;
-  font-weight: 600;
-  font-size: 0.8rem;
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
 }
 
-.todo-edit-form button[type="submit"]:hover, .shopping-edit-form button[type="submit"]:hover {
-  opacity: 0.9;
+@media (max-width: 700px) {
+  /* The to-do / shopping row holds a task plus a due date, badge and two buttons: let it
+     wrap onto a second line instead of squeezing everything onto one. */
+  .todo-view,
+  .shopping-view {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  .todo-check,
+  .shopping-check {
+    flex: 1 1 100%;
+  }
 }
 
-/* Resume & Portfolio */
+/* ===== 14. Notes ===== */
+
+.note-title {
+  font-size: 1rem;
+  overflow-wrap: break-word;
+}
+
+.note-body-preview {
+  margin: 0;
+  color: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.note-modified {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.note-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ===== 15. Resume and Portfolio ===== */
 
 .link-info {
   display: flex;
@@ -1347,19 +1349,116 @@ body::before {
   gap: 6px;
 }
 
-.bill-due {
-  font-size: 0.85rem;
-  color: var(--muted);
+/* ===== 16. Edit forms shared by most cards ===== */
+
+/* Every card has a view block and a hidden edit form that the Edit button swaps in. Notes, Books,
+   Recipes, Medications, Diagnoses, Weight and Resume & Portfolio share one vertical layout;
+   To-Do and Shopping List use a horizontal-row variant (in section 13). */
+.note-view,
+.note-edit-form,
+.book-view,
+.book-edit-form,
+.recipe-view,
+.recipe-edit-form,
+.med-view,
+.med-edit-form,
+.diagnosis-view,
+.diagnosis-edit-form,
+.link-view,
+.link-edit-form,
+.weight-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
-/* Small sub-headings inside a tab (for example Weight "History"). */
-.subsection-heading {
-  margin: 20px 0 8px;
-  font-size: 1rem;
-  color: var(--muted);
+/* An explicit display would otherwise beat the hidden attribute (same guard as .collection[hidden]). */
+.note-view[hidden],
+.note-edit-form[hidden],
+.book-view[hidden],
+.book-edit-form[hidden],
+.recipe-view[hidden],
+.recipe-edit-form[hidden],
+.med-view[hidden],
+.med-edit-form[hidden],
+.diagnosis-view[hidden],
+.diagnosis-edit-form[hidden],
+.link-view[hidden],
+.link-edit-form[hidden],
+.weight-edit-form[hidden] {
+  display: none;
 }
 
-/* Reminder banner */
+/* Text fields inside those edit forms. */
+.note-edit-form input,
+.note-edit-form textarea,
+.book-edit-form input,
+.book-edit-form textarea,
+.recipe-edit-form input,
+.recipe-edit-form textarea,
+.med-edit-form input,
+.med-edit-form textarea,
+.diagnosis-edit-form input,
+.diagnosis-edit-form textarea,
+.link-edit-form input,
+.link-edit-form textarea,
+.weight-edit-form input {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+}
+
+.note-edit-form textarea,
+.book-edit-form textarea,
+.recipe-edit-form textarea,
+.med-edit-form textarea,
+.diagnosis-edit-form textarea,
+.link-edit-form textarea {
+  resize: vertical;
+}
+
+/* Green Save button in every edit form (including To-Do and Shopping List), and its hover state. */
+.note-edit-form button[type="submit"],
+.book-edit-form button[type="submit"],
+.recipe-edit-form button[type="submit"],
+.med-edit-form button[type="submit"],
+.diagnosis-edit-form button[type="submit"],
+.link-edit-form button[type="submit"],
+.weight-edit-form button[type="submit"],
+.todo-edit-form button[type="submit"],
+.shopping-edit-form button[type="submit"] {
+  padding: 5px 14px;
+  border: none;
+  border-radius: 13px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.8rem;
+}
+
+.note-edit-form button[type="submit"]:hover,
+.book-edit-form button[type="submit"]:hover,
+.recipe-edit-form button[type="submit"]:hover,
+.med-edit-form button[type="submit"]:hover,
+.diagnosis-edit-form button[type="submit"]:hover,
+.link-edit-form button[type="submit"]:hover,
+.weight-edit-form button[type="submit"]:hover,
+.todo-edit-form button[type="submit"]:hover,
+.shopping-edit-form button[type="submit"]:hover {
+  opacity: 0.9;
+}
+
+/* A date box inside a column-flex edit form: the 160px flex basis of .date-field would become a
+   height there, leaving a tall empty gap, so it is switched off (the add forms already do this). */
+.book-edit-form .date-field,
+.diagnosis-edit-form .date-field { flex: none; }
+
+/* ===== 17. Reminder banner (backup and sync reminders) ===== */
 
 .reminder-banner {
   display: flex;
@@ -1391,15 +1490,25 @@ body::before {
   font-size: 0.8rem;
 }
 
-.reminder-banner-btn:hover { color: var(--accent); border-color: var(--accent); }
+@media (max-width: 700px) {
+  /* The message gets the full width and its buttons sit underneath, instead of the text being
+     squeezed into a thin column beside them. */
+  .reminder-banner {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
 
-/* Journal */
+  .reminder-banner-text {
+    flex: 1 1 100%;
+  }
+}
+
+/* ===== 18. Journal: wizard, cards, timeline, search, trends, prompts ===== */
 
 /* Privacy note under the Journal heading. */
 .journal-privacy { margin-bottom: 14px; }
 
 /* The start buttons are hidden while the wizard (the step-by-step form for a new entry) is open. */
-
 .journal-start[hidden] { display: none; }
 
 .journal-start {
@@ -1492,8 +1601,6 @@ body::before {
   font-size: 0.85rem;
 }
 
-.journal-secondary-btn:hover { color: var(--accent); border-color: var(--accent); }
-
 /* A saved entry shown in the timeline. */
 .journal-card {
   display: flex;
@@ -1537,48 +1644,6 @@ body::before {
 }
 
 .journal-backup { margin-top: 24px; }
-
-/* iOS Safari zooms the page when a text control under 16px gets focus. Later,
-   more specific rules (edit-form inputs, Move selects) were beating the earlier
-   16px rule, so this final override wins on phones. */
-@media (max-width: 700px) {
-  input:not([type="checkbox"]):not([type="radio"]),
-  select,
-  textarea {
-    font-size: 16px !important;
-  }
-}
-
-/* Shown when the browser refuses to save (storage full or blocked). */
-.storage-warning {
-  position: fixed;
-  left: 12px;
-  right: 12px;
-  bottom: 12px;
-  z-index: 1000;
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 14px;
-  background: var(--surface);
-  color: var(--text);
-  border: 2px solid var(--accent-2);
-  border-radius: 13px;
-  font-size: 0.9rem;
-  font-style: normal;
-}
-.storage-warning button {
-  flex: none;
-  min-height: 44px;
-  padding: 0 14px;
-  font: inherit;
-  color: var(--accent-contrast);
-  background: var(--accent-2);
-  border: 0;
-  border-radius: 10px;
-  cursor: pointer;
-}
 
 /* Journal timeline: entries sit side by side, oldest on the left, newest on
    the right, and scroll sideways. */
@@ -1646,24 +1711,6 @@ body::before {
   overflow-y: auto;
 }
 
-/* "N changes not synced" note under the sync status, and the Sync now button
-   highlighting itself when there is something to send. */
-.sync-pending {
-  margin: 6px 0 0;
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--accent-rose);
-}
-
-.sync-pending[hidden] { display: none; }
-
-#sync-now-btn.sync-needed {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-contrast);
-  font-weight: 600;
-}
-
 /* Journal search and trends */
 
 .journal-search {
@@ -1726,6 +1773,142 @@ body::before {
 .trend-swatch.trend-daily { background: var(--accent); }
 .trend-swatch.trend-therapy { background: var(--accent-rose); }
 
+@media (max-width: 700px) {
+  /* The trend chart is drawn in a 640-unit box that shrinks to the screen, so its labels need to start big. */
+  .journal-chart .trend-label { font-size: 24px; }
+}
+
+.journal-extra { flex: 1 1 100%; padding: 12px 14px; border: 1px solid var(--border-soft); border-radius: 16px; background: var(--surface); }
+.journal-extra[hidden] { display: none; }
+.journal-extra-label { margin: 0 0 4px; font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.journal-prompt-text { margin: 0 0 10px; font-size: 1.05rem; overflow-wrap: anywhere; }
+.journal-lookback-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+
+.journal-lookback-list button {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 13px;
+  background: var(--bg);
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+/* ===== 19. Home: rows, search everything, quick add ===== */
+
+.home-actions { margin: 0 0 16px; }
+
+.quick-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.quick-add select,
+.quick-add input[type="text"] {
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+  min-width: 0;
+}
+
+.quick-add input[type="text"] { flex: 1 1 160px; }
+
+.quick-add button {
+  padding: 9px 18px;
+  border: none;
+  border-radius: 13px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.quick-add-status {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.quick-add-status[hidden] { display: none; }
+
+/* Search everything (Home) */
+
+.global-search { margin-bottom: 16px; }
+
+.global-search > input[type="search"] {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+}
+
+.global-search-journal {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+#global-search-results[hidden] { display: none; }
+#global-search-results { margin-top: 12px; }
+#global-search-results h3 { margin: 14px 0 6px; font-size: 0.95rem; color: var(--muted); }
+#global-search-results ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+
+/* One clickable result in the search-everything list. */
+.search-hit {
+  width: 100%;
+  text-align: left;
+  padding: 10px 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  background: var(--bg);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.search-hit:hover { border-color: var(--accent); }
+.search-hit-title { display: block; font-weight: 600; }
+.search-hit-snippet { display: block; margin-top: 2px; font-size: 0.85rem; color: var(--muted); }
+.search-hit mark { background: transparent; color: var(--accent); font-weight: 700; }
+.search-more { color: var(--accent); font-size: 0.85rem; font-weight: 600; }
+
+/* While searching, the rest of Home steps aside. */
+#home-collection.is-searching > :not(.collection-toolbar):not(.global-search) { display: none !important; }
+
+/* A Home row that is really a button: looks like plain text, opens the full tab when clicked. */
+.home-item-link {
+  background: none;
+  border: none;
+  width: 100%;
+  text-align: left;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  /* name on one line, its detail (amount, due date) underneath */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  overflow-wrap: anywhere;
+}
+
 /* Home rows with a one-tap action (Mark paid) beside the link to the full screen */
 .home-item-with-action {
   display: flex;
@@ -1752,6 +1935,138 @@ body::before {
 }
 
 .home-item-action:hover { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); }
+
+/* Home rows: put the name and its detail (amount, due date) on separate lines, like the
+   bill and to-do cards, instead of running them together in a narrow column. */
+.home-item-link .bill-due,
+.home-item-link .todo-task,
+.home-item-link .todo-due {
+  display: block;
+}
+
+.bill-due {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* ===== 20. Weight: stats, history, chart, goal ===== */
+
+/* Small sub-headings inside a tab (for example Weight "History"). */
+.subsection-heading {
+  margin: 20px 0 8px;
+  font-size: 1rem;
+  color: var(--muted);
+}
+
+/* Four headline figures (oldest, highest, lowest, most recent) above the form. */
+.weight-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.weight-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-soft);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.weight-stat-label { font-size: 0.8rem; color: var(--muted); }
+.weight-stat-value { font-size: 1.5rem; overflow-wrap: anywhere; }
+.weight-stat-date { font-size: 0.8rem; color: var(--muted); min-height: 1.1em; }
+
+.weight-view {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.weight-view[hidden] { display: none; }
+
+.weight-info { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; min-width: 0; }
+.weight-entry-value { font-size: 1.1rem; }
+.weight-entry-date, .weight-entry-note { font-size: 0.85rem; color: var(--muted); overflow-wrap: anywhere; }
+.weight-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.weight-chart-box { margin-bottom: 18px; }
+
+.weight-chart-toolbar { margin-bottom: 6px; }
+
+.weight-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.weight-chart .w-grid { stroke: var(--border-soft); stroke-width: 1; }
+.weight-chart .w-label { fill: var(--muted); font-size: 16px; }
+.weight-chart .w-line { fill: none; stroke: var(--accent); stroke-width: 2.2; }
+.weight-chart .w-dot { fill: var(--accent); stroke: var(--surface); stroke-width: 1.5; }
+.weight-chart .w-goal { stroke: var(--accent-rose); stroke-width: 1.6; stroke-dasharray: 6 4; }
+.weight-chart .w-goal-label { fill: var(--accent-rose); font-size: 16px; font-weight: 600; }
+.weight-chart .w-empty { fill: var(--muted); font-size: 18px; }
+
+.weight-trend { margin: 8px 0; font-size: 0.9rem; color: var(--muted); min-height: 1.2em; }
+
+.weight-goal-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.weight-goal-form label { font-size: 0.85rem; color: var(--muted); }
+
+.weight-goal-form input {
+  width: 8em;
+  max-width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+}
+
+.weight-goal-form button {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.weight-goal-form button[type="submit"] {
+  border: none;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
+}
+
+@media (max-width: 700px) {
+  /* Two figures per row instead of one tall column */
+  .weight-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .weight-stat { padding: 12px; }
+  .weight-stat-value { font-size: 1.25rem; }
+
+  /* The chart is drawn in a 600-unit box that shrinks to the screen, so its labels need to start big. */
+  .weight-chart .w-label,
+  .weight-chart .w-goal-label { font-size: 26px; }
+}
+
+/* ===== 21. Therapy and health summary sheets, print styles ===== */
 
 /* Therapy summary: a full-screen sheet to read, copy, or print before a session */
 
@@ -1845,403 +2160,34 @@ body::before {
   .summary-no-print { display: none !important; }
 }
 
-/* Recipe -> shopping list */
-.add-to-shopping-btn,
-.cook-mode-btn {
-  padding: 5px 12px;
-  border: 1px solid var(--accent);
-  border-radius: 13px;
-  background: transparent;
-  color: var(--accent);
-  font-size: 0.8rem;
-  font-weight: 600;
-  cursor: pointer;
-}
+/* ===== 22. Recipe cook mode ===== */
 
-.add-to-shopping-btn:hover,
-.cook-mode-btn:hover { background: var(--accent); color: var(--accent-contrast); }
-.add-to-shopping-btn[hidden],
-.cook-mode-btn[hidden] { display: none; }
-
-/* Confirmation line under a recipe after adding it to the shopping list. */
-.recipe-shop-status {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin: 8px 0 0;
-  font-size: 0.85rem;
-  color: var(--accent);
-}
-
-.recipe-shop-status[hidden] { display: none; }
-
-.recipe-open-shopping {
-  padding: 3px 10px;
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 0.8rem;
-  cursor: pointer;
-}
-
-.recipe-open-shopping:hover { color: var(--accent); border-color: var(--accent); }
-
-/* Repeating to-dos */
-.todo-repeat[hidden] { display: none; }
-.todo-edit-form select {
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  background: var(--surface);
-  color: var(--text);
-  font-family: inherit;
-}
-
-/* Search everything (Home) */
-
-.global-search { margin-bottom: 16px; }
-
-.global-search > input[type="search"] {
-  width: 100%;
-  padding: 10px 14px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--surface);
-  color: var(--text);
-  font-family: inherit;
-}
-
-.global-search-journal {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 6px;
-  font-size: 0.8rem;
-  color: var(--muted);
-}
-
-#global-search-results[hidden] { display: none; }
-#global-search-results { margin-top: 12px; }
-#global-search-results h3 { margin: 14px 0 6px; font-size: 0.95rem; color: var(--muted); }
-#global-search-results ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-
-/* One clickable result in the search-everything list. */
-.search-hit {
-  width: 100%;
-  text-align: left;
-  padding: 10px 14px;
-  border: 1px solid var(--border-soft);
-  border-radius: 14px;
+.cook-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  overflow-y: auto;
+  padding: 16px;
   background: var(--bg);
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-  overflow-wrap: anywhere;
-}
-
-.search-hit:hover { border-color: var(--accent); }
-.search-hit-title { display: block; font-weight: 600; }
-.search-hit-snippet { display: block; margin-top: 2px; font-size: 0.85rem; color: var(--muted); }
-.search-hit mark { background: transparent; color: var(--accent); font-weight: 700; }
-.search-more { color: var(--accent); font-size: 0.85rem; font-weight: 600; }
-
-/* While searching, the rest of Home steps aside. */
-#home-collection.is-searching > :not(.collection-toolbar):not(.global-search) { display: none !important; }
-
-/* Weight */
-
-/* Four headline figures (oldest, highest, lowest, most recent) above the form. */
-.weight-stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 12px;
-  margin-bottom: 18px;
-}
-
-.weight-stat {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 14px 16px;
-  border: 1px solid var(--border-soft);
-  border-radius: 16px;
-  background: var(--surface);
-}
-
-.weight-stat-label { font-size: 0.8rem; color: var(--muted); }
-.weight-stat-value { font-size: 1.5rem; overflow-wrap: anywhere; }
-.weight-stat-date { font-size: 0.8rem; color: var(--muted); min-height: 1.1em; }
-
-.weight-view {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.weight-view[hidden], .weight-edit-form[hidden] { display: none; }
-
-.weight-info { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; min-width: 0; }
-.weight-entry-value { font-size: 1.1rem; }
-.weight-entry-date, .weight-entry-note { font-size: 0.85rem; color: var(--muted); overflow-wrap: anywhere; }
-.weight-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-
-.weight-edit-form { display: flex; flex-direction: column; gap: 10px; }
-
-.weight-edit-form input {
-  width: 100%;
-  padding: 9px 12px;
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  background: var(--surface);
   color: var(--text);
-  font-family: inherit;
 }
 
-.weight-edit-form button[type="submit"] {
-  padding: 5px 14px;
-  border: none;
-  border-radius: 13px;
-  background: var(--accent);
-  color: var(--accent-contrast);
-  cursor: pointer;
-  font-weight: 600;
-  font-size: 0.8rem;
-}
+.cook-overlay[hidden] { display: none; }
+.cook-sheet { max-width: 760px; margin: 0 auto; }
+.cook-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.cook-top h2 { margin: 0; overflow-wrap: anywhere; }
+.cook-ingredients { margin: 14px 0; }
+.cook-ingredients summary { cursor: pointer; font-weight: 600; }
+.cook-ingredients ul { margin: 8px 0 0; padding-left: 22px; }
+.cook-progress { margin: 18px 0 6px; color: var(--muted); font-size: 0.95rem; }
+.cook-step { margin: 0 0 20px; font-size: 1.6rem; line-height: 1.45; overflow-wrap: anywhere; }
+.cook-nav { display: flex; gap: 12px; }
+.cook-nav .summary-btn { flex: 1; padding: 16px; font-size: 1.1rem; }
+.cook-nav .summary-btn:disabled { opacity: 0.4; }
+.cook-awake { margin: 14px 0 0; font-size: 0.8rem; color: var(--muted); }
+.cook-awake[hidden] { display: none; }
 
-/* ===== Phone polish (later fixes) ===== */
-/* Everything from here to the end of the file was added over time as small fixes
-   found on real phones. Each block carries its own comment. They sit at the end on
-   purpose: they override earlier rules of equal strength, so order matters. */
-
-/* Phone polish: date fields.
-   iPhone Safari gives date inputs their own minimum width and centres the date text, so
-   they could poke out of their box. Dropping the native look and letting them shrink fixes it. */
-input[type="date"] {
-  -webkit-appearance: none;
-  appearance: none;
-  display: block;
-  min-width: 0;
-  max-width: 100%;
-  min-height: 2.6em;
-  text-align: left;
-}
-
-input[type="date"]::-webkit-date-and-time-value {
-  text-align: left;
-  min-width: 0;
-}
-
-@media (max-width: 700px) {
-  /* Weight: two figures per row instead of one tall column */
-  .weight-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-  .weight-stat { padding: 12px; }
-  .weight-stat-value { font-size: 1.25rem; }
-}
-
-/* The "Sort:" dropdowns above each list used the browser's plain look; match the search box. */
-select[id$="-sort-input"],
-#therapy-summary-count {
-  max-width: 100%;
-  padding: 9px 14px;
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  background-color: var(--surface);
-  color: var(--text);
-  font-family: inherit;
-  margin-bottom: 12px;
-}
-
-/* Long words (a long recipe title, a long to-do) must wrap instead of widening the page. */
-.recipe-title,
-.recipe-header,
-.todo-task,
-.shopping-item-name {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-@media (max-width: 700px) {
-  /* The to-do / shopping row holds a task plus a due date, badge and two buttons: let it
-     wrap onto a second line instead of squeezing everything onto one. */
-  .todo-view,
-  .shopping-view {
-    flex-wrap: wrap;
-    row-gap: 8px;
-  }
-
-  .todo-check,
-  .shopping-check {
-    flex: 1 1 100%;
-  }
-}
-
-/* Reminder banners on phones: the message gets the full width and its buttons sit underneath,
-   instead of the text being squeezed into a thin column beside them. */
-@media (max-width: 700px) {
-  .reminder-banner {
-    flex-wrap: wrap;
-    row-gap: 8px;
-  }
-
-  .reminder-banner-text {
-    flex: 1 1 100%;
-  }
-}
-
-/* Home rows: put the name and its detail (amount, due date) on separate lines, like the
-   bill and to-do cards, instead of running them together in a narrow column. */
-.home-item-link .bill-due,
-.home-item-link .todo-task,
-.home-item-link .todo-due {
-  display: block;
-}
-
-/* A long quantity ("2 gallons of ...") wraps inside its card instead of running off the edge. */
-.shopping-quantity {
-  white-space: normal;
-  overflow-wrap: anywhere;
-  min-width: 0;
-}
-
-/* ===== Menu footer: theme button, version, and (later) app lock ===== */
-:root[data-theme="light"] { color-scheme: light; }
-:root[data-theme="dark"] { color-scheme: dark; }
-
-.app-version {
-  margin: 4px 0 0;
-  font-size: 0.75rem;
-  color: var(--muted);
-  text-align: center;
-}
-
-/* ===== Home: quick add ===== */
-.quick-add {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-
-.quick-add select,
-.quick-add input[type="text"] {
-  padding: 9px 12px;
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  background: var(--surface);
-  color: var(--text);
-  font-family: inherit;
-  min-width: 0;
-}
-
-.quick-add input[type="text"] { flex: 1 1 160px; }
-
-.quick-add button {
-  padding: 9px 18px;
-  border: none;
-  border-radius: 13px;
-  background: var(--accent);
-  color: var(--accent-contrast);
-  cursor: pointer;
-  font-weight: 600;
-}
-
-.quick-add-status {
-  flex: 1 1 100%;
-  margin: 0;
-  font-size: 0.85rem;
-  color: var(--muted);
-}
-
-.quick-add-status[hidden] { display: none; }
-
-/* ===== Weight chart and medication check-off ===== */
-.weight-chart-box { margin-bottom: 18px; }
-
-.weight-chart-toolbar { margin-bottom: 6px; }
-
-.weight-chart {
-  display: block;
-  width: 100%;
-  height: auto;
-  border: 1px solid var(--border-soft);
-  border-radius: 16px;
-  background: var(--surface);
-}
-
-.weight-chart .w-grid { stroke: var(--border-soft); stroke-width: 1; }
-.weight-chart .w-label { fill: var(--muted); font-size: 16px; }
-.weight-chart .w-line { fill: none; stroke: var(--accent); stroke-width: 2.2; }
-.weight-chart .w-dot { fill: var(--accent); stroke: var(--surface); stroke-width: 1.5; }
-.weight-chart .w-goal { stroke: var(--accent-rose); stroke-width: 1.6; stroke-dasharray: 6 4; }
-.weight-chart .w-goal-label { fill: var(--accent-rose); font-size: 16px; font-weight: 600; }
-.weight-chart .w-empty { fill: var(--muted); font-size: 18px; }
-
-.weight-trend { margin: 8px 0; font-size: 0.9rem; color: var(--muted); min-height: 1.2em; }
-
-.weight-goal-form {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.weight-goal-form label { font-size: 0.85rem; color: var(--muted); }
-
-.weight-goal-form input {
-  width: 8em;
-  max-width: 100%;
-  padding: 7px 10px;
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  background: var(--surface);
-  color: var(--text);
-  font-family: inherit;
-}
-
-.weight-goal-form button {
-  padding: 6px 14px;
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  background: transparent;
-  color: var(--text);
-  cursor: pointer;
-  font-size: 0.85rem;
-}
-
-.weight-goal-form button[type="submit"] {
-  border: none;
-  background: var(--accent);
-  color: var(--accent-contrast);
-  font-weight: 600;
-}
-
-.med-taken { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 6px 0; }
-
-.med-taken-btn {
-  padding: 6px 14px;
-  border: 1px solid var(--accent);
-  border-radius: 13px;
-  background: transparent;
-  color: var(--accent);
-  cursor: pointer;
-  font-weight: 600;
-  font-size: 0.85rem;
-}
-
-.med-taken-btn[aria-pressed="true"] { background: var(--accent); color: var(--accent-contrast); }
-
-.med-taken-note { font-size: 0.85rem; color: var(--muted); }
-
-@media (max-width: 700px) {
-  input[type="number"].weight-goal-input, .weight-goal-form input { font-size: 16px; }
-}
-
-/* ===== Health summary and app lock ===== */
-.home-actions { margin: 0 0 16px; }
+/* ===== 23. App lock ===== */
 
 /* The lock screen covers everything until the PIN is right. It is shown purely by CSS (the
    data-locked attribute on <html>), so a locked app never flashes its content while loading. */
@@ -2324,121 +2270,86 @@ html[data-locked] .lock-backdrop { visibility: hidden; }
 .lock-buttons { display: flex; gap: 8px; }
 .lock-buttons button { flex: 1; }
 
-/* ===== Reading goal, autopay, recipe scaling, cook mode, journal prompts ===== */
-.date-field[hidden] { display: none; } /* .date-field sets display:flex, which would otherwise beat [hidden] */
+/* ===== 24. Storage warning ===== */
 
-
-.reading-goal {
-  margin-bottom: 16px;
+/* Shown when the browser refuses to save (storage full or blocked). */
+.storage-warning {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 1000;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
   padding: 12px 14px;
-  border: 1px solid var(--border-soft);
-  border-radius: 16px;
   background: var(--surface);
+  color: var(--text);
+  border: 2px solid var(--accent-2);
+  border-radius: 13px;
+  font-size: 0.9rem;
+  font-style: normal;
+}
+.storage-warning button {
+  flex: none;
+  min-height: 44px;
+  padding: 0 14px;
+  font: inherit;
+  color: var(--accent-contrast);
+  background: var(--accent-2);
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
 }
 
-.reading-goal-text { margin: 0 0 6px; font-weight: 600; overflow-wrap: anywhere; }
-.reading-goal-undated { margin: 6px 0 0; font-size: 0.8rem; color: var(--muted); }
+/* ===== 25. Phone polish and final overrides ===== */
 
-.reading-goal-bar {
+/* Date inputs.
+   iPhone Safari gives date inputs their own minimum width and centres the date text, so
+   they could poke out of their box. Dropping the native look and letting them shrink fixes it. */
+input[type="date"] {
+  -webkit-appearance: none;
+  appearance: none;
   display: block;
-  width: 100%;
-  height: 10px;
-  border: none;
-  border-radius: 999px;
-  overflow: hidden;
-  background: var(--border-soft);
-  accent-color: var(--accent);
+  min-width: 0;
+  max-width: 100%;
+  min-height: 2.6em;
+  text-align: left;
 }
 
-.reading-goal-bar::-webkit-progress-bar { background: var(--border-soft); }
-.reading-goal-bar::-webkit-progress-value { background: var(--accent); border-radius: 999px; }
-.reading-goal-bar::-moz-progress-bar { background: var(--accent); }
-.reading-goal-bar[hidden] { display: none; }
+input[type="date"]::-webkit-date-and-time-value {
+  text-align: left;
+  min-width: 0;
+}
 
-.reading-goal-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
-.reading-goal-form label { font-size: 0.85rem; color: var(--muted); }
-
-.reading-goal-form input {
-  width: 6em;
-  padding: 7px 10px;
+/* The "Sort:" dropdowns above each list used the browser's plain look; match the search box. */
+select[id$="-sort-input"],
+#therapy-summary-count {
+  max-width: 100%;
+  padding: 9px 14px;
   border: 1px solid var(--border);
   border-radius: 13px;
-  background: var(--bg);
+  background-color: var(--surface);
   color: var(--text);
   font-family: inherit;
+  margin-bottom: 12px;
 }
 
-.reading-goal-form button {
-  padding: 6px 14px;
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  background: transparent;
-  color: var(--text);
-  cursor: pointer;
-  font-size: 0.85rem;
-}
-
-.reading-goal-form button[type="submit"] { border: none; background: var(--accent); color: var(--accent-contrast); font-weight: 600; }
-
-.book-finished { font-size: 0.85rem; color: var(--muted); }
-
-.recipe-scale { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 6px; }
-.recipe-scale-label { font-size: 0.8rem; color: var(--muted); }
-
-.cook-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 2000;
-  overflow-y: auto;
-  padding: 16px;
-  background: var(--bg);
-  color: var(--text);
-}
-
-.cook-overlay[hidden] { display: none; }
-.cook-sheet { max-width: 760px; margin: 0 auto; }
-.cook-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.cook-top h2 { margin: 0; overflow-wrap: anywhere; }
-.cook-ingredients { margin: 14px 0; }
-.cook-ingredients summary { cursor: pointer; font-weight: 600; }
-.cook-ingredients ul { margin: 8px 0 0; padding-left: 22px; }
-.cook-progress { margin: 18px 0 6px; color: var(--muted); font-size: 0.95rem; }
-.cook-step { margin: 0 0 20px; font-size: 1.6rem; line-height: 1.45; overflow-wrap: anywhere; }
-.cook-nav { display: flex; gap: 12px; }
-.cook-nav .summary-btn { flex: 1; padding: 16px; font-size: 1.1rem; }
-.cook-nav .summary-btn:disabled { opacity: 0.4; }
-.cook-awake { margin: 14px 0 0; font-size: 0.8rem; color: var(--muted); }
-.cook-awake[hidden] { display: none; }
-
-.journal-extra { flex: 1 1 100%; padding: 12px 14px; border: 1px solid var(--border-soft); border-radius: 16px; background: var(--surface); }
-.journal-extra[hidden] { display: none; }
-.journal-extra-label { margin: 0 0 4px; font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
-.journal-prompt-text { margin: 0 0 10px; font-size: 1.05rem; overflow-wrap: anywhere; }
-.journal-lookback-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
-
-.journal-lookback-list button {
-  width: 100%;
-  padding: 8px 10px;
-  border: 1px solid var(--border-soft);
-  border-radius: 13px;
-  background: var(--bg);
-  color: var(--text);
-  text-align: left;
-  font: inherit;
-  cursor: pointer;
-  overflow-wrap: anywhere;
-}
-
-/* ===== Review fixes: layout details ===== */
-
-/* A date box inside a column-flex edit form: the 160px flex basis of .date-field would become a
-   height there, leaving a tall empty gap, so it is switched off (the add forms already do this). */
-.book-edit-form .date-field,
-.diagnosis-edit-form .date-field { flex: none; }
-
-/* The "Sort:" dropdowns' bottom margin is for stacked layouts; inside a centred toolbar row it pushed them up. */
+/* The bottom margin above is for stacked layouts; inside a centred toolbar row it pushed the dropdown up. */
 .collection-toolbar select,
 .summary-count-label select { margin-bottom: 0; }
+
+/* iOS Safari zooms the page when a text control under 16px gets focus, and every form control in
+   the app is a candidate. Many specific rules set smaller sizes, so !important is the one
+   override that reliably wins on phones (see docs/research/mobile-pwa.md Part 2.3). */
+@media (max-width: 700px) {
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
 
 @media (max-width: 700px) {
   /* Finger-sized tap targets for the small buttons. */
@@ -2446,11 +2357,4 @@ html[data-locked] .lock-backdrop { visibility: hidden; }
   .sync-change-btn,
   .recipe-open-shopping,
   .reminder-banner-btn { min-height: 36px; }
-
-  /* The weight chart is drawn in a 600-unit box that shrinks to the screen, so its labels need to start big. */
-  .weight-chart .w-label,
-  .weight-chart .w-goal-label { font-size: 26px; }
-
-  /* Same for the journal trend chart (a 640-unit box). */
-  .journal-chart .trend-label { font-size: 24px; }
 }

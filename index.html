@@ -14,6 +14,7 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" href="icons/apple-touch-icon.png">
 <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Second Memory">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -275,7 +276,7 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
       <!-- Reading goal for this year: books finished so far, a progress bar, and a goal you set. Drawn by renderReadingGoal. -->
       <div class="reading-goal" id="reading-goal">
         <p class="reading-goal-text" id="reading-goal-text"></p>
-        <progress class="reading-goal-bar" id="reading-goal-bar" max="1" value="0" hidden></progress>
+        <progress class="reading-goal-bar" id="reading-goal-bar" max="1" value="0" aria-labelledby="reading-goal-text" hidden></progress>
         <p class="reading-goal-undated" id="reading-goal-undated" hidden></p>
         <form class="reading-goal-form" id="reading-goal-form" novalidate>
           <label for="reading-goal-input" id="reading-goal-label">Books to read this year</label>
@@ -462,7 +463,7 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
 
       <div class="journal-nav" id="journal-nav" hidden>
         <button type="button" id="journal-scroll-prev" class="journal-secondary-btn" aria-label="Earlier entries">&lsaquo; Earlier</button>
-        <div class="journal-date-strip" id="journal-date-strip" aria-label="Jump to a date"></div>
+        <div class="journal-date-strip" id="journal-date-strip" role="group" aria-label="Jump to a date"></div>
         <button type="button" id="journal-scroll-next" class="journal-secondary-btn" aria-label="Later entries">Later &rsaquo;</button>
       </div>
       <ul class="card-list journal-timeline" id="journal-list" tabindex="0" aria-label="Journal entries, oldest to newest. Scroll sideways."></ul>
@@ -926,10 +927,10 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         <input type="date" class="todo-edit-due" aria-label="Edit due date">
       </label>
       <select class="todo-edit-repeat" aria-label="Edit repeat">
-          <option value="">Doesn't repeat</option>
-          <option value="daily">Repeats every day</option>
-          <option value="weekly">Repeats every week</option>
-          <option value="monthly">Repeats every month</option>
+        <option value="">Doesn't repeat</option>
+        <option value="daily">Repeats every day</option>
+        <option value="weekly">Repeats every week</option>
+        <option value="monthly">Repeats every month</option>
       </select>
       <button type="submit">Save</button>
       <button type="button" class="cancel-btn">Cancel</button>

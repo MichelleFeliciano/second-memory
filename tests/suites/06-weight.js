@@ -99,3 +99,13 @@ check('the goal travels in the full backup', (() => { saveWeightGoal(165); const
 weights.length = 0; saveCollection(WEIGHTS_KEY, weights);
 await add(dk(0), '150');
 check('one entry draws a single dot and no trend', svgCount('w-dot') === 1 && svgCount('w-line') === 0 && $('weight-trend').textContent === '');
+
+// ---- the goal reports a refused save (like the reading goal) ----
+check('a goal the browser refuses to store shows an error', (() => {
+  const realSet = localStorage.setItem;
+  localStorage.setItem = () => { throw new Error('full'); };
+  try {
+    set('weight-goal-input', '150'); $('weight-goal-form').requestSubmit();
+    return !$('weight-goal-error').hidden && /Could not save/.test($('weight-goal-error').textContent);
+  } finally { localStorage.setItem = realSet; $('weight-goal-error').hidden = true; }
+})());

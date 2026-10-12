@@ -79,6 +79,21 @@ check('Esc closes cook mode', $('cook-mode').hidden);
 recipes[0].steps = []; renderRecipes();
 check('a recipe with no steps has no cook mode button', document.querySelector('#recipes-list .cook-mode-btn').hidden);
 
+// ---- cook mode keeps keyboard focus (code review) ----
+recipes[0].steps = ['One', 'Two']; renderRecipes();
+const cookOpenBtn = document.querySelector('#recipes-list .cook-mode-btn');
+cookOpenBtn.focus(); cookOpenBtn.click(); await sleep(30);
+document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+check('Tab inside cook mode stays in the dialog', $('cook-mode').contains(document.activeElement));
+$('cook-close').focus();
+document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }));
+check('Shift+Tab on the first control wraps to the last instead of leaving the dialog', document.activeElement === $('cook-next'));
+document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+check('Tab on the last control wraps to the first', document.activeElement === $('cook-close'));
+$('cook-close').click();
+check('closing cook mode gives focus back to the button that opened it', $('cook-mode').hidden && document.activeElement === cookOpenBtn);
+check('"2% milk" is a fat content, not an amount to scale', scaleIngredientLine('2% milk', 2) === '2% milk' && scaleIngredientLine('2 cups 2% milk', 2) === '4 cups 2% milk');
+
 // ================= journal prompt and look-back =================
 const todayPrompt = journalPromptForDate(todayKey());
 check('there is a prompt for today and a different one tomorrow', typeof todayPrompt === 'string' && todayPrompt.length > 10 && journalPromptForDate(dk(1)) !== todayPrompt);
