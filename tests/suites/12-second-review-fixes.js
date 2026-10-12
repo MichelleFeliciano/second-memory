@@ -64,25 +64,6 @@ weights.push({ ...r2, id: 'wa', date: dk(-200), weight: 190, note: '' }, { ...r2
 check('no "last 30 days" change when the newest weight is months old', weightChangeLast30(weights) === null);
 weights.length = 0;
 
-// ---- budget: day income boxes ----
-income.length = 0;
-setIncomeForDate('2026-10-05', '10.999');
-check('a day amount is rounded to whole cents', income.find((r) => r.dateKey === '2026-10-05').amount === 11);
-income.length = 0;
-nav('budget'); renderBudget();
-const box = document.querySelector('.budget-day-manual-input');
-setIncomeForDate(box.dataset.dateKey, '50');
-await sleep(30);
-setIncomeForDate(box.dataset.dateKey, '9999999999');
-await sleep(30);
-check('an out-of-range amount is refused and the saved one stays', income.find((r) => r.dateKey === box.dataset.dateKey).amount === 50);
-income.length = 0;
-// pay period message
-savePaydaySettings({ payDateKey: null, frequency: 'biweekly' }); renderPayPeriod();
-check('with no payday set the pay period says to set one', /Set a recent payday/.test($('pay-period-empty-state').textContent), $('pay-period-empty-state').textContent);
-savePaydaySettings({ payDateKey: dk(-3), frequency: 'biweekly' }); renderPayPeriod();
-check('with a payday set the pay period shows bills or the usual empty message', !/Set a recent payday/.test($('pay-period-empty-state').textContent));
-
 // ---- journal ----
 check('a journal entry with an impossible date is refused on restore', !isValidJournalEntry({ id: 'q', type: 'daily', date: '2024-13-05', answers: { on_mind: 'x' } }) && !isValidJournalEntry({ id: 'q', type: 'daily', date: '2024-00-05', answers: { on_mind: 'x' } }) && isValidJournalEntry({ id: 'q', type: 'daily', date: '2024-12-05', answers: { on_mind: 'x' } }));
 journalEntries.length = 0; saveJournalEntries();
@@ -104,14 +85,6 @@ check('the stale-sync clock is reset by any sync that reached the server', (() =
   return beforeBranches > -1 && beforeBranches < src.indexOf('const conflicts');
 })());
 
-// ---- third review: missing optional fields and bad optional values ----
-bills.length = 0; income.length = 0; shoppingItems.length = 0;
-bills.push({ ...r2, id: 'bc1', name: 'Rent', amount: 900, dueDate: dk(5), frequency: 'monthly', paidDates: [] });
-nav('budget'); renderBudget();
-check('a bill with no category is not found by searching "undefined"', matchesBillSearch(bills[0], 'undefined') === false);
-document.querySelector('#budget-list .edit-btn').click();
-check('Edit opens for a bill with no category without showing "undefined"', document.querySelector('#budget-list .bill-edit-category').value === '');
-bills.length = 0;
 check('the import check refuses a book with a bad rating or author', !isValidImportRecord('books', { id: 'x', title: 'T', status: 'owned_read', rating: -1 }) && !isValidImportRecord('books', { id: 'x', title: 'T', status: 'owned_read', rating: 1e9 }) && !isValidImportRecord('books', { id: 'x', title: 'T', status: 'owned_read', author: 123 }) && isValidImportRecord('books', { id: 'x', title: 'T', status: 'owned_read', rating: 4, author: 'A' }) && isValidImportRecord('books', { id: 'x', title: 'T', status: 'owned_unread', rating: null }));
 check('backup file names use the local date', todayForFilename() === todayKey());
 check('the current tab is announced to screen readers', document.querySelectorAll('.nav-item[aria-current="page"]').length === 1);

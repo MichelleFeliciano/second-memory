@@ -1,7 +1,7 @@
 # Second Memory
 
 A personal, local-first organizer — books, recipes, medications, diagnoses, a
-weight tracker, a to-do list, a shopping list, notes, a household budget/bills tracker, resume & portfolio
+weight tracker, a to-do list, a shopping list, notes, resume & portfolio
 links, and a private journal, all in one place. (The authoritative current list of sections
 lives in the `TABS` constant in `app.js`.)
 
@@ -18,7 +18,7 @@ devices, described below.
 ## What else is in the app
 
 - **Home:** needs-attention panels, search across every list, quick add (to-do, shopping item or note), and a printable **Health summary** (medications, diagnoses, weight; never the journal).
-- **Medications:** a daily **Taken today** tick with a streak. **Weight:** chart, goal line and 30-day change. **Books:** a yearly reading goal. **Budget:** mark bills as **autopay** (they are left out of the two-day reminder banner). **Recipes:** scale amounts and **Cook mode** (big steps, screen stays on). **Journal:** a prompt of the day and "this day last year".
+- **Medications:** a daily **Taken today** tick with a streak. **Weight:** chart, goal line and 30-day change. **Books:** a yearly reading goal. (Bills, income and the pay period now live in the separate **Budget** app: export from here and import there.) **Recipes:** scale amounts and **Cook mode** (big steps, screen stays on). **Journal:** a prompt of the day and "this day last year".
 - **Menu:** Theme (Auto, Light, Dark), **App lock** (a PIN; it hides the app but does not encrypt the data, and if you forget it the only way back in is to erase that device), and the app version.
 
 ## Syncing between devices (optional)
@@ -44,12 +44,12 @@ file, in the code, or in a commit; keep it in a password manager.
 
 | What | Where it lives | How to get it back |
 |---|---|---|
-| Everything that syncs (books, recipes, medications, diagnoses, weight, to-dos, shopping, notes, links, bills, income) | Each device, plus the Render server | Open the app on the new device, enter the passphrase, tap **Sync now**. It pulls everything down. |
+| Everything that syncs (books, recipes, medications, diagnoses, weight, to-dos, shopping, notes, links) | Each device, plus the Render server | Open the app on the new device, enter the passphrase, tap **Sync now**. It pulls everything down. |
 | The journal | **Only** the device where you wrote it. It is never synced. | Open the app, go to Journal, tap **Restore journal**, choose a journal backup file. Or use **Import data** with a full backup (see below). |
-| Pay-period settings, weight goal, reading goals, app lock, theme | Only the device you set them on | The first three come back with a full backup. The app lock and theme are per device: set them again in the Menu. |
+| Weight goal, reading goals, app lock, theme | Only the device you set them on | The first two come back with a full backup. The app lock and theme are per device: set them again in the Menu. |
 
 **Keep a full backup.** In the app's Menu, tap **Export data** to download a full backup file. It
-holds everything above, including the journal and pay-period settings, so keep the file
+holds everything above, including the journal and goals, so keep the file
 somewhere private. To restore, tap **Import data** in the Menu and choose the file. Importing
 adds what is missing and updates what is older; it never deletes anything, and it skips what it
 cannot read. Something you deleted on this device stays deleted, so an old file will not bring
@@ -60,7 +60,7 @@ after 30).
 1. Open https://michellefeliciano.github.io/second-memory/ and add it to the home screen.
 2. Enter the passphrase and tap **Sync now**. Your synced lists come back.
 3. Tap **Import data** and choose your latest full backup to bring back the journal and
-   pay-period settings. Anything already identical is left alone.
+   goals. Anything already identical is left alone.
 
 **You deleted or changed something by mistake:**
 - Tap **Undo** in the app straight away if you can.
@@ -100,7 +100,7 @@ Run these after any change. They never touch your saved data or the real sync se
 
 - **The app:** from the project folder run `python -m http.server`, then open
   `http://localhost:8000/tests/tests.html`. It loads the real app in hidden frames that use
-  memory-only storage and have no network, and runs every suite (tabs, lists, budget maths,
+  memory-only storage and have no network, and runs every suite (tabs, lists,
   journal, repeating to-dos, search, and the app's side of syncing). The page title ends in
   `OK` when everything passes.
 - **The sync server:** `python -m unittest discover -s tests` (standard library only).

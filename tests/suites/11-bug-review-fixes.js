@@ -13,8 +13,8 @@ importData({ collections: { books: [{ ...rb, id: 'bk1', title: 'Newer than local
 check('a genuinely newer backup copy is still kept (as a copy, nothing is lost)', books.length === 2 && books.some((b) => b.title === 'Newer than local'));
 
 // ---- import refuses records that would break a screen ----
-check('import refuses text fields that are not text', !isValidImportRecord('bills', { id: 'x', name: 5, amount: 5, dueDate: dk(1), frequency: 'monthly' }) && !isValidImportRecord('medications', { id: 'x', name: null }) && !isValidImportRecord('diagnoses', { id: 'x', condition: 'c' }) && !isValidImportRecord('recipes', { id: 'x', title: 't', ingredients: 'not a list' }) && !isValidImportRecord('books', { id: 'x', title: 't', status: 'nonsense' }) && !isValidImportRecord('todos', { id: 'x' }));
-check('import still accepts normal records', isValidImportRecord('bills', { id: 'x', name: 'n', amount: 5, dueDate: dk(1), frequency: 'monthly' }) && isValidImportRecord('diagnoses', { id: 'x', condition: 'c', status: 'active' }) && isValidImportRecord('recipes', { id: 'x', title: 't', ingredients: ['a'], steps: [] }) && isValidImportRecord('notes', { id: 'x', title: '', body: 'b' }));
+check('import refuses text fields that are not text', !isValidImportRecord('medications', { id: 'x', name: null }) && !isValidImportRecord('diagnoses', { id: 'x', condition: 'c' }) && !isValidImportRecord('recipes', { id: 'x', title: 't', ingredients: 'not a list' }) && !isValidImportRecord('books', { id: 'x', title: 't', status: 'nonsense' }) && !isValidImportRecord('todos', { id: 'x' }));
+check('import still accepts normal records', isValidImportRecord('diagnoses', { id: 'x', condition: 'c', status: 'active' }) && isValidImportRecord('recipes', { id: 'x', title: 't', ingredients: ['a'], steps: [] }) && isValidImportRecord('notes', { id: 'x', title: '', body: 'b' }));
 
 // ---- a damaged saved list cannot stop the app loading ----
 localStorage.setItem('secondMemory.testlist.v1', JSON.stringify([null, 5, 'x', { id: 'ok' }, [1]]));
@@ -99,40 +99,6 @@ journalEntries.length = 0; saveJournalEntries(); renderJournal();
 journalEntries.push({ id: 't1', type: 'therapy', date: dk(-1), answers: { topics: 'a' } }, { id: 't2', type: 'therapy', date: dk(-1), answers: { topics: 'b' }, dateAdded: stamp });
 check('two same-day sessions, one without a saved time, sort without error', therapySessions(5).length === 2);
 journalEntries.length = 0;
-
-// ---- money ----
-bills.length = 0;
-check('an amount is rounded to whole cents', validateBillFields({ name: 'x', amount: '19.999', dueDate: dk(1), frequency: 'monthly', category: '' }).amount === 20);
-check('an amount that rounds to $0.00 is refused', !validateBillFields({ name: 'x', amount: '0.001', dueDate: dk(1), frequency: 'monthly', category: '' }).ok);
-check('an absurd amount is refused', !validateBillFields({ name: 'x', amount: '1e21', dueDate: dk(1), frequency: 'monthly', category: '' }).ok && !validateRecurringIncomeFields({ name: 'x', amount: '5000000000', dueDate: dk(1), frequency: 'biweekly', category: '' }).ok);
-// payments stay in paid history when a bill's schedule changes
-addBill({ name: 'Gym', amount: '100', dueDate: '2026-01-01', frequency: 'monthly', category: 'Health', autopay: false });
-const gym = bills[0];
-gym.paidDates = ['2026-01-01', '2026-02-01', '2026-03-01'];
-updateBill(gym.id, { name: 'Gym', amount: '100', dueDate: '2026-01-01', frequency: 'one_time', category: 'Health', autopay: false });
-const paidFeb = computePaidByCategory(bills.filter((b) => !b.deleted), 2026, 1);
-check('changing a bill to one-time does not make earlier payments vanish from paid history', paidFeb.length === 1 && paidFeb[0].total === 100, JSON.stringify(paidFeb));
-// duplicate paid dates never undercount what is owed
-bills.length = 0;
-addBill({ name: 'Water', amount: '30', dueDate: dk(-10), frequency: 'one_time', category: '', autopay: false });
-bills[0].paidDates = [dk(-10), dk(-10)];
-check('the same payment listed twice is counted once', unpaidAmountThrough(bills[0], todayKey()) === 0);
-// autopay bills are not "overdue"
-bills.length = 0;
-addBill({ name: 'Auto', amount: '10', dueDate: dk(-3), frequency: 'one_time', category: '', autopay: true });
-addBill({ name: 'Manual', amount: '10', dueDate: dk(-3), frequency: 'one_time', category: '', autopay: false });
-const homeBills = computeHomeBills(bills.filter((b) => !b.deleted));
-check('a past-due autopay bill is not listed as overdue, a manual one still is', homeBills.overdue.length === 1 && homeBills.overdue[0].bill.name === 'Manual');
-// income: a clear is never undone by an older duplicate, and clearing removes copies
-income.length = 0;
-const inc = (id, dateKey, amount, updatedAt, deleted) => ({ id, dateKey, amount, dateAdded: old, updatedAt, deviceId: 'x', deleted: !!deleted, version: 1 });
-income.push(inc('2026-10-01', '2026-10-01', 50, '2026-10-01T10:00:00.000Z', false), inc('copy-1', '2026-10-01', 70, '2026-10-03T10:00:00.000Z', true));
-check('a newer cleared record hides an older live duplicate for the date', uniqueIncomeByDate(income).filter((r) => !r.deleted).length === 0);
-income.length = 0;
-income.push(inc('2026-10-02', '2026-10-02', 20, old, false), inc('clone-2', '2026-10-02', 25, '2026-10-03T00:00:00.000Z', false));
-setIncomeForDate('2026-10-02', '');
-check('clearing a day clears every live record for it', income.filter((r) => r.dateKey === '2026-10-02' && !r.deleted).length === 0);
-income.length = 0;
 
 // ---- diagnoses with a missing status still show up ----
 diagnoses.length = 0;

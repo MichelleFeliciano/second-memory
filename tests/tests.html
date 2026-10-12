@@ -41,7 +41,6 @@ Serve the project folder first (<code>python -m http.server</code>) and open <co
 // A first line like "// @width 390" in a suite file sets the frame width (e.g. to test phone layout).
 const SUITES = [
   ['Core: tabs, lists, edit, delete, undo, import/export', 'suites/01-core.js'],
-  ['Budget: dates, totals, pay period, paid history', 'suites/02-budget.js'],
   ['Journal: entries, timeline, search, trends, summary, backup', 'suites/03-journal.js'],
   ['To-dos, recipes and search everything', 'suites/04-todos-recipes-search.js'],
   ['Sync client: manual sync, indicator, in-flight edits', 'suites/05-sync-client.js'],
@@ -49,9 +48,9 @@ const SUITES = [
   ['Menu extras: theme, version, quick add, sync reminder', 'suites/07-extras.js'],
   ['Medications: taken-today check-off and streaks', 'suites/08-medications.js'],
   ['Health summary and app lock', 'suites/09-summary-and-lock.js'],
-  ['Autopay, reading goal, recipe scaling, cook mode, journal prompt', 'suites/10-bills-books-recipes-journal.js'],
+  ['Reading goal, recipe scaling, cook mode, journal prompt', 'suites/10-bills-books-recipes-journal.js'],
   ['Bug-review regressions: import, journal, repeats, money, lock', 'suites/11-bug-review-fixes.js'],
-  ['Second review regressions: repeats, scaling, forms, budget, journal', 'suites/12-second-review-fixes.js'],
+  ['Second review regressions: repeats, scaling, forms, journal', 'suites/12-second-review-fixes.js'],
 ];
 
 // Injected into the app's <head> before its own scripts run. Swaps localStorage for an in-memory

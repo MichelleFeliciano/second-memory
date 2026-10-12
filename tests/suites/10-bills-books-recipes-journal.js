@@ -1,32 +1,7 @@
-// Autopay bills, the yearly reading goal, recipe scaling and cook mode, and the journal prompt.
+// The yearly reading goal, recipe scaling and cook mode, and the journal prompt.
 const tn = new Date().toISOString();
 const b0 = { dateAdded: tn, updatedAt: tn, deviceId: 'test', deleted: false, version: 0 };
 const year = new Date().getFullYear();
-
-// ================= autopay bills =================
-bills.length = 0;
-addBill({ name: 'Manual bill', amount: '40', dueDate: dk(1), frequency: 'monthly', category: '', autopay: false });
-addBill({ name: 'Auto bill', amount: '90', dueDate: dk(1), frequency: 'monthly', category: '', autopay: true });
-check('autopay is saved on the bill', bills.find((b) => b.name === 'Auto bill').autopay === true && bills.find((b) => b.name === 'Manual bill').autopay === false);
-nav('budget');
-const autoCard = [...document.querySelectorAll('#budget-list .bill-card')].find((c) => c.querySelector('.bill-name').textContent === 'Auto bill');
-const manualCard = [...document.querySelectorAll('#budget-list .bill-card')].find((c) => c.querySelector('.bill-name').textContent === 'Manual bill');
-check('an autopay bill shows an Autopay label and a manual one does not', !autoCard.querySelector('.bill-autopay').hidden && manualCard.querySelector('.bill-autopay').hidden);
-renderHome();
-const bannerText = () => ($('reminder-banner').hidden ? '' : $('reminder-banner-text').textContent);
-reminderBannerDismissed = false; renderHome();
-check('the top banner mentions the manual bill due tomorrow but not the autopay one', /Manual bill/.test(bannerText()) && !/Auto bill/.test(bannerText()), bannerText());
-bills.find((b) => b.name === 'Manual bill').dueDate = dk(3); saveCollection(BILLS_KEY, bills); reminderBannerDismissed = false; renderHome();
-check('the banner only looks two days ahead (a bill in 3 days is not in it)', !/Manual bill/.test(bannerText()), bannerText());
-check('Home still lists the autopay bill and marks it', [...document.querySelectorAll('#home-bills-list .home-item')].some((li) => /Auto bill/.test(li.textContent) && /autopay/.test(li.textContent)));
-// editing keeps/changes the flag
-updateBill(bills.find((b) => b.name === 'Manual bill').id, { name: 'Manual bill', amount: '40', dueDate: dk(3), frequency: 'monthly', category: '', autopay: true });
-check('editing can turn autopay on', bills.find((b) => b.name === 'Manual bill').autopay === true);
-check('import accepts a true/false autopay and refuses anything else', isValidImportRecord('bills', { id: 'x', name: 'n', amount: 5, dueDate: dk(1), frequency: 'monthly', autopay: true }) && !isValidImportRecord('bills', { id: 'x', name: 'n', amount: 5, dueDate: dk(1), frequency: 'monthly', autopay: 'yes' }));
-// the add form checkbox
-set('budget-name-input', 'Form bill'); set('budget-amount-input', '12'); set('budget-duedate-input', dk(5));
-$('budget-autopay-input').checked = true; $('budget-add-form').requestSubmit(); await sleep(30);
-check('the add form saves the autopay box and then clears it', bills.find((b) => b.name === 'Form bill').autopay === true && $('budget-autopay-input').checked === false);
 
 // ================= reading goal =================
 books.length = 0; localStorage.removeItem('secondMemory.readingGoals.v1');

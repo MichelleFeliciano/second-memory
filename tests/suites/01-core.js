@@ -10,6 +10,11 @@ check('no course/deadline collections in sync', !SYNC_COLLECTIONS.some((c) => /c
 check('no Appointments tab or section, and none in sync', !document.querySelector('[data-tab="appointments"], #appointments-collection') && !SYNC_COLLECTIONS.some((c) => c.name === 'appointments'));
 check('page text has no coursework wording', !/coursework|degree|deadline/i.test(document.body.innerText));
 
+// ---- Budget moved to its own app and must stay out of this one ----
+check('no Budget tab, section, banner or sync lists', !document.querySelector('[data-tab="budget"], #budget-collection, #reminder-banner, #home-bills-panel, #budget-card-template, #recurring-income-card-template') && !TABS.includes('budget')
+  && SYNC_COLLECTIONS.length === 9 && !SYNC_COLLECTIONS.some((c) => ['bills', 'income', 'recurringIncome'].includes(c.name)), SYNC_COLLECTIONS.map((c) => c.name).join());
+check('a Second Memory export has no bills, income or recurring income', (() => { const keys = Object.keys(buildExportPayload().collections); return keys.length === 9 && !keys.includes('bills') && !keys.includes('income') && !keys.includes('recurringIncome') && !('paydaySettings' in buildExportPayload().local); })());
+
 // ---- every tab opens exactly its own section ----
 for (const t of TABS) {
   nav(t);
@@ -28,8 +33,6 @@ const specs = [
   ['todo', () => todos, 'todo-add-form', { 'todo-task-input': 'TTodo', 'todo-due-input': dk(1) }],
   ['shopping', () => shoppingItems, 'shopping-add-form', { 'shopping-item-input': 'TShop', 'shopping-category-input': 'Dairy' }],
   ['notes', () => notes, 'notes-add-form', { 'notes-title-input': 'TNote', 'notes-body-input': 'body' }],
-  ['budget', () => bills, 'budget-add-form', { 'budget-name-input': 'TBill', 'budget-amount-input': '12.5', 'budget-duedate-input': dk(3), 'budget-frequency-input': 'monthly', 'budget-category-input': 'Util' }],
-  ['budget', () => recurringIncome, 'recurring-income-add-form', { 'recurring-income-name-input': 'TPay', 'recurring-income-amount-input': '500', 'recurring-income-startdate-input': dk(-3), 'recurring-income-frequency-input': 'biweekly' }],
   ['resume', () => links, 'resume-add-form', { 'resume-label-input': 'TLink', 'resume-url-input': 'example.com' }],
 ];
 for (const [tab, arr, form, fill] of specs) {
@@ -42,7 +45,7 @@ for (const [tab, arr, form, fill] of specs) {
 }
 
 // ---- edit: open, cancel, save closes the form and keeps the data ----
-for (const t of ['books', 'recipes', 'medications', 'weight', 'diagnoses', 'todo', 'shopping', 'notes', 'budget', 'resume']) {
+for (const t of ['books', 'recipes', 'medications', 'weight', 'diagnoses', 'todo', 'shopping', 'notes', 'resume']) {
   nav(t);
   const sec = $(t + '-collection');
   const openForm = () => [...sec.querySelectorAll('form')].find((f) => !f.hidden && /edit-form/.test(f.className));
@@ -119,17 +122,17 @@ deleteBook(victim.id);
 importData(JSON.parse(JSON.stringify(payload)));
 check('an older backup never brings back a deleted record', books.find((b) => b.id === victim.id).deleted === true);
 importData({ collections: {
-  bills: [{ id: 'bad-bill', name: 'Bad', amount: '1200', dueDate: dk(0), frequency: 'monthly' }],
-  income: [{ id: 'bad-inc', dateKey: 'not-a-date', amount: 5 }],
+  bills: [{ id: 'old-bill', name: 'Old bill', amount: 5, dueDate: dk(0), frequency: 'monthly', paidDates: [], dateAdded: 'x', updatedAt: 'x', deviceId: 'x', deleted: false, version: 1 }],
+  income: [{ id: dk(0), dateKey: dk(0), amount: 5, dateAdded: 'x', updatedAt: 'x', deviceId: 'x', deleted: false, version: 1 }],
+  recurringIncome: [{ id: 'old-ri', name: 'Pay', amount: 5, dueDate: dk(0), frequency: 'weekly', dateAdded: 'x', updatedAt: 'x', deviceId: 'x', deleted: false, version: 1 }],
   appointments: [{ id: 'old-appt', title: 'Old appointment', date: dk(2) }],
   courses: [{ id: 'old-course', title: 'Old class' }],
 } });
-check('wrongly typed records are skipped, not saved', !bills.some((b) => b.id === 'bad-bill') && !income.some((i) => i.id === 'bad-inc') && typeof appointments === 'undefined');
-check('import reports what it skipped', /skipped/.test($('data-io-status').textContent), $('data-io-status').textContent);
+check('lists that are no longer in the app are ignored and never stored', typeof appointments === 'undefined' && typeof bills === 'undefined' && typeof income === 'undefined' && typeof recurringIncome === 'undefined' && !JSON.stringify(buildExportPayload()).includes('old-bill') && !localStorage.getItem('secondMemory.bills.v1'));
 check('an old backup that still has courses imports without trouble', !('courses' in buildExportPayload().collections));
 check('import rejects impossible dates', !isRealDateKey('2026-02-30') && !isRealDateKey('2026-13-01') && isRealDateKey('2028-02-29'));
 let renderOk = true;
-try { renderBudget(); renderHome(); } catch { renderOk = false; }
+try { renderHome(); } catch { renderOk = false; }
 check('app still renders after a bad import', renderOk);
 
 // ---- one broken render never takes the page down ----

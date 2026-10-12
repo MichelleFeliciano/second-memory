@@ -14,16 +14,14 @@
      12. Notes
      13. Edit forms shared by most cards
      14. Resume and Portfolio
-     15. Budget: bill cards, calendar, day cells, phone day sheet
-     16. Reminder banner
-     17. Paid history
-     18. Journal: wizard, cards, timeline, search, trends
-     19. Storage warning and sync "changes not synced" note
-     20. Home: rows with a one-tap action, search everything
-     21. Therapy summary sheet and print styles
-     22. Recipe to shopping list, repeating to-dos
-     23. Weight
-     24. Phone polish (later fixes): small patches added over time for narrow screens
+     15. Reminder banner (backup and sync reminders)
+     16. Journal: wizard, cards, timeline, search, trends
+     17. Storage warning and sync "changes not synced" note
+     18. Home: rows with a one-tap action, search everything
+     19. Therapy summary sheet and print styles
+     20. Recipe to shopping list, repeating to-dos
+     21. Weight
+     22. Phone polish (later fixes): small patches added over time for narrow screens
    Several phone rules sit in later @media (max-width: 700px) blocks because they
    must come after the base rules they override. */
 
@@ -670,9 +668,8 @@ body::before {
   }
 
   /* iOS Safari zooms the viewport on focusing any form control whose
-     computed font-size is under 16px. App-wide, not just Budget — every
-     collection's inputs/selects are candidates, not only
-     .budget-day-manual-input. See docs/research/mobile-pwa.md Part 2.3. */
+     computed font-size is under 16px. App-wide: every
+     collection's inputs/selects are candidates. See docs/research/mobile-pwa.md Part 2.3. */
   input[type="text"],
   input[type="search"],
   input[type="number"],
@@ -797,8 +794,6 @@ body::before {
 .note-card,
 .weight-card,
 .link-card,
-.bill-card,
-.recurring-income-card,
 .home-item {
   overflow-wrap: break-word;
   border: 1px solid var(--border-soft);
@@ -818,8 +813,6 @@ body::before {
 .note-card:hover,
 .weight-card:hover,
 .link-card:hover,
-.bill-card:hover,
-.recurring-income-card:hover,
 .home-item:hover {
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.055);
 }
@@ -932,7 +925,7 @@ body::before {
   font-size: 0.75rem;
 }
 
-/* Filter chips (category / done / checked filters). Used by Recipes, To-Do, Shopping, Budget and Journal. */
+/* Filter chips (category / done / checked filters). Used by Recipes, To-Do, Shopping and Journal. */
 .chip-row {
   display: flex;
   flex-wrap: wrap;
@@ -1093,7 +1086,7 @@ body::before {
   white-space: nowrap;
 }
 
-/* Past-due dates for to-dos and bills. */
+/* Past-due dates for to-dos and medication refills (.bill-due is the Home row's date label). */
 .todo-due.overdue,
 .bill-due.overdue {
   color: var(--accent-2);
@@ -1202,11 +1195,7 @@ body::before {
 .diagnosis-view,
 .diagnosis-edit-form,
 .link-view,
-.link-edit-form,
-.bill-view,
-.bill-edit-form,
-.recurring-income-view,
-.recurring-income-edit-form {
+.link-edit-form {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -1223,11 +1212,7 @@ body::before {
 .diagnosis-view[hidden],
 .diagnosis-edit-form[hidden],
 .link-view[hidden],
-.link-edit-form[hidden],
-.bill-view[hidden],
-.bill-edit-form[hidden],
-.recurring-income-view[hidden],
-.recurring-income-edit-form[hidden] {
+.link-edit-form[hidden] {
   display: none;
 }
 
@@ -1241,11 +1226,7 @@ body::before {
 .diagnosis-edit-form input,
 .diagnosis-edit-form textarea,
 .link-edit-form input,
-.link-edit-form textarea,
-.bill-edit-form input,
-.bill-edit-form select,
-.recurring-income-edit-form input,
-.recurring-income-edit-form select {
+.link-edit-form textarea {
   width: 100%;
   padding: 9px 12px;
   border: 1px solid var(--border);
@@ -1268,9 +1249,7 @@ body::before {
 .recipe-edit-form button[type="submit"],
 .med-edit-form button[type="submit"],
 .diagnosis-edit-form button[type="submit"],
-.link-edit-form button[type="submit"],
-.bill-edit-form button[type="submit"],
-.recurring-income-edit-form button[type="submit"] {
+.link-edit-form button[type="submit"] {
   padding: 5px 14px;
   border: none;
   border-radius: 13px;
@@ -1285,9 +1264,7 @@ body::before {
 .recipe-edit-form button[type="submit"]:hover,
 .med-edit-form button[type="submit"]:hover,
 .diagnosis-edit-form button[type="submit"]:hover,
-.link-edit-form button[type="submit"]:hover,
-.bill-edit-form button[type="submit"]:hover,
-.recurring-income-edit-form button[type="submit"]:hover {
+.link-edit-form button[type="submit"]:hover {
   opacity: 0.9;
 }
 
@@ -1370,446 +1347,9 @@ body::before {
   gap: 6px;
 }
 
-/* Budget */
-
-.bill-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-bottom: 8px;
-}
-
-.bill-name { font-size: 0.95rem; }
-
-.bill-amount,
-.bill-due,
-.bill-frequency {
+.bill-due {
   font-size: 0.85rem;
   color: var(--muted);
-}
-
-.bill-actions,
-.recurring-income-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 6px;
-}
-
-.recurring-income-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-bottom: 8px;
-}
-
-.recurring-income-name { font-size: 0.95rem; }
-
-.recurring-income-amount,
-.recurring-income-start,
-.recurring-income-frequency {
-  font-size: 0.85rem;
-  color: var(--muted);
-}
-
-/* "Mark oldest unpaid as paid" button on a bill card. */
-.mark-oldest-paid-btn {
-  padding: 5px 12px;
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  font-size: 0.8rem;
-}
-
-.mark-oldest-paid-btn:hover:not(:disabled) {
-  color: var(--accent);
-  border-color: var(--accent);
-}
-
-.mark-oldest-paid-btn:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-/* ----- Budget calendar: a Mon-Sun weekday header, then one block per week with seven day cells ----- */
-.budget-calendar {
-  margin-bottom: 20px;
-}
-
-.budget-weekday-row {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 8px;
-  margin-bottom: 6px;
-  text-align: right;
-  font-size: 0.78rem;
-  color: var(--muted);
-  padding: 0 13px; /* same inset as a week row (12px padding + 1px border), so the labels sit over their day cells */
-}
-
-.budget-week {
-  border: 1px solid var(--border-soft);
-  border-radius: 18px;
-  padding: 12px;
-  margin-bottom: 12px;
-  background: var(--surface);
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.035);
-}
-
-/* Ring around the week that contains today. */
-.budget-week-current {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent) inset;
-}
-
-/* Month totals (bills, income, net) next to the month name. */
-.budget-month-total,
-.budget-month-income-total,
-.budget-month-net-total {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.85rem;
-}
-
-/* Net totals color-code their <strong> child via
-   signedAmountClass() — income totals stay plain/uncolored (see
-   docs/specs/budget-income-followups.md §10.3). Reuses the same
-   amount-positive/amount-negative class pair the income-day dot below uses —
-   one shared semantic vocabulary across the tab. */
-.amount-positive { color: var(--accent); }
-.amount-negative { color: var(--accent-rose); }
-
-/* The seven day cells of one week. */
-.budget-week-cells {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 8px;
-}
-
-/* The Budget calendar's 7-column .budget-week-cells grid is already cramped
-   at the app-wide 700px breakpoint (the fixed 220px sidebar isn't collapsed
-   until then either, so even a moderately narrow desktop window hits the
-   same problem well above 700px) — give it its own, wider breakpoint instead
-   of reusing the generic .columns rule. See docs/research/mobile-pwa.md
-   Part 2.1/2.2. Must come AFTER the base .budget-week-cells/.budget-weekday-row
-   rules above — same specificity, so source order decides the cascade tie,
-   and a media query earlier in the file than the rule it overrides loses. */
-/* On desktop the day's body wrapper adds no box of its own, and the phone-only
-   Close and open-day buttons stay hidden. The 900px media query below turns them on. */
-.budget-day-body { display: contents; }
-.budget-day-close { display: none; }
-.budget-day-open-btn { display: none; }
-
-/* One day in the calendar. */
-.budget-day-cell {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 96px;
-  padding: 6px;
-  border: 1px solid var(--border-soft);
-  border-radius: 13px;
-  background: var(--bg);
-}
-
-/* Same "ring" treatment as .budget-week-current, at cell scale rather than
-   row scale, so the two read as related-but-distinct: today's cell still
-   gets its own visible ring even when (always) inside the current week. */
-.budget-day-cell.budget-day-today {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent) inset;
-}
-
-.budget-day-header {
-  text-align: right;
-}
-
-.budget-day-date {
-  font-size: 0.8rem;
-  color: var(--muted);
-}
-
-/* The bills and income listed inside a day cell; scrolls if there are many. */
-.budget-day-occurrences {
-  max-height: 72px;
-  padding-left: 0;
-  list-style: none;
-  margin: 4px 0;
-}
-
-/* Higher specificity than the generic `.scroll-block li` rule (which would
-   otherwise win on source order alone and force these back to 0.9rem) —
-   needed so occurrences actually fit a tiny day cell. */
-.budget-day-occurrences .budget-occurrence {
-  font-size: 0.75rem;
-  margin-bottom: 2px;
-}
-
-.budget-occurrence label {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  cursor: pointer;
-}
-
-/* Recurring income rows have no checkbox (nothing to toggle), so they're a
-   plain <li> instead of a <label>-wrapped row — this mirrors the label's
-   flex layout directly on the <li> itself. */
-.budget-occurrence.income-occurrence {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-/* Coloured dot before a bill name; its colour is set by app.js. */
-.budget-occurrence-dot {
-  flex: 0 0 auto;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-.budget-occurrence-name {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Unpaid and past due is orange-red; due soon is rose. */
-.budget-occurrence.overdue .budget-occurrence-name {
-  color: var(--accent-2);
-  font-weight: 600;
-}
-
-.budget-occurrence.due-soon .budget-occurrence-name {
-  color: var(--accent-rose);
-  font-weight: 600;
-}
-
-/* Bottom of a day cell: the manual income box and income dot. */
-.budget-day-footer {
-  margin-top: auto;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 4px;
-}
-
-.budget-day-manual-input {
-  width: 100%;
-  min-width: 0;
-  padding: 4px 6px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface);
-  color: var(--text);
-  font-family: inherit;
-  font-size: 0.78rem;
-  text-align: right;
-}
-
-/* Indicates a manual `income` entry exists for this day — sign-aware, reuses
-   the amount-positive/amount-negative pair above (never --accent-2, reserved
-   for error/overdue/destructive semantics). Reflects only the manual entry's
-   sign, not the day's combined manual + recurring total — see §9/§12. */
-.budget-income-dot {
-  flex: 0 0 auto;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-.budget-income-dot.amount-positive { background: var(--accent); }
-.budget-income-dot.amount-negative { background: var(--accent-rose); }
-
-/* Weekly totals under each week's day cells. */
-.budget-week-total,
-.budget-week-income-total,
-.budget-week-net-total {
-  margin: 10px 0 0;
-  text-align: right;
-  color: var(--muted);
-  font-size: 0.85rem;
-}
-
-@media (max-width: 900px) {
-  /* Compact phone/tablet calendar: all 7 columns always fit the screen (no
-     sideways scrolling). Each day shows only its date plus one dot per bill/
-     income item; tapping a day lifts that live cell into a bottom sheet
-     (.budget-day-open) showing names, paid checkboxes and the income input. */
-  .budget-week-cells,
-  .budget-weekday-row {
-    grid-template-columns: repeat(7, minmax(0, 1fr));
-    gap: 4px;
-  }
-
-  .budget-weekday-row {
-    text-align: center;
-    padding-right: 0;
-  }
-
-  .budget-week {
-    padding: 8px;
-  }
-
-  .budget-day-cell {
-    position: relative;
-    min-height: 52px;
-    padding: 4px 2px;
-    cursor: pointer;
-  }
-
-  /* A real button laid over the whole day: reachable with Tab, opened with Enter or Space. */
-  .budget-day-open-btn {
-    display: block;
-    position: absolute;
-    inset: 0;
-    z-index: 1;
-    width: 100%;
-    height: 100%;
-    margin: 0;
-    padding: 0;
-    border: 0;
-    border-radius: inherit;
-    background: transparent;
-    font-size: 0;
-    cursor: pointer;
-  }
-
-  .budget-day-open-btn:focus-visible {
-    outline: 3px solid var(--accent);
-    outline-offset: -3px;
-  }
-
-  .budget-day-open .budget-day-open-btn { display: none; }
-
-  .budget-day-body:focus { outline: none; }
-
-  .budget-day-header { text-align: center; }
-
-  .budget-day-occurrences {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 3px;
-    max-height: none;
-    margin: 3px 0 0;
-  }
-
-  .budget-day-occurrences .budget-occurrence {
-    margin: 0;
-    font-size: 0;
-  }
-
-  .budget-occurrence-name,
-  .budget-occurrence-checkbox,
-  .budget-day-manual-input,
-  .budget-day-close {
-    display: none;
-  }
-
-  .budget-occurrence:not(:has(.budget-occurrence-dot)) label::before {
-    content: '';
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--muted);
-  }
-
-  .budget-occurrence.overdue .budget-occurrence-dot,
-  .budget-occurrence.overdue:not(:has(.budget-occurrence-dot)) label::before {
-    outline: 2px solid var(--accent-2);
-  }
-
-  .budget-occurrence.due-soon .budget-occurrence-dot,
-  .budget-occurrence.due-soon:not(:has(.budget-occurrence-dot)) label::before {
-    outline: 2px solid var(--accent-rose);
-  }
-
-  .budget-day-footer {
-    justify-content: center;
-    min-height: 8px;
-  }
-
-  .budget-day-cell.budget-day-open {
-    border-color: var(--accent);
-  }
-
-  .budget-day-open .budget-day-body {
-    display: block;
-    position: fixed;
-    left: 12px;
-    right: 12px;
-    bottom: 12px;
-    z-index: 60;
-    min-height: 0;
-    max-height: 70vh;
-    overflow-y: auto;
-    padding: 16px;
-    border-radius: 18px;
-    cursor: default;
-    border: 1px solid var(--border-soft);
-    background: var(--bg);
-    box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.5), 0 10px 30px rgba(0, 0, 0, 0.4);
-  }
-
-  .budget-day-open .budget-day-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    text-align: left;
-  }
-
-  .budget-day-open .budget-day-date {
-    font-size: 0;
-  }
-
-  .budget-day-open .budget-day-date::before {
-    content: attr(data-full);
-    font-size: 1.05rem;
-    font-weight: 600;
-    color: var(--text);
-  }
-
-  .budget-day-open .budget-day-close {
-    display: inline-block;
-    padding: 4px 12px;
-    border: 1px solid var(--border);
-    border-radius: 13px;
-    background: transparent;
-    color: var(--muted);
-    font-size: 0.85rem;
-  }
-
-  .budget-day-open .budget-day-occurrences {
-    display: block;
-    margin: 12px 0;
-  }
-
-  .budget-day-open .budget-day-occurrences .budget-occurrence {
-    font-size: 0.95rem;
-    margin-bottom: 8px;
-  }
-
-  .budget-day-open .budget-occurrence-name,
-  .budget-day-open .budget-occurrence-checkbox {
-    display: inline-block;
-  }
-
-  .budget-day-open .budget-occurrence-name {
-    display: block;
-    white-space: normal;
-  }
-
-  .budget-day-open .budget-day-manual-input {
-    display: block;
-    padding: 8px 10px;
-    font-size: 1rem;
-  }
 }
 
 /* Small sub-headings inside a tab (for example Weight "History"). */
@@ -1852,34 +1392,6 @@ body::before {
 }
 
 .reminder-banner-btn:hover { color: var(--accent); border-color: var(--accent); }
-
-/* Paid history */
-
-.paid-history-nav {
-  padding: 2px 12px;
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  font-size: 1.1rem;
-}
-
-.paid-history-nav:hover { color: var(--accent); border-color: var(--accent); }
-
-.paid-history-label { font-weight: 600; }
-
-.paid-history-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 14px;
-  border: 1px solid var(--border-soft);
-  border-radius: 14px;
-  background: var(--bg);
-}
-
-.paid-history-total { font-weight: 700; }
 
 /* Journal */
 
@@ -2066,14 +1578,6 @@ body::before {
   border: 0;
   border-radius: 10px;
   cursor: pointer;
-}
-
-/* Small note in the bill edit form about already-paid amounts. */
-.bill-edit-hint {
-  display: block;
-  color: var(--muted);
-  font-size: 0.8rem;
-  font-style: normal;
 }
 
 /* Journal timeline: entries sit side by side, oldest on the left, newest on
@@ -2590,33 +2094,10 @@ select[id$="-sort-input"],
 
 /* Home rows: put the name and its detail (amount, due date) on separate lines, like the
    bill and to-do cards, instead of running them together in a narrow column. */
-.home-item-link .bill-name,
 .home-item-link .bill-due,
 .home-item-link .todo-task,
 .home-item-link .todo-due {
   display: block;
-}
-
-/* Budget cards: a category label should be only as wide as its text, not stretched across the card. */
-.bill-info,
-.recurring-income-info {
-  align-items: flex-start;
-}
-
-.bill-info .badge,
-.recurring-income-info .badge {
-  max-width: 100%;
-  overflow-wrap: anywhere;
-  border-radius: 14px;
-}
-
-/* Space between the paid-history note and the Bills heading below it */
-#paid-history-empty + .collection-toolbar { margin-top: 28px; }
-
-.bill-info > *,
-.recurring-income-info > * {
-  max-width: 100%;
-  overflow-wrap: anywhere;
 }
 
 /* A long quantity ("2 gallons of ...") wraps inside its card instead of running off the edge. */
@@ -2846,8 +2327,6 @@ html[data-locked] .lock-backdrop { visibility: hidden; }
 /* ===== Reading goal, autopay, recipe scaling, cook mode, journal prompts ===== */
 .date-field[hidden] { display: none; } /* .date-field sets display:flex, which would otherwise beat [hidden] */
 
-.check-field { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; color: var(--muted); }
-.check-field input { width: auto; flex: none; }
 
 .reading-goal {
   margin-bottom: 16px;
@@ -2903,17 +2382,6 @@ html[data-locked] .lock-backdrop { visibility: hidden; }
 
 .book-finished { font-size: 0.85rem; color: var(--muted); }
 
-.bill-autopay {
-  align-self: flex-start;
-  padding: 1px 8px;
-  border: 1px solid var(--accent);
-  border-radius: 999px;
-  font-size: 0.75rem;
-  color: var(--accent);
-}
-
-.bill-autopay[hidden] { display: none; }
-
 .recipe-scale { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 6px; }
 .recipe-scale-label { font-size: 0.8rem; color: var(--muted); }
 
@@ -2966,26 +2434,11 @@ html[data-locked] .lock-backdrop { visibility: hidden; }
 /* A date box inside a column-flex edit form: the 160px flex basis of .date-field would become a
    height there, leaving a tall empty gap, so it is switched off (the add forms already do this). */
 .book-edit-form .date-field,
-.diagnosis-edit-form .date-field,
-.bill-edit-form .date-field,
-.recurring-income-edit-form .date-field { flex: none; }
-
-/* The bill edit form styles every input like a text box; a checkbox must stay a plain checkbox. */
-.check-field input[type="checkbox"] {
-  padding: 0;
-  border: 0;
-  background: none;
-  width: auto;
-  flex: none;
-}
+.diagnosis-edit-form .date-field { flex: none; }
 
 /* The "Sort:" dropdowns' bottom margin is for stacked layouts; inside a centred toolbar row it pushed them up. */
 .collection-toolbar select,
 .summary-count-label select { margin-bottom: 0; }
-
-@media (max-width: 900px) {
-  .budget-weekday-row { padding: 0 9px; } /* weeks have 8px padding + 1px border here */
-}
 
 @media (max-width: 700px) {
   /* Finger-sized tap targets for the small buttons. */

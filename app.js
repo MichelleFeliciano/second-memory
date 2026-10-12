@@ -5,7 +5,7 @@
 //   Shared helpers, filter/sort helpers, keyboard-focus keeping, device identity & sync
 //   metadata, undo/redo, UI state (active tab), then one section per list: Books, Recipes,
 //   Medications, Weight, Diagnoses, To-Do, Shopping List, Notes, Resume &
-//   Portfolio, Budget (bills, income, recurring income, paid history, pay period, calendar),
+//   Portfolio, shared date helpers,
 //   Journal (plus trends, therapy summary, backup reminders), Search everything, Home,
 //   Device Sync, undo/redo application, data export/import, day rollover, and Init.
 //
@@ -170,7 +170,7 @@ function renderChipFilter(container, options, getSelected, setSelected, onSelect
 // focus back on the equivalent control in the new cards.
 
 // What counts as one card/row when working out where focus was.
-const FOCUS_UNIT = 'li, .budget-day-cell, tr';
+const FOCUS_UNIT = 'li, tr';
 
 // A control's visible text with whitespace collapsed, used to recognise it after a redraw.
 function focusText(node) {
@@ -222,7 +222,7 @@ function describeFocus() {
 function restoreFocus(d) {
   if (!d) return;
   const active = document.activeElement;
-  // Something (e.g. the budget screen's own income-box logic) already put focus back.
+  // Something already put focus back.
   if (active && active !== document.body && document.contains(active)) return;
   const section = document.getElementById(d.sectionId);
   if (!section || section.hidden) return;
@@ -289,7 +289,6 @@ renderShoppingList = withFocusRestore(renderShoppingList);
 renderNotes = withFocusRestore(renderNotes);
 renderLinks = withFocusRestore(renderLinks);
 renderJournalTrends = withFocusRestore(renderJournalTrends);
-renderBudget = withFocusRestore(renderBudget);
 renderJournal = withFocusRestore(renderJournal);
 
 
@@ -392,7 +391,7 @@ function recordUndo(collectionName, id, before, after) {
 
 const UI_STORAGE_KEY = 'secondMemory.ui.v1';
 // Every screen id; each has a matching "<id>-collection" section and a sidebar button.
-const TABS = ['home', 'books', 'recipes', 'medications', 'diagnoses', 'weight', 'journal', 'todo', 'shopping', 'notes', 'budget', 'resume'];
+const TABS = ['home', 'books', 'recipes', 'medications', 'diagnoses', 'weight', 'journal', 'todo', 'shopping', 'notes', 'resume'];
 
 // Reads the saved screen state (which tab was open), tolerating missing or damaged data.
 function loadUiState() {
@@ -828,7 +827,7 @@ function renderBooks() {
   document.getElementById('books-empty-state').hidden = nonDeleted.length !== 0;
   renderReadingGoal(nonDeleted);
 
-  renderHome(); // Home aggregates books/todos/bills — keep this in sync
+  renderHome(); // Home aggregates books/todos/medications — keep this in sync
 }
 
 document.getElementById('books-add-form').addEventListener('submit', (e) => {
@@ -2772,7 +2771,7 @@ function renderTodos() {
 
   document.getElementById('todo-empty-state').hidden = todos.filter((t) => !t.deleted).length !== 0;
 
-  renderHome(); // Home aggregates books/todos/bills — keep this in sync
+  renderHome(); // Home aggregates books/todos/medications — keep this in sync
 }
 
 document.getElementById('todo-add-form').addEventListener('submit', (e) => {
@@ -3526,17 +3525,9 @@ function isRealDateKey(value) {
   return date.getFullYear() === y && date.getMonth() === m && date.getDate() === d;
 }
 
-// ---- Budget (Bills + rolling 5-week calendar) ----
-// Storage key: secondMemory.bills.v1. See docs/specs/budget-tab.md.
-
-const BILLS_KEY = 'secondMemory.bills.v1';
-// How often a bill repeats, and the label shown for each option.
-const BILL_FREQUENCIES = ['one_time', 'weekly', 'biweekly', 'monthly', 'yearly'];
-const BILL_FREQUENCY_LABELS = {
-  one_time: 'One-time', weekly: 'Weekly', biweekly: 'Biweekly', monthly: 'Monthly', yearly: 'Yearly',
-};
-
-let bills = migrateSyncFields(loadCollection(BILLS_KEY), BILLS_KEY, getDeviceId());
+// ---- Shared date helpers ----
+// These used to sit inside the Budget section (Budget is now its own app). Books, weights, the
+// journal, medications and the date checks on forms still use them.
 
 // ---- Date helpers ----
 // All date-key values are local-date-derived 'YYYY-MM-DD' strings — never
@@ -3575,15 +3566,6 @@ function daysInMonth(year, monthIndex) {
   return new Date(year, monthIndex + 1, 0).getDate();
 }
 
-// Whole days from one date key to another (positive if toKey is later), safe across clock changes.
-function utcDayDiff(fromKey, toKey) {
-  const a = parseDateKey(fromKey);
-  const b = parseDateKey(toKey);
-  // UTC-anchored per the research brief — never diff local-millisecond
-  // timestamps, that's DST-unsafe. Every UTC day is exactly 86,400,000ms.
-  return Math.round((Date.UTC(b.y, b.m, b.d) - Date.UTC(a.y, a.m, a.d)) / 86400000);
-}
-
 // Local calendar-day arithmetic (safe from the DST pitfall above because it
 // increments the day-of-month FIELD, letting Date's constructor normalize
 // month/year rollover — the same technique the calendar window math uses).
@@ -3592,345 +3574,13 @@ function shiftDateKey(key, deltaDays) {
   return dateKeyFromLocalDate(new Date(y, m, d + deltaDays));
 }
 
-// ---- Occurrence generation ----
-
-// True if a bill falls due on this date, given its first due date and how often it repeats.
-function occursOnDate(bill, dateKey) {
-  if (bill.frequency === 'one_time') return dateKey === bill.dueDate;
-
-  const anchor = parseDateKey(bill.dueDate);
-  const candidate = parseDateKey(dateKey);
-
-  if (bill.frequency === 'weekly' || bill.frequency === 'biweekly') {
-    const period = bill.frequency === 'weekly' ? 7 : 14;
-    const dayDiff = utcDayDiff(bill.dueDate, dateKey);
-    return dayDiff >= 0 && dayDiff % period === 0;
-  }
-
-  if (bill.frequency === 'monthly') {
-    const monthOffset = (candidate.y - anchor.y) * 12 + (candidate.m - anchor.m);
-    if (monthOffset < 0) return false;
-    const expectedDay = Math.min(anchor.d, daysInMonth(candidate.y, candidate.m));
-    return candidate.d === expectedDay;
-  }
-
-  if (bill.frequency === 'yearly') {
-    const yearOffset = candidate.y - anchor.y;
-    if (yearOffset < 0 || candidate.m !== anchor.m) return false;
-    const expectedDay = Math.min(anchor.d, daysInMonth(candidate.y, candidate.m));
-    return candidate.d === expectedDay;
-  }
-
-  return false;
-}
-
-// Closed-form occurrence count through a date, no day-by-day loop — needed
-// for the weekly-total carry-forward formula, which must ask "how many
-// occurrences has this bill had, on or before this date" for a bill whose
-// anchor could be arbitrarily far in the past.
-function occurrenceCountThrough(bill, throughKey) {
-  if (throughKey < bill.dueDate) return 0;
-  if (bill.frequency === 'one_time') return 1;
-
-  const anchor = parseDateKey(bill.dueDate);
-  const through = parseDateKey(throughKey);
-
-  if (bill.frequency === 'weekly' || bill.frequency === 'biweekly') {
-    const period = bill.frequency === 'weekly' ? 7 : 14;
-    const dayDiff = utcDayDiff(bill.dueDate, throughKey);
-    return Math.floor(dayDiff / period) + 1;
-  }
-
-  if (bill.frequency === 'monthly') {
-    const monthOffsetMax = (through.y - anchor.y) * 12 + (through.m - anchor.m);
-    const expectedDay = Math.min(anchor.d, daysInMonth(through.y, through.m));
-    const lastOccurrenceKey = dateKeyFromParts(through.y, through.m, expectedDay);
-    // If this month's occurrence hasn't happened yet as of throughKey, don't count it.
-    return lastOccurrenceKey <= throughKey ? monthOffsetMax + 1 : monthOffsetMax;
-  }
-
-  if (bill.frequency === 'yearly') {
-    const yearOffsetMax = through.y - anchor.y;
-    const expectedDay = Math.min(anchor.d, daysInMonth(anchor.y + yearOffsetMax, anchor.m));
-    const lastOccurrenceKey = dateKeyFromParts(anchor.y + yearOffsetMax, anchor.m, expectedDay);
-    return lastOccurrenceKey <= throughKey ? yearOffsetMax + 1 : yearOffsetMax;
-  }
-
-  return 0;
-}
-
-// A payment is worth what was paid when it was marked paid, not whatever the bill's amount is
-// today. Each paid date can carry its amount in `paidAmounts` ({ "2026-09-01": 1000 }). Payments
-// recorded before that existed (or by an older copy of the app) have no entry and fall back to the
-// bill's amount; they get their amount frozen the moment the bill's amount is edited (updateBill).
-function paidAmountFor(bill, dateKey) {
-  const map = bill.paidAmounts;
-  if (map && typeof map === 'object' && Object.prototype.hasOwnProperty.call(map, dateKey)) {
-    const stored = map[dateKey];
-    if (typeof stored === 'number' && Number.isFinite(stored)) return stored;
-  }
-  return bill.amount;
-}
-
-// Identifies one real payment, so a payment recorded on several copies of the same bill is counted
-// once. Copies come from a sync conflict or a restore from a backup: both clone the record and change
-// only its id, so a copy keeps the original bill's creation time (dateAdded). Two bills you created
-// yourself never share one, even with the same name, amount and paid date (two loans both called
-// "Student loan" are two payments, not one). A bill with no creation time is never merged with another.
-function paymentIdentity(bill, dateKey) {
-  const origin = bill.dateAdded || `id:${bill.id}`;
-  return `${origin}|${paidAmountFor(bill, dateKey)}|${dateKey}`;
-}
-
-// What one occurrence is worth: the recorded amount if it was paid, the current amount if not.
-function occurrenceAmount(bill, dateKey) {
-  return (bill.paidDates || []).includes(dateKey) ? paidAmountFor(bill, dateKey) : bill.amount;
-}
-
-// Total still owed for a bill's occurrences up to a date (occurrences so far minus paid ones, times the amount).
-function unpaidAmountThrough(bill, throughKey) {
-  const totalOccurrences = occurrenceCountThrough(bill, throughKey);
-  if (totalOccurrences === 0) return 0;
-  const paidCount = new Set((bill.paidDates || []).filter((d) => d <= throughKey && occursOnDate(bill, d))).size;
-  return Math.max(0, totalOccurrences - paidCount) * bill.amount;
-}
-
-// Walks forward from the bill's anchor dueDate to find the single earliest
-// occurrence date that is real (per occursOnDate) and not already paid, up
-// through and including throughKey. A plain day-by-day walk (not a
-// closed-form jump) is deliberately the simplest-correct approach here —
-// this only runs on an explicit user click (the "mark oldest unpaid as
-// paid" button's handler); render-time code uses the O(1)-ish
-// unpaidAmountThrough instead to avoid paying this walk's cost on every render.
-function oldestUnpaidOccurrence(bill, throughKey) {
-  const paidSet = new Set(bill.paidDates || []);
-  let dateKey = bill.dueDate;
-  while (dateKey <= throughKey) {
-    if (occursOnDate(bill, dateKey) && !paidSet.has(dateKey)) return dateKey;
-    dateKey = shiftDateKey(dateKey, 1);
-  }
-  return null;
-}
-
-// ---- Calendar window ----
-
-// The 35 days the budget calendar shows: five Monday-start weeks, from two weeks back to two ahead.
-function getCalendarWindowDays(today = new Date()) {
-  const dow = (today.getDay() + 6) % 7; // days since Monday (getDay() is 0 = Sunday)
-  const startOfThisWeek = new Date(today.getFullYear(), today.getMonth(), today.getDate() - dow);
-  const windowStart = new Date(
-    startOfThisWeek.getFullYear(),
-    startOfThisWeek.getMonth(),
-    startOfThisWeek.getDate() - 14
-  );
-  const days = [];
-  for (let i = 0; i < 35; i++) {
-    days.push(new Date(windowStart.getFullYear(), windowStart.getMonth(), windowStart.getDate() + i));
-  }
-  return days.map(dateKeyFromLocalDate); // 35 date-key strings, Monday-start
-}
-
 // Month names indexed by 0-based month number.
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
   'August', 'September', 'October', 'November', 'December'];
 
-// Headings for the five calendar weeks, in order.
-const BUDGET_WEEK_LABELS = ['2 weeks ago', 'Last week', 'This week', 'Next week', '2 weeks from now'];
-
-// Cumulative "total currently owed as of the end of this week" — the same
-// unpaid occurrence contributes to every week's total from the week it's due
-// through every subsequent week, for as long as it stays unpaid. Deliberate,
-// not a bug — see docs/specs/budget-tab.md §4.
-function weekTotal(weekEndKey, allBills) {
-  return allBills
-    .filter((b) => !b.deleted)
-    .reduce((sum, b) => sum + unpaidAmountThrough(b, weekEndKey), 0);
-}
-
-// ---- Income (per-day manual number, now a real synced collection) ----
-// `id` is deliberately the record's own `dateKey`, not a fresh makeId() UUID
-// — see docs/specs/budget-income.md §1.1. This is a conscious divergence
-// from every other collection's convention: it gives "one income entry per
-// date" a real identity-level guarantee across the normal sync-merge paths,
-// at the cost of setIncomeForDate needing to find-or-create by dateKey
-// instead of blindly pushing like every other addX.
-
-// The old storage key for per-day income numbers; only read once, by the migration below.
-const BUDGET_DAILY_NUMBERS_KEY = 'secondMemory.budgetDailyNumbers.v1';
-const INCOME_KEY = 'secondMemory.income.v1';
-let income = migrateSyncFields(loadCollection(INCOME_KEY), INCOME_KEY, getDeviceId());
-
-// One-time migration off the old local-only flat map into the `income`
-// collection. Not a reusable pattern (migrateSyncFields is a different,
-// idempotent-forever thing) — designed from scratch for this one retirement.
-// See docs/specs/budget-income.md §2.
-function migrateBudgetDailyNumbersToIncome() {
-  let raw;
-  try { raw = localStorage.getItem(BUDGET_DAILY_NUMBERS_KEY); } catch { raw = null; }
-  if (!raw) return; // covers "feature never used" and "already migrated" identically
-
-  let map;
-  try { map = JSON.parse(raw); } catch { map = null; }
-  if (!map || typeof map !== 'object' || Array.isArray(map)) {
-    localStorage.removeItem(BUDGET_DAILY_NUMBERS_KEY); // unparseable garbage — clear, don't retry forever
-    return;
-  }
-
-  const now = new Date().toISOString();
-  const deviceId = getDeviceId();
-  let changed = false;
-
-  Object.keys(map).forEach((dateKey) => {
-    const amount = Number(map[dateKey]);
-    if (!Number.isFinite(amount)) return;       // defensive: skip corrupt individual entries
-    if (income.some((r) => r.id === dateKey)) return; // don't duplicate if this somehow already ran
-
-    income.push({
-      id: dateKey,
-      dateKey,
-      amount,
-      dateAdded: now,
-      updatedAt: now,
-      deviceId,
-      deleted: false,
-      version: 0,
-    });
-    changed = true;
-  });
-
-  if (changed) saveCollection(INCOME_KEY, income);
-  localStorage.removeItem(BUDGET_DAILY_NUMBERS_KEY); // unconditional — prevents re-running/re-duplicating on next load
-}
-
-migrateBudgetDailyNumbersToIncome();
-
-// Sets (or clears, when the value is '') the manual income number for one calendar day.
-function setIncomeForDate(dateKey, rawValue) {
-  const existing = income.find((r) => r.id === dateKey);
-
-  if (rawValue === '') {
-    // Clear every live record for the date (a restore or conflict can leave a second one with a
-    // different id), otherwise the old value would come back.
-    income.filter((r) => r.dateKey === dateKey && !r.deleted).forEach((r) => deleteIncome(r.id));
-    return; // already blank/absent — no-op, nothing to record
-  }
-
-  const parsed = Number(rawValue);
-  if (!Number.isFinite(parsed) || Math.abs(parsed) > MAX_MONEY) {
-    setTimeout(renderBudget, 0); // refused: put the saved value back in the box instead of leaving the rejected number showing
-    return;
-  }
-  const amount = Math.round(parsed * 100) / 100; // whole cents, like bills
-
-  if (existing) {
-    const before = structuredClone(existing);
-    existing.amount = amount;
-    existing.deleted = false; // re-entering a value on a previously-cleared date un-tombstones
-                               // the same record rather than creating a second one for that id
-    stampSync(existing);
-    saveCollection(INCOME_KEY, income);
-    recordUndo('income', dateKey, before, structuredClone(existing));
-  } else {
-    const now = new Date().toISOString();
-    const record = {
-      id: dateKey, dateKey, amount,
-      dateAdded: now, updatedAt: now,
-      deviceId: getDeviceId(), deleted: false, version: 0,
-    };
-    income.push(record);
-    saveCollection(INCOME_KEY, income);
-    recordUndo('income', dateKey, null, structuredClone(record));
-  }
-
-  // Deferred, not called synchronously: this fires from the income input's
-  // `change` handler, which the browser dispatches as part of a Tab key's
-  // default action — moving focus to the next cell is a later step of that
-  // same synchronous algorithm. Rebuilding the calendar (which destroys and
-  // recreates every cell, including the one about to be focused) inside that
-  // window pulls the rug out from under the browser's own focus-move, and it
-  // lands on nothing (document.body) instead of the next cell. Deferring to
-  // a macrotask lets Tab's native focus-move finish first, so the existing
-  // focusedManualInput capture (in renderBudget) correctly sees the *new*
-  // cell as focused and restores focus onto its freshly-rebuilt replacement.
-  setTimeout(renderBudget, 0);
-}
-
-// Soft-deletes a day's income entry (keeps a tombstone so syncing can tell it was cleared).
-function deleteIncome(id) {
-  const record = income.find((r) => r.id === id);
-  if (!record) return;
-  const before = structuredClone(record);
-  record.deleted = true;
-  stampSync(record);
-  saveCollection(INCOME_KEY, income);
-  recordUndo('income', id, before, structuredClone(record));
-  // Deferred — see the matching comment in setIncomeForDate. Reachable
-  // directly from that function's "clear the input" path, which is a Tab
-  // key commit exactly like the add/edit path.
-  setTimeout(renderBudget, 0);
-}
-
-// Brings a cleared income entry back (used by undo).
-function restoreIncome(id) {
-  const record = income.find((r) => r.id === id);
-  if (!record || !record.deleted) return;
-  const before = structuredClone(record);
-  record.deleted = false;
-  stampSync(record);
-  saveCollection(INCOME_KEY, income);
-  recordUndo('income', id, before, structuredClone(record));
-  renderBudget();
-}
-
-// Income is one entry per date. If two live entries for one date ever exist (from an old conflict or
-// restore), only the most recently edited one is used, so nothing is counted twice.
-function uniqueIncomeByDate(records) {
-  const latest = new Map();
-  records.forEach((r) => {
-    const current = latest.get(r.dateKey);
-    if (!current || (r.updatedAt || '') > (current.updatedAt || '')) latest.set(r.dateKey, r);
-  });
-  return [...latest.values()];
-}
-
-// Deliberately NOT cumulative-through-date, unlike weekTotal()/unpaidAmountThrough(). Each
-// income record is summed into exactly the one week (or month) whose range its dateKey falls
-// in — never carried into subsequent periods. See docs/specs/budget-income.md §5.
-function incomeSumInRange(startKey, endKey, allIncome) {
-  return allIncome
-    .filter((r) => !r.deleted && r.dateKey >= startKey && r.dateKey <= endKey)
-    .reduce((sum, r) => sum + r.amount, 0);
-}
-
-// Every existing currency display in this tab is guaranteed non-negative by
-// construction (unpaidAmountThrough clamps at 0; Bills' amount is validated
-// > 0), so `$${x.toFixed(2)}` has never had to handle a negative number.
-// Income (§1.2 of the income spec allows negative amounts) and net totals
-// (can go negative) both can — use this instead, never the plain template
-// literal, for those two figures. See docs/specs/budget-income.md §7.1.
-function formatSignedCurrency(amount) {
-  const abs = Math.abs(amount).toFixed(2);
-  // Check the sign of the *rounded* magnitude, not the raw value — a tiny
-  // negative amount (a near-cancelling net total, a stray floating-point
-  // epsilon) that rounds to 0.00 should never display as "-$0.00".
-  return (amount < 0 && abs !== '0.00') ? `-$${abs}` : `$${abs}`;
-}
-
-// Pairs with formatSignedCurrency's string output but is a separate concern
-// (CSS class vs. text) — kept as its own function rather than teaching
-// formatSignedCurrency to touch the DOM, which would also affect its
-// income-total callers that this feature does not ask to color-code (see
-// docs/specs/budget-income-followups.md §10.3 — net totals only, not income
-// totals).
-function signedAmountClass(amount) {
-  // Compare in whole cents so float noise (e.g. -5.5e-17) never paints $0.00 red.
-  return Math.round(amount * 100) / 100 < 0 ? 'amount-negative' : 'amount-positive';
-}
-
-// ---- Bill CRUD ----
 
 // Dates outside this range are almost always a typo (typing "26" for the year gives 0026),
-// and a year before 1000 breaks the schedule math and makes the budget screen crawl.
+// and a year before 1000 breaks date math (repeats, charts) and can make a screen crawl.
 const DATE_YEAR_MIN = 1990;
 const DATE_YEAR_MAX = 2100;
 // True if a YYYY-MM-DD string has a year inside the allowed range.
@@ -3940,1392 +3590,11 @@ function isReasonableDateKey(key) {
 }
 const DATE_RANGE_MESSAGE = `Pick a date between the years ${DATE_YEAR_MIN} and ${DATE_YEAR_MAX}.`;
 
-// Checks and cleans a bill's form values (name, amount above $0, due date); unknown frequency becomes monthly.
-// The largest amount accepted for a bill or income entry (keeps totals and displays sane).
-const MAX_MONEY = 1000000000;
-
-function validateBillFields(fields) {
-  const trimmedName = fields.name.trim();
-  if (!trimmedName) return { ok: false, error: 'Bill name is required.' };
-  const amount = Math.round(Number(fields.amount) * 100) / 100; // whole cents, as it will be shown
-  if (!Number.isFinite(amount) || amount <= 0 || amount > MAX_MONEY) {
-    return { ok: false, error: 'Amount must be between $0.01 and $1,000,000,000.' };
-  }
-  const dueDate = fields.dueDate;
-  if (!dueDate) return { ok: false, error: 'Due date is required.' };
-  if (!isReasonableDateKey(dueDate)) return { ok: false, error: DATE_RANGE_MESSAGE };
-  const frequency = BILL_FREQUENCIES.includes(fields.frequency) ? fields.frequency : 'monthly';
-  return { ok: true, name: trimmedName, amount, dueDate, frequency, category: fields.category.trim(), autopay: !!fields.autopay };
-}
-
-// Adds a bill. Returns { ok } or { ok: false, error } if the fields don't validate.
-function addBill(fields) {
-  const result = validateBillFields(fields);
-  if (!result.ok) return result;
-  const now = new Date().toISOString();
-  const bill = {
-    id: makeId(),
-    name: result.name,
-    amount: result.amount,
-    dueDate: result.dueDate,
-    frequency: result.frequency,
-    category: result.category,
-    autopay: result.autopay,
-    paidDates: [],
-    dateAdded: now,
-    updatedAt: now,
-    deviceId: getDeviceId(),
-    deleted: false,
-    version: 0,
-  };
-  bills.push(bill);
-  saveCollection(BILLS_KEY, bills);
-  recordUndo('bills', bill.id, null, structuredClone(bill));
-  renderBudget();
-  return { ok: true };
-}
-
-// The date of a schedule's nth (0-based) occurrence, or null if it has none.
-function nthOccurrenceDate(bill, n) {
-  const anchor = parseDateKey(bill.dueDate);
-  if (bill.frequency === 'one_time') return n === 0 ? bill.dueDate : null;
-  if (bill.frequency === 'weekly' || bill.frequency === 'biweekly') {
-    return shiftDateKey(bill.dueDate, n * (bill.frequency === 'weekly' ? 7 : 14));
-  }
-  if (bill.frequency === 'monthly') {
-    const total = anchor.y * 12 + anchor.m + n;
-    const y = Math.floor(total / 12);
-    const m = total % 12;
-    return dateKeyFromParts(y, m, Math.min(anchor.d, daysInMonth(y, m)));
-  }
-  if (bill.frequency === 'yearly') {
-    const y = anchor.y + n;
-    return dateKeyFromParts(y, anchor.m, Math.min(anchor.d, daysInMonth(y, anchor.m)));
-  }
-  return null;
-}
-
-// Saves edits to a bill. Never touches paidDates except to carry existing payments over to a new
-// schedule; only toggleBillPaid (and the "mark oldest unpaid as paid" button, which calls it) marks payments.
-function updateBill(id, fields) {
-  const bill = bills.find((b) => b.id === id);
-  if (!bill) return { ok: false, error: 'Bill not found.' };
-  const result = validateBillFields(fields);
-  if (!result.ok) return result;
-  const before = structuredClone(bill);
-  const oldSchedule = { dueDate: bill.dueDate, frequency: bill.frequency };
-  // Changing the amount must not rewrite money that was already paid: record each existing
-  // payment at the amount it was actually paid before the new amount takes effect.
-  if (result.amount !== bill.amount) {
-    const frozen = { ...(bill.paidAmounts || {}) };
-    (bill.paidDates || []).forEach((d) => {
-      if (!Object.prototype.hasOwnProperty.call(frozen, d)) frozen[d] = bill.amount;
-    });
-    bill.paidAmounts = frozen;
-  }
-  bill.name = result.name;
-  bill.amount = result.amount;
-  bill.dueDate = result.dueDate;
-  bill.frequency = result.frequency;
-  bill.category = result.category;
-  bill.autopay = result.autopay;
-  // Changing when a bill is due must not orphan the payments already marked
-  // paid: each paid occurrence moves to the same-numbered occurrence of the
-  // new schedule (the 3rd payment stays the 3rd payment), so totals don't jump.
-  if (oldSchedule.dueDate !== bill.dueDate || oldSchedule.frequency !== bill.frequency) {
-    const moved = [];
-    const movedAmounts = {};
-    (bill.paidDates || []).forEach((d) => {
-      let target = d; // already unmatched: leave alone
-      if (occursOnDate(oldSchedule, d)) {
-        const next = nthOccurrenceDate(bill, occurrenceCountThrough(oldSchedule, d) - 1);
-        target = next || d; // no matching slot in the new schedule: keep the payment as recorded
-      }
-      moved.push(target);
-      // the payment keeps its recorded amount when its date moves
-      if (bill.paidAmounts && Object.prototype.hasOwnProperty.call(bill.paidAmounts, d) && !(target in movedAmounts)) {
-        movedAmounts[target] = bill.paidAmounts[d];
-      }
-    });
-    bill.paidDates = [...new Set(moved)].sort();
-    if (bill.paidAmounts) bill.paidAmounts = movedAmounts;
-  }
-  stampSync(bill);
-  saveCollection(BILLS_KEY, bills);
-  recordUndo('bills', id, before, structuredClone(bill));
-  renderBudget();
-  return { ok: true };
-}
-
-// Soft-deletes a bill (keeps a tombstone so syncing can tell it was deleted).
-function deleteBill(id) {
-  const bill = bills.find((b) => b.id === id);
-  if (!bill) return;
-  const before = structuredClone(bill);
-  bill.deleted = true;
-  stampSync(bill);
-  saveCollection(BILLS_KEY, bills);
-  recordUndo('bills', id, before, structuredClone(bill));
-  renderBudget();
-}
-
-// Brings a deleted bill back (used by undo).
-function restoreBill(id) {
-  const bill = bills.find((b) => b.id === id);
-  if (!bill || !bill.deleted) return;
-  const before = structuredClone(bill);
-  bill.deleted = false;
-  stampSync(bill);
-  saveCollection(BILLS_KEY, bills);
-  recordUndo('bills', id, before, structuredClone(bill));
-  renderBudget();
-}
-
-// Direct structural match to toggleTodoCompleted/toggleShoppingChecked: find
-// record, snapshot before, mutate exactly one field, stampSync,
-// saveCollection, recordUndo, re-render. paidDates is never touched anywhere
-// else — see updateBill above.
-function toggleBillPaid(billId, dateKey, paid) {
-  const bill = bills.find((b) => b.id === billId);
-  if (!bill) return;
-  const before = structuredClone(bill);
-  const paidSet = new Set(bill.paidDates || []);
-  const amounts = { ...(bill.paidAmounts || {}) };
-  if (paid) {
-    paidSet.add(dateKey);
-    // Remember what this payment was worth (keep an amount already recorded for this date).
-    if (!Object.prototype.hasOwnProperty.call(amounts, dateKey)) amounts[dateKey] = bill.amount;
-  } else {
-    paidSet.delete(dateKey);
-    delete amounts[dateKey];
-  }
-  bill.paidDates = [...paidSet];
-  // Only keep amounts for dates that are still paid.
-  Object.keys(amounts).forEach((d) => { if (!paidSet.has(d)) delete amounts[d]; });
-  bill.paidAmounts = amounts;
-  stampSync(bill);
-  saveCollection(BILLS_KEY, bills);
-  recordUndo('bills', billId, before, structuredClone(bill));
-  renderBudget();
-}
-
-// ---- Recurring Income (scheduled income sources, e.g. a paycheck) ----
-// Storage key: secondMemory.recurringIncome.v1. A structural mirror of Bills
-// (fresh-UUID id, dueDate + frequency), not a mutation of `income` — see
-// docs/specs/budget-income-followups.md §1. `dueDate` here means "first
-// occurrence," not "money owed" — reused literally so occursOnDate()/
-// occurrenceCountThrough() work unmodified (§3 of that spec). No `paidDates`
-// equivalent: occurrences are purely computed/projected, never individually
-// toggled (§4).
-
-const RECURRING_INCOME_KEY = 'secondMemory.recurringIncome.v1';
-// How often a recurring income source repeats (no one-time option), and the label shown for each.
-const RECURRING_INCOME_FREQUENCIES = ['weekly', 'biweekly', 'monthly', 'yearly'];
-const RECURRING_INCOME_FREQUENCY_LABELS = {
-  weekly: 'Weekly', biweekly: 'Biweekly', monthly: 'Monthly', yearly: 'Yearly',
-};
-
-let recurringIncome = migrateSyncFields(loadCollection(RECURRING_INCOME_KEY), RECURRING_INCOME_KEY, getDeviceId());
-
-// Checks and cleans a recurring income source's form values (unknown frequency becomes biweekly).
-function validateRecurringIncomeFields(fields) {
-  const trimmedName = fields.name.trim();
-  if (!trimmedName) return { ok: false, error: 'Income source name is required.' };
-  const amount = Math.round(Number(fields.amount) * 100) / 100; // whole cents, as it will be shown
-  // > 0 required — a deliberate divergence from `income`'s unconstrained
-  // amount. A recurring source describes an ongoing schedule, not a single
-  // historical fact, so a $0/negative one is meaningless and would propagate
-  // into every future total forever. See §2.1.
-  if (!Number.isFinite(amount) || amount <= 0 || amount > MAX_MONEY) {
-    return { ok: false, error: 'Amount must be between $0.01 and $1,000,000,000.' };
-  }
-  const dueDate = fields.dueDate; // "First occurrence" in the UI — see §3
-  if (!dueDate) return { ok: false, error: 'First occurrence date is required.' };
-  if (!isReasonableDateKey(dueDate)) return { ok: false, error: DATE_RANGE_MESSAGE };
-  const frequency = RECURRING_INCOME_FREQUENCIES.includes(fields.frequency) ? fields.frequency : 'biweekly';
-  return { ok: true, name: trimmedName, amount, dueDate, frequency, category: fields.category.trim() };
-}
-
-// Adds a recurring income source (e.g. a paycheck). Returns { ok } or { ok: false, error }.
-function addRecurringIncome(fields) {
-  const result = validateRecurringIncomeFields(fields);
-  if (!result.ok) return result;
-  const now = new Date().toISOString();
-  const source = {
-    id: makeId(),
-    name: result.name,
-    amount: result.amount,
-    dueDate: result.dueDate,
-    frequency: result.frequency,
-    category: result.category,
-    dateAdded: now,
-    updatedAt: now,
-    deviceId: getDeviceId(),
-    deleted: false,
-    version: 0,
-  };
-  recurringIncome.push(source);
-  saveCollection(RECURRING_INCOME_KEY, recurringIncome);
-  recordUndo('recurringIncome', source.id, null, structuredClone(source));
-  renderBudget();
-  return { ok: true };
-}
-
-// Saves edits to a recurring income source, re-validating the fields first.
-function updateRecurringIncome(id, fields) {
-  const source = recurringIncome.find((r) => r.id === id);
-  if (!source) return { ok: false, error: 'Recurring income source not found.' };
-  const result = validateRecurringIncomeFields(fields);
-  if (!result.ok) return result;
-  const before = structuredClone(source);
-  source.name = result.name;
-  source.amount = result.amount;
-  source.dueDate = result.dueDate;
-  source.frequency = result.frequency;
-  source.category = result.category;
-  stampSync(source);
-  saveCollection(RECURRING_INCOME_KEY, recurringIncome);
-  recordUndo('recurringIncome', id, before, structuredClone(source));
-  renderBudget();
-  return { ok: true };
-}
-
-// Soft-deletes a recurring income source (keeps a tombstone so syncing can tell it was deleted).
-function deleteRecurringIncome(id) {
-  const source = recurringIncome.find((r) => r.id === id);
-  if (!source) return;
-  const before = structuredClone(source);
-  source.deleted = true;
-  stampSync(source);
-  saveCollection(RECURRING_INCOME_KEY, recurringIncome);
-  recordUndo('recurringIncome', id, before, structuredClone(source));
-  renderBudget();
-}
-
-// Brings a deleted recurring income source back (used by undo).
-function restoreRecurringIncome(id) {
-  const source = recurringIncome.find((r) => r.id === id);
-  if (!source || !source.deleted) return;
-  const before = structuredClone(source);
-  source.deleted = false;
-  stampSync(source);
-  saveCollection(RECURRING_INCOME_KEY, recurringIncome);
-  recordUndo('recurringIncome', id, before, structuredClone(source));
-  renderBudget();
-}
-
-// Range-sum for a single recurring income source — the recurring-income
-// analog of incomeSumInRange, but built on occurrenceCountThrough's
-// closed-form counting (the count primitive), NOT unpaidAmountThrough (which
-// bakes in paid-filtering income has no equivalent of — see §3/§4). A plain
-// range-difference, no day-by-day loop.
-function recurringIncomeSumInRange(startKey, endKey, source) {
-  if (endKey < startKey) return 0;
-  const throughEnd = occurrenceCountThrough(source, endKey);
-  const throughBeforeStart = occurrenceCountThrough(source, shiftDateKey(startKey, -1));
-  return Math.max(0, throughEnd - throughBeforeStart) * source.amount;
-}
-
-// The single source of truth for "how much income does the calendar show for
-// this period" from this point forward — every income-derived total (week,
-// month, and pay period) MUST call this, not the bare
-// incomeSumInRange, or the total will silently omit recurring occurrences the
-// calendar visibly displays. incomeSumInRange itself stays unchanged and
-// still exists as a standalone "manual entries only" helper — this is an
-// additive wrapper around it, not a rewrite. See §7.
-function totalIncomeInRange(startKey, endKey, nonDeletedIncome, nonDeletedRecurringIncome) {
-  const manual = incomeSumInRange(startKey, endKey, nonDeletedIncome);
-  const recurring = nonDeletedRecurringIncome.reduce(
-    (sum, src) => sum + recurringIncomeSumInRange(startKey, endKey, src), 0
-  );
-  return manual + recurring;
-}
-
-// ---- Paid history ----
-// Per-category totals of bill occurrences marked paid in one calendar month.
-// Reads ALL bills including deleted ones (deleting a bill doesn't un-spend
-// money already paid), filtered through occursOnDate.
-
-// The month the Paid history panel is showing (m is 0-based); starts on the current month.
-let paidHistoryMonth = (() => { const { y, m } = parseDateKey(todayKey()); return { y, m }; })();
-
-// Totals what was paid in one month per bill category, biggest first.
-function computePaidByCategory(allBills, y, m) {
-  const prefix = `${y}-${String(m + 1).padStart(2, '0')}-`;
-  const byKey = new Map();
-  const counted = new Set(); // same payment recorded on duplicate bills counts once (see paymentIdentity)
-  allBills.forEach((bill) => {
-    // Every recorded payment counts, even one that no longer lines up with the bill's schedule
-    // (for example after the schedule was edited): money that was paid should not vanish from history.
-    const dates = (bill.paidDates || []).filter((d) => {
-      if (typeof d !== 'string' || !d.startsWith(prefix)) return false;
-      const paymentKey = paymentIdentity(bill, d);
-      if (counted.has(paymentKey)) return false;
-      counted.add(paymentKey);
-      return true;
-    });
-    const count = dates.length;
-    if (count === 0) return;
-    const raw = (bill.category || '').trim();
-    const key = normalizeChipKey(raw);
-    const entry = byKey.get(key) || { label: raw || 'Uncategorized', total: 0 };
-    entry.total += dates.reduce((sum, d) => sum + paidAmountFor(bill, d), 0);
-    byKey.set(key, entry);
-  });
-  return [...byKey.values()].sort((a, b) => b.total - a.total);
-}
-
-// Draws the Paid history list for the selected month, with a total row at the bottom.
-function renderPaidHistory() {
-  const { y, m } = paidHistoryMonth;
-  document.getElementById('paid-history-label').textContent = `${MONTH_NAMES[m]} ${y}`;
-  const rows = computePaidByCategory(bills, y, m);
-  const list = document.getElementById('paid-history-list');
-  list.innerHTML = '';
-  document.getElementById('paid-history-empty').hidden = rows.length !== 0;
-  if (rows.length === 0) return;
-
-  const addRow = (label, total, extraClass) => {
-    const li = document.createElement('li');
-    li.className = `paid-history-row${extraClass ? ` ${extraClass}` : ''}`;
-    const name = document.createElement('span');
-    name.textContent = label;
-    const amount = document.createElement('span');
-    amount.textContent = `$${total.toFixed(2)}`;
-    li.append(name, amount);
-    list.appendChild(li);
-  };
-  rows.forEach((r) => addRow(r.label, r.total));
-  addRow('Total paid', rows.reduce((sum, r) => sum + r.total, 0), 'paid-history-total');
-}
-
-// Moves the Paid history panel forward or back by whole months.
-function shiftPaidHistoryMonth(delta) {
-  const d = new Date(paidHistoryMonth.y, paidHistoryMonth.m + delta, 1);
-  paidHistoryMonth = { y: d.getFullYear(), m: d.getMonth() };
-  renderPaidHistory();
-}
-
-document.getElementById('paid-history-prev').addEventListener('click', () => shiftPaidHistoryMonth(-1));
-document.getElementById('paid-history-next').addEventListener('click', () => shiftPaidHistoryMonth(1));
-
-// True if the search text appears in the bill's name or category.
-function matchesBillSearch(bill, term) {
-  if (!term) return true;
-  const haystack = `${bill.name} ${bill.category || ''}`.toLowerCase();
-  return haystack.includes(term.toLowerCase());
-}
-
-// 'all' is the default/initial state, same convention as every other
-// chip-filtered collection.
-let selectedBillCategory = 'all';
-
-// True if the bill is in the selected category chip ('all' matches everything).
-function matchesBillCategory(bill, categoryKey) {
-  return categoryKey === 'all' || normalizeChipKey(bill.category) === categoryKey;
-}
-
-// Deterministic category -> palette-color mapping for the calendar's
-// occurrence dots. Categories are free-text (no fixed enum), so this hashes
-// the normalized string (same normalization matchesBillCategory uses, so
-// "Rent"/"rent " share a color) into one of exactly 3 palette colors — never
-// var(--accent-2), which is reserved app-wide for error/overdue/destructive
-// semantics per DECISIONS.md. Blank categories return null (neutral/no dot)
-// rather than being hashed in.
-const BILL_CATEGORY_PALETTE = ['var(--accent)', 'var(--accent-rose)', 'var(--accent-lavender)'];
-
-// The palette color for a category (same category always gets the same color); null if blank.
-function billCategoryColor(category) {
-  const key = normalizeChipKey(category);
-  if (!key) return null;
-  let hash = 0;
-  for (let i = 0; i < key.length; i++) hash += key.charCodeAt(i);
-  return BILL_CATEGORY_PALETTE[hash % BILL_CATEGORY_PALETTE.length];
-}
-
-// Draws the Budget category chips, built from whatever categories the bills currently use.
-function renderBillCategoryFilters(nonDeletedBills) {
-  const container = document.getElementById('budget-category-filters');
-  const options = [{ key: 'all', label: 'All' }, ...deriveChipOptions(nonDeletedBills, (b) => b.category)];
-  renderChipFilter(
-    container,
-    options,
-    () => selectedBillCategory,
-    (key) => { selectedBillCategory = key; },
-    renderBudget
-  );
-}
-
-// 'due_date_asc' is the default/initial state, matching the add-form's sort
-// <select>'s first (and pre-selected) option.
-let selectedBillsSort = 'due_date_asc';
-
-const BILL_SORTS = {
-  due_date_asc: compareByField((b) => b.dueDate, 1, { text: false }),
-  due_date_desc: compareByField((b) => b.dueDate, -1, { text: false }),
-  name_asc: compareByField((b) => b.name, 1),
-  amount_desc: compareByField((b) => b.amount, -1, { text: false }),
-  amount_asc: compareByField((b) => b.amount, 1, { text: false }),
-};
-
-// Fills the one-line summary: total unpaid as of today across all bills.
-function renderBudgetStats(nonDeletedBills) {
-  const el = document.getElementById('budget-stats');
-  if (!el) return;
-  const today = todayKey();
-  const overallUnpaid = nonDeletedBills.reduce((sum, b) => sum + unpaidAmountThrough(b, today), 0);
-  const count = nonDeletedBills.length;
-  el.textContent = `$${overallUnpaid.toFixed(2)} unpaid across ${count} bill${count === 1 ? '' : 's'}.`;
-}
-
-// ---- Current Pay Period ----
-// Storage key: secondMemory.paydaySettings.v1. Deliberately a flat,
-// local-only settings object, NOT a synced collection — this is a personal
-// display preference (which pay-cycle window to show), not financial
-// transaction data, matching the precedent set by the original pre-Income
-// manual-number decision. Loaded/saved via plain localStorage.getItem/
-// setItem + JSON.parse/stringify, the same lightweight pattern
-// UI_STORAGE_KEY/loadUiState/saveUiState already use — NOT loadCollection/
-// saveCollection, which assume an array of sync-tracked records. Flagging
-// for the Architect: if this ever needs to follow a user across devices, it
-// would need to be promoted to a real synced collection (its own id/
-// updatedAt/deviceId/deleted/version, wired into SYNC_COLLECTIONS) instead
-// of living in this flat, device-local key.
-
-const PAYDAY_SETTINGS_KEY = 'secondMemory.paydaySettings.v1';
-// How often payday comes around, for the Current Pay Period panel.
-const PAY_PERIOD_FREQUENCIES = ['weekly', 'biweekly', 'monthly'];
-
-// Reads the saved payday date and frequency; falls back to "not set, biweekly".
-function loadPaydaySettings() {
-  try {
-    const raw = localStorage.getItem(PAYDAY_SETTINGS_KEY);
-    const parsed = raw ? JSON.parse(raw) : null;
-    if (parsed && typeof parsed === 'object' && typeof parsed.payDateKey === 'string') {
-      return {
-        payDateKey: parsed.payDateKey,
-        frequency: PAY_PERIOD_FREQUENCIES.includes(parsed.frequency) ? parsed.frequency : 'biweekly',
-      };
-    }
-  } catch {
-    // fall through
-  }
-  return { payDateKey: null, frequency: 'biweekly' };
-}
-
-// Saves the payday date and frequency (device-local, never synced).
-function savePaydaySettings(settings) {
-  localStorage.setItem(PAYDAY_SETTINGS_KEY, JSON.stringify(settings));
-}
-
-// Bounded backward/forward scan (at most 31 days each way — long enough to
-// cover every supported frequency) using the existing, already-verified
-// occursOnDate() to find the current pay period's boundaries. This is safe
-// as a bounded loop (unlike an unbounded day-by-day scan across arbitrary
-// history, which this app avoids elsewhere) because the scan range here is
-// small and constant, anchored at today.
-function computeCurrentPayPeriod(payDateKey, frequency) {
-  const todayK = todayKey();
-  const payBill = { dueDate: payDateKey, frequency };
-  let periodStart = null;
-  for (let i = 0; i <= 31; i++) {
-    const candidate = shiftDateKey(todayK, -i);
-    if (candidate < payDateKey) break;
-    if (occursOnDate(payBill, candidate)) { periodStart = candidate; break; }
-  }
-  if (!periodStart) return null;
-  let periodEnd = null;
-  for (let i = 1; i <= 31; i++) {
-    const candidate = shiftDateKey(periodStart, i);
-    if (occursOnDate(payBill, candidate)) { periodEnd = candidate; break; }
-  }
-  return { periodStart, periodEnd };
-}
-
 // "2026-09-05" becomes "September 5, 2026".
 function formatDateKeyLong(dateKey) {
   const { y, m, d } = parseDateKey(dateKey);
   return `${MONTH_NAMES[m]} ${d}, ${y}`;
 }
-
-// Draws the Current Pay Period panel: bills due before the next payday, plus income and net for that period.
-// Reads the live, non-deleted bills array directly (same convention as
-// renderBudgetStats/renderBillCategoryFilters) rather than taking it as a
-// parameter, since it's called from renderBudget() alongside those.
-function renderPayPeriod() {
-  const summaryEl = document.getElementById('pay-period-summary');
-  const listEl = document.getElementById('pay-period-bills-list');
-  const emptyEl = document.getElementById('pay-period-empty-state');
-  if (!summaryEl || !listEl || !emptyEl) return;
-
-  listEl.innerHTML = '';
-
-  const settings = loadPaydaySettings();
-  // No settings configured yet, or a (defensively handled, shouldn't happen
-  // for weekly/biweekly/monthly within the 31-day scan bound) undetermined
-  // period — treated identically: empty state, no summary, no crash.
-  const period = settings.payDateKey ? computeCurrentPayPeriod(settings.payDateKey, settings.frequency) : null;
-  const incomeEl = document.getElementById('pay-period-income-total');
-  const netEl = document.getElementById('pay-period-net-total');
-  if (!period) {
-    summaryEl.textContent = '';
-    if (incomeEl) incomeEl.textContent = '';
-    if (netEl) netEl.textContent = '';
-    emptyEl.textContent = settings.payDateKey
-      ? 'That payday is in the future, so there is no current pay period yet.'
-      : 'Set a recent payday above to see the current pay period.';
-    emptyEl.hidden = false;
-    return;
-  }
-  emptyEl.textContent = 'No bills due in this pay period.';
-
-  const { periodStart, periodEnd } = period;
-  const nonDeletedBills = bills.filter((b) => !b.deleted);
-
-  // Bounded loop — at most ~31 days (periodEnd is within 31 days of
-  // periodStart, see computeCurrentPayPeriod) times every bill. A plain sum
-  // of `amount` per matching occurrence, not cumulative unpaid-through-date
-  // math like weekTotal()/monthTotal — "what's due in this specific short
-  // window" is a simpler question than "everything ever owed as of a date".
-  const matches = [];
-  nonDeletedBills.forEach((bill) => {
-    const occurrenceDates = [];
-    let total = 0;
-    let dateKey = periodStart;
-    while (dateKey < periodEnd) {
-      if (occursOnDate(bill, dateKey)) {
-        occurrenceDates.push(dateKey);
-        total += occurrenceAmount(bill, dateKey);
-      }
-      dateKey = shiftDateKey(dateKey, 1);
-    }
-    if (occurrenceDates.length) matches.push({ bill, total, occurrenceDates });
-  });
-
-  matches.sort((a, b) => b.total - a.total);
-  const grandTotal = matches.reduce((sum, m) => sum + m.total, 0);
-
-  summaryEl.textContent =
-    `Payday ${formatDateKeyLong(periodStart)} to ${formatDateKeyLong(periodEnd)}: ` +
-    `$${grandTotal.toFixed(2)} due across ${matches.length} bill${matches.length === 1 ? '' : 's'}`;
-  emptyEl.hidden = matches.length !== 0;
-
-  // Income and net for exactly this pay period (payday up to, not including,
-  // the next payday), so the period reads like the weekly and monthly totals.
-  const periodIncome = totalIncomeInRange(
-    periodStart,
-    shiftDateKey(periodEnd, -1),
-    uniqueIncomeByDate(income).filter((r) => !r.deleted),
-    recurringIncome.filter((r) => !r.deleted)
-  );
-  const periodNet = periodIncome - grandTotal;
-  if (incomeEl) {
-    incomeEl.innerHTML = `Income this pay period: <strong>${formatSignedCurrency(periodIncome)}</strong>`;
-  }
-  if (netEl) {
-    netEl.innerHTML = `Net this pay period: <strong class="${signedAmountClass(periodNet)}">${formatSignedCurrency(periodNet)}</strong>`;
-    netEl.title = 'Income entered or expected in this pay period minus the bills due in it.';
-  }
-
-  matches.forEach(({ bill, total, occurrenceDates }) => {
-    const li = document.createElement('li');
-    li.className = 'bill-card';
-
-    const info = document.createElement('div');
-    info.className = 'bill-info';
-
-    const name = document.createElement('strong');
-    name.className = 'bill-name';
-    name.textContent = bill.name;
-    info.appendChild(name);
-
-    const amount = document.createElement('span');
-    amount.className = 'bill-amount';
-    amount.textContent = occurrenceDates.length > 1
-      ? `$${total.toFixed(2)} (${occurrenceDates.length} occurrences)`
-      : `$${total.toFixed(2)}`;
-    info.appendChild(amount);
-
-    const due = document.createElement('span');
-    due.className = 'bill-due';
-    due.textContent = `Due: ${occurrenceDates.join(', ')}`;
-    info.appendChild(due);
-
-    if (bill.category) {
-      const category = document.createElement('span');
-      category.className = 'bill-category badge';
-      category.textContent = bill.category;
-      info.appendChild(category);
-    }
-
-    li.appendChild(info);
-    listEl.appendChild(li);
-  });
-}
-
-// The date key of the calendar day currently opened (expanded), or null when none is.
-let openCalendarDayKey = null;
-
-// True on narrow screens, where the calendar switches to its compact layout.
-function isCompactCalendar() {
-  return window.matchMedia('(max-width: 900px)').matches;
-}
-
-// In the compact calendar an opened day is a bottom sheet. For keyboard and screen-reader users it
-// is exposed as a dialog: it has a name, focus moves into it, Tab stays inside, Escape closes it.
-function setDayDialog(cell, open) {
-  const body = cell.querySelector('.budget-day-body');
-  if (!body) return;
-  if (open) {
-    body.setAttribute('role', 'dialog');
-    body.setAttribute('aria-modal', 'true');
-    body.setAttribute('aria-label', cell.dataset.fullLabel || 'Day');
-  } else {
-    body.removeAttribute('role');
-    body.removeAttribute('aria-modal');
-    body.removeAttribute('aria-label');
-  }
-}
-
-// Closes the opened day sheet; with restoreFocus, focus goes back to that day's button.
-function closeCalendarDay({ restoreFocus = false } = {}) {
-  const key = openCalendarDayKey;
-  openCalendarDayKey = null;
-  document.querySelectorAll('.budget-day-cell.budget-day-open').forEach((el) => {
-    el.classList.remove('budget-day-open');
-    setDayDialog(el, false);
-  });
-  if (restoreFocus && key) {
-    // The Close button is about to be hidden, so hand focus back to the day that was opened.
-    const opener = document.querySelector(`.budget-day-cell[data-date-key="${key}"] .budget-day-open-btn`);
-    if (opener) opener.focus();
-  }
-}
-
-document.addEventListener('keydown', (e) => {
-  if (!openCalendarDayKey) return;
-  const sheet = document.querySelector('.budget-day-cell.budget-day-open .budget-day-body');
-  if (!sheet) return;
-  if (e.key === 'Escape') {
-    e.preventDefault();
-    closeCalendarDay({ restoreFocus: true });
-    return;
-  }
-  if (e.key !== 'Tab') return;
-  const stops = [...sheet.querySelectorAll('button, input')].filter((n) => !n.disabled && n.offsetParent !== null);
-  if (!stops.length) return;
-  const first = stops[0];
-  const last = stops[stops.length - 1];
-  const here = document.activeElement;
-  if (e.shiftKey && (here === first || here === sheet)) {
-    e.preventDefault();
-    last.focus();
-  } else if (!e.shiftKey && (here === last || !sheet.contains(here))) {
-    e.preventDefault();
-    first.focus();
-  }
-});
-
-// Capture phase so a tap outside the open day sheet only closes it, rather
-// than also opening whichever other day cell happened to be underneath.
-document.addEventListener('click', (e) => {
-  if (!openCalendarDayKey) return;
-  const openCell = document.querySelector('.budget-day-cell.budget-day-open');
-  if (openCell && !openCell.contains(e.target)) {
-    // A tap outside the sheet only closes it; it must never also trigger
-    // whatever is underneath (Delete, a tab, a chip, another day).
-    closeCalendarDay();
-    e.stopPropagation();
-    e.preventDefault();
-  }
-}, true);
-
-// Renders the 35-day rolling calendar into #budget-calendar (everything
-// after the static .budget-weekday-row) and the month/year header. Always
-// runs against the full live `bills` array, and unaffected by the Bills
-// list's search filter below — but the category chip filter DOES apply here
-// too (occurrence rendering only; every total stays unfiltered, see the
-// matchesBillCategory comment inside the render loop below).
-function renderBudgetCalendar(nonDeletedBills, nonDeletedIncome, nonDeletedRecurringIncome, focusedManualInput) {
-  const today = new Date();
-  const todayK = todayKey();
-  const dueSoonEndK = shiftDateKey(todayK, 2);
-  document.getElementById('budget-month-label').textContent =
-    `${MONTH_NAMES[today.getMonth()]} ${today.getFullYear()}`;
-
-  // "This month" total: same cumulative unpaidAmountThrough semantics as the
-  // weekly totals below, just anchored at the current calendar month's last
-  // day instead of a week-end — deliberately unfiltered by category, same
-  // carve-out as weekTotal() (see matchesBillCategory filter further down).
-  const monthStartKey = dateKeyFromParts(today.getFullYear(), today.getMonth(), 1);
-  const monthEndKey = dateKeyFromParts(
-    today.getFullYear(), today.getMonth(), daysInMonth(today.getFullYear(), today.getMonth())
-  );
-  const monthTotal = nonDeletedBills.reduce((sum, b) => sum + unpaidAmountThrough(b, monthEndKey), 0);
-  const monthTotalEl = document.getElementById('budget-month-total');
-  if (monthTotalEl) {
-    monthTotalEl.innerHTML = `${MONTH_NAMES[today.getMonth()]} total: <strong>$${monthTotal.toFixed(2)}</strong>`;
-  }
-
-  // Plain range-sum, deliberately not cumulative — see incomeSumInRange's
-  // own comment and docs/specs/budget-income.md §5. Uses totalIncomeInRange
-  // (manual `income` entries plus recurring projections), not the bare
-  // incomeSumInRange — see docs/specs/budget-income-followups.md §7, the
-  // mandatory fix keeping this total in sync with what the calendar shows.
-  const monthIncome = totalIncomeInRange(monthStartKey, monthEndKey, nonDeletedIncome, nonDeletedRecurringIncome);
-  const monthIncomeTotalEl = document.getElementById('budget-month-income-total');
-  if (monthIncomeTotalEl) {
-    monthIncomeTotalEl.innerHTML =
-      `${MONTH_NAMES[today.getMonth()]} income: <strong>${formatSignedCurrency(monthIncome)}</strong>`;
-  }
-
-  // Mixes a cumulative expense figure (monthTotal, "everything unpaid as of
-  // month end") with a period-scoped income figure (monthIncome, "only what
-  // was entered this month") — a deliberate, reasoned tradeoff, not an
-  // oversight. See docs/specs/budget-income.md §6.
-  const monthNet = monthIncome - monthTotal;
-  const monthNetTotalEl = document.getElementById('budget-month-net-total');
-  if (monthNetTotalEl) {
-    monthNetTotalEl.innerHTML =
-      `${MONTH_NAMES[today.getMonth()]} net: <strong class="${signedAmountClass(monthNet)}">${formatSignedCurrency(monthNet)}</strong>`;
-    monthNetTotalEl.title =
-      'Income entered or expected this month minus every bill unpaid as of the end of this month ' +
-      '(includes unpaid amounts carried over from past months)';
-  }
-
-  // Rebuild the five weeks from scratch: each week gets seven day cells plus its totals.
-  const windowDays = getCalendarWindowDays(today);
-  const calendarEl = document.getElementById('budget-calendar');
-  calendarEl.querySelectorAll('.budget-week').forEach((el) => el.remove());
-
-  for (let weekIndex = 0; weekIndex < 5; weekIndex++) {
-    const weekDays = windowDays.slice(weekIndex * 7, weekIndex * 7 + 7);
-    const weekEndKey = weekDays[6];
-
-    const weekEl = document.createElement('div');
-    weekEl.className = 'budget-week';
-    weekEl.dataset.weekIndex = String(weekIndex);
-    weekEl.classList.toggle('budget-week-current', weekIndex === 2);
-
-    const cellsEl = document.createElement('div');
-    cellsEl.className = 'budget-week-cells';
-
-    weekDays.forEach((dateKey) => {
-      const { m, d } = parseDateKey(dateKey);
-
-      const cellEl = document.createElement('div');
-      cellEl.className = 'budget-day-cell';
-      cellEl.dataset.dateKey = dateKey;
-      cellEl.dataset.fullLabel = `${MONTH_NAMES[m]} ${d}`;
-      cellEl.classList.toggle('budget-day-today', dateKey === todayK);
-      const startsOpen = isCompactCalendar() && dateKey === openCalendarDayKey;
-      cellEl.classList.toggle('budget-day-open', startsOpen);
-
-      // Compact calendar only (hidden by CSS on wide screens): a real button laid over the cell, so
-      // the day can be reached with Tab and opened with Enter/Space. Its name is filled in below.
-      const openBtn = document.createElement('button');
-      openBtn.type = 'button';
-      openBtn.className = 'budget-day-open-btn';
-      openBtn.setAttribute('aria-haspopup', 'dialog');
-      cellEl.appendChild(openBtn);
-
-      cellEl.addEventListener('click', (e) => {
-        if (!isCompactCalendar() || openCalendarDayKey === dateKey) return;
-        // The dots are <label>s around hidden checkboxes: stop the tap that
-        // opens the sheet from also toggling that bill's paid state.
-        e.preventDefault();
-        closeCalendarDay();
-        openCalendarDayKey = dateKey;
-        cellEl.classList.add('budget-day-open');
-        setDayDialog(cellEl, true);
-        // The button that was just activated is now hidden; move focus into the sheet itself
-        // (not an input, so a phone keyboard doesn't pop up). Tab then reaches its controls.
-        if (e.target === openBtn) cellEl.querySelector('.budget-day-body').focus({ preventScroll: true });
-      });
-
-      // All cell content lives in one wrapper so the compact calendar can lift
-      // just the wrapper into a bottom sheet while the (now empty) cell keeps
-      // its slot in the week grid. display: contents on desktop = no change.
-      const bodyEl = document.createElement('div');
-      bodyEl.className = 'budget-day-body';
-      bodyEl.tabIndex = -1; // focusable by script only, so the opened sheet can receive focus
-      cellEl.appendChild(bodyEl);
-      if (startsOpen) setDayDialog(cellEl, true);
-
-      const daySummary = []; // what this day holds, for the open button's accessible name
-
-      // Day header: the date number, plus the Close button used by the compact layout.
-      const headerEl = document.createElement('div');
-      headerEl.className = 'budget-day-header';
-      const dateSpan = document.createElement('span');
-      dateSpan.className = 'budget-day-date';
-      dateSpan.textContent = String(d);
-      dateSpan.dataset.full = `${MONTH_NAMES[m]} ${d}`;
-      headerEl.appendChild(dateSpan);
-      const closeBtn = document.createElement('button');
-      closeBtn.type = 'button';
-      closeBtn.className = 'budget-day-close';
-      closeBtn.textContent = 'Close';
-      closeBtn.addEventListener('click', (e) => { e.stopPropagation(); closeCalendarDay({ restoreFocus: true }); });
-      headerEl.appendChild(closeBtn);
-      bodyEl.appendChild(headerEl);
-
-      const occurrencesEl = document.createElement('ul');
-      occurrencesEl.className = 'budget-day-occurrences scroll-block';
-
-      // Recurring income occurrences render first, in the SAME list bills
-      // use (not a separate section — see docs/specs/budget-income-followups.md
-      // §6.1), unconditionally (never filtered by selectedBillCategory —
-      // §2.3/§6.2), with no checkbox (nothing to toggle — §4), a literal
-      // "+ " name prefix, a fixed --accent dot (never hashed), and never the
-      // .overdue/.due-soon classes (those semantics don't exist for income).
-      nonDeletedRecurringIncome
-        .filter((source) => occursOnDate(source, dateKey))
-        .forEach((source) => {
-          const itemEl = document.createElement('li');
-          itemEl.className = 'budget-occurrence income-occurrence';
-
-          const dotSpan = document.createElement('span');
-          dotSpan.className = 'budget-occurrence-dot';
-          dotSpan.style.backgroundColor = 'var(--accent)';
-
-          const nameSpan = document.createElement('span');
-          nameSpan.className = 'budget-occurrence-name';
-          nameSpan.textContent = `+ ${source.name}`;
-
-          itemEl.title = `${source.name} — $${source.amount.toFixed(2)}`;
-          daySummary.push(`income ${source.name}`);
-          itemEl.appendChild(dotSpan);
-          itemEl.appendChild(nameSpan);
-          occurrencesEl.appendChild(itemEl);
-        });
-
-      // Then the bills due on this day, each with a paid checkbox and a category dot.
-      nonDeletedBills
-        .filter((bill) => occursOnDate(bill, dateKey))
-        // Calendar-only category filter — the same chip selection filters the
-        // Bills list below. Deliberately does NOT touch weekTotal()/monthTotal
-        // above or renderBudgetStats(), which always sum the full
-        // nonDeletedBills array regardless of the selected chip (see §3 of
-        // the cycle's spec: totals must never look smaller than the true
-        // unpaid amount just because a category filter is active).
-        .filter((bill) => matchesBillCategory(bill, selectedBillCategory))
-        .forEach((bill) => {
-          const itemEl = document.createElement('li');
-          itemEl.className = 'budget-occurrence';
-          const paid = (bill.paidDates || []).includes(dateKey);
-          const overdue = !paid && dateKey < todayK;
-          // Mutually exclusive by construction: overdue is strictly before
-          // today, due-soon is today-or-later, so a single dateKey can never
-          // satisfy both.
-          const dueSoon = !paid && dateKey >= todayK && dateKey <= dueSoonEndK;
-          itemEl.classList.toggle('overdue', overdue);
-          itemEl.classList.toggle('due-soon', dueSoon);
-
-          const label = document.createElement('label');
-          const checkbox = document.createElement('input');
-          checkbox.type = 'checkbox';
-          checkbox.className = 'budget-occurrence-checkbox';
-          checkbox.dataset.billId = bill.id;
-          checkbox.dataset.dateKey = dateKey;
-          checkbox.checked = paid;
-          checkbox.addEventListener('change', (e) => toggleBillPaid(bill.id, dateKey, e.target.checked));
-
-          const categoryColor = billCategoryColor(bill.category);
-          let dotSpan = null;
-          if (categoryColor) {
-            dotSpan = document.createElement('span');
-            dotSpan.className = 'budget-occurrence-dot';
-            dotSpan.style.backgroundColor = categoryColor;
-          }
-
-          const nameSpan = document.createElement('span');
-          nameSpan.className = 'budget-occurrence-name';
-          nameSpan.textContent = bill.name;
-
-          const amountText = `$${(paid ? paidAmountFor(bill, dateKey) : bill.amount).toFixed(2)}`;
-          label.title = bill.category ? `${bill.name} — ${amountText} (${bill.category})` : `${bill.name} — ${amountText}`;
-
-          daySummary.push(`${bill.name}${paid ? ' (paid)' : overdue ? ' (overdue)' : ''}`);
-          label.appendChild(checkbox);
-          if (dotSpan) label.appendChild(dotSpan);
-          label.appendChild(nameSpan);
-          itemEl.appendChild(label);
-          occurrencesEl.appendChild(itemEl);
-        });
-      bodyEl.appendChild(occurrencesEl);
-
-      // Day footer: the box for typing a manual income amount for this day.
-      const footerEl = document.createElement('div');
-      footerEl.className = 'budget-day-footer';
-      const manualInput = document.createElement('input');
-      manualInput.type = 'number';
-      manualInput.step = 'any';
-      manualInput.className = 'budget-day-manual-input';
-      manualInput.dataset.dateKey = dateKey;
-      manualInput.setAttribute('aria-label', `Income for ${MONTH_NAMES[m]} ${d}`);
-      const incomeRecord = nonDeletedIncome.find((r) => r.dateKey === dateKey);
-      manualInput.value = incomeRecord ? String(incomeRecord.amount) : '';
-      manualInput.addEventListener('change', (e) => {
-        // A half-typed number ("1e", "-") reads as empty: put the saved amount back rather than clearing the day.
-        if (e.target.value === '' && e.target.validity && e.target.validity.badInput) { setTimeout(renderBudget, 0); return; }
-        setIncomeForDate(dateKey, e.target.value);
-      });
-      // Sign-aware, not flat "always green" — a negative manually-entered
-      // income amount (income's amount is unconstrained, §1.2 of the income
-      // spec) must not be shown with a color that implies "good news." Never
-      // --accent-2, reserved for error/overdue/destructive semantics. This
-      // reflects only the manual `income` entry's sign — it is NOT a summary
-      // of the day's combined manual + recurring total. See §9/§12.
-      if (incomeRecord) {
-        const dotSpan = document.createElement('span');
-        dotSpan.className = `budget-income-dot ${signedAmountClass(incomeRecord.amount)}`;
-        footerEl.appendChild(dotSpan);
-      }
-      footerEl.appendChild(manualInput);
-      bodyEl.appendChild(footerEl);
-
-      if (incomeRecord) daySummary.push(`income entered $${Number(incomeRecord.amount).toFixed(2)}`);
-      openBtn.setAttribute('aria-label',
-        `${MONTH_NAMES[m]} ${d}${dateKey === todayK ? ', today' : ''}: ` +
-        `${daySummary.length ? daySummary.join(', ') : 'nothing scheduled'}. Open day.`);
-
-      cellsEl.appendChild(cellEl);
-    });
-
-    weekEl.appendChild(cellsEl);
-
-    // Under each week: what's still owed, the income, and the net.
-    const totalEl = document.createElement('p');
-    totalEl.className = 'budget-week-total';
-    totalEl.innerHTML = `${BUDGET_WEEK_LABELS[weekIndex]}: <strong>$${weekTotal(weekEndKey, nonDeletedBills).toFixed(2)}</strong>`;
-    weekEl.appendChild(totalEl);
-
-    // totalIncomeInRange (manual `income` entries plus recurring
-    // projections), not the bare incomeSumInRange — see
-    // docs/specs/budget-income-followups.md §7, the mandatory fix keeping
-    // this total in sync with what the calendar visibly shows.
-    const weekIncome = totalIncomeInRange(weekDays[0], weekDays[6], nonDeletedIncome, nonDeletedRecurringIncome);
-    const incomeTotalEl = document.createElement('p');
-    incomeTotalEl.className = 'budget-week-income-total';
-    incomeTotalEl.innerHTML = `Income: <strong>${formatSignedCurrency(weekIncome)}</strong>`;
-    weekEl.appendChild(incomeTotalEl);
-
-    // See §6's numeric trace for why this mixes a cumulative expense figure
-    // with a period-scoped income figure, and the title tooltip below.
-    const weekNet = weekIncome - weekTotal(weekEndKey, nonDeletedBills);
-    const netTotalEl = document.createElement('p');
-    netTotalEl.className = 'budget-week-net-total';
-    netTotalEl.innerHTML = `Net: <strong class="${signedAmountClass(weekNet)}">${formatSignedCurrency(weekNet)}</strong>`;
-    netTotalEl.title =
-      'Income entered or expected this week minus every bill unpaid as of the end of this week ' +
-      '(includes unpaid amounts carried over from past weeks)';
-    weekEl.appendChild(netTotalEl);
-
-    calendarEl.appendChild(weekEl);
-  }
-
-  // If an income box was being typed in when the redraw started, put its text and focus back.
-  if (focusedManualInput) {
-    const restored = calendarEl.querySelector(
-      `.budget-day-manual-input[data-date-key="${focusedManualInput.dateKey}"]`
-    );
-    if (restored) {
-      restored.value = focusedManualInput.value;
-      restored.focus();
-    }
-  }
-}
-
-// Draws the Bills list (cards with edit form, delete and "mark oldest unpaid as paid");
-// openEdit re-opens an edit form that was open before the redraw.
-function renderBudgetList(nonDeletedBills, openEdit) {
-  // Apply the search box, category chip and sort choice.
-  const searchTerm = document.getElementById('budget-search-input').value;
-  const comparator = BILL_SORTS[selectedBillsSort] || BILL_SORTS.due_date_asc;
-  const visible = nonDeletedBills
-    .filter((b) => matchesBillSearch(b, searchTerm))
-    .filter((b) => matchesBillCategory(b, selectedBillCategory))
-    .sort(comparator);
-
-  const list = document.getElementById('budget-list');
-  const template = document.getElementById('budget-card-template');
-  const todayK = todayKey();
-
-  list.innerHTML = '';
-
-  // One card per bill: fill in the details first, then wire up the buttons.
-  visible.forEach((bill) => {
-    const node = template.content.cloneNode(true);
-    const card = node.querySelector('.bill-card');
-    card.dataset.billId = bill.id;
-    const viewSection = node.querySelector('.bill-view');
-    const editForm = node.querySelector('.bill-edit-form');
-
-    node.querySelector('.bill-name').textContent = bill.name;
-    node.querySelector('.bill-amount').textContent = `$${bill.amount.toFixed(2)}`;
-    node.querySelector('.bill-due').textContent = `Due: ${bill.dueDate}`;
-    node.querySelector('.bill-frequency').textContent = BILL_FREQUENCY_LABELS[bill.frequency] || bill.frequency;
-
-    const categoryEl = node.querySelector('.bill-category');
-    if (bill.category) {
-      categoryEl.textContent = bill.category;
-      categoryEl.hidden = false;
-    }
-    node.querySelector('.bill-autopay').hidden = !bill.autopay;
-
-    // Only offered while something is still owed as of today.
-    const markOldestBtn = node.querySelector('.mark-oldest-paid-btn');
-    const hasUnpaid = unpaidAmountThrough(bill, todayK) > 0;
-    markOldestBtn.disabled = !hasUnpaid;
-    markOldestBtn.addEventListener('click', () => {
-      const target = oldestUnpaidOccurrence(bill, todayKey());
-      if (target) toggleBillPaid(bill.id, target, true);
-    });
-
-    const editNameInput = node.querySelector('.bill-edit-name');
-    const editAmountInput = node.querySelector('.bill-edit-amount');
-    const editDueDateInput = node.querySelector('.bill-edit-duedate');
-    const editFrequencyInput = node.querySelector('.bill-edit-frequency');
-    const editCategoryInput = node.querySelector('.bill-edit-category');
-    const editAutopayInput = node.querySelector('.bill-edit-autopay');
-    const editError = node.querySelector('.bill-edit-error');
-
-    node.querySelector('.edit-btn').addEventListener('click', () => {
-      // Only one bill can be in edit mode at a time — close any other open
-      // bill edit form first, same invariant as every other collection.
-      const otherOpenForm = list.querySelector('.bill-edit-form:not([hidden])');
-      if (otherOpenForm && otherOpenForm !== editForm) {
-        otherOpenForm.hidden = true;
-        otherOpenForm.closest('.bill-card').querySelector('.bill-view').hidden = false;
-      }
-      editNameInput.value = bill.name;
-      editAmountInput.value = String(bill.amount);
-      editDueDateInput.value = bill.dueDate;
-      editFrequencyInput.value = bill.frequency;
-      editCategoryInput.value = bill.category || '';
-      editAutopayInput.checked = !!bill.autopay;
-      editError.hidden = true;
-      viewSection.hidden = true;
-      editForm.hidden = false;
-    });
-
-    node.querySelector('.cancel-btn').addEventListener('click', () => {
-      editForm.hidden = true;
-      viewSection.hidden = false;
-    });
-
-    editForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      // Hide the form BEFORE calling updateBill — if the save succeeds,
-      // updateBill's internal re-render (renderBudget -> renderBudgetList)
-      // captures "is there an open edit form" from live DOM state, and must
-      // see this one as already closed, or it reopens the very form that
-      // just successfully saved (this was a real, confirmed bug: the data
-      // saved correctly but the form stayed open, indistinguishable from
-      // the button doing nothing). If the save FAILS, updateBill returns
-      // early before any render happens at all, so these exact DOM nodes
-      // are still live/attached and safe to simply re-show.
-      editForm.hidden = true;
-      viewSection.hidden = false;
-      const result = updateBill(bill.id, {
-        name: editNameInput.value,
-        amount: editAmountInput.value,
-        dueDate: editDueDateInput.value,
-        frequency: editFrequencyInput.value,
-        category: editCategoryInput.value,
-        autopay: editAutopayInput.checked,
-      });
-      if (!result.ok) {
-        viewSection.hidden = true;
-        editForm.hidden = false;
-        editError.textContent = result.error;
-        editError.hidden = false;
-      }
-    });
-
-    node.querySelector('.delete-btn').addEventListener('click', () => deleteBill(bill.id));
-
-    // Re-open the form that was open before this redraw, with whatever had been typed in it.
-    if (openEdit && openEdit.id === bill.id) {
-      editNameInput.value = openEdit.name;
-      editAmountInput.value = openEdit.amount;
-      editDueDateInput.value = openEdit.dueDate;
-      editFrequencyInput.value = openEdit.frequency;
-      editCategoryInput.value = openEdit.category;
-      editAutopayInput.checked = openEdit.autopay;
-      viewSection.hidden = true;
-      editForm.hidden = false;
-    }
-
-    list.appendChild(node);
-  });
-
-  document.getElementById('budget-empty-state').hidden = nonDeletedBills.length !== 0;
-}
-
-// Direct structural mirror of renderBudgetList, minus the "mark oldest
-// unpaid" wiring (no paid concept — see §4) and any search/sort/category
-// filter (deliberately not built this cycle — see §2.3/§5.3, realistic scale
-// is a handful of sources).
-function renderRecurringIncomeList(nonDeletedRecurringIncome, openEdit) {
-  const list = document.getElementById('recurring-income-list');
-  const template = document.getElementById('recurring-income-card-template');
-
-  list.innerHTML = '';
-
-  nonDeletedRecurringIncome.forEach((source) => {
-    const node = template.content.cloneNode(true);
-    const card = node.querySelector('.recurring-income-card');
-    card.dataset.recurringIncomeId = source.id;
-    const viewSection = node.querySelector('.recurring-income-view');
-    const editForm = node.querySelector('.recurring-income-edit-form');
-
-    node.querySelector('.recurring-income-name').textContent = source.name;
-    node.querySelector('.recurring-income-amount').textContent = `$${source.amount.toFixed(2)}`;
-    node.querySelector('.recurring-income-start').textContent = `Starts: ${source.dueDate}`;
-    node.querySelector('.recurring-income-frequency').textContent =
-      RECURRING_INCOME_FREQUENCY_LABELS[source.frequency] || source.frequency;
-
-    const categoryEl = node.querySelector('.recurring-income-category');
-    if (source.category) {
-      categoryEl.textContent = source.category;
-      categoryEl.hidden = false;
-    }
-
-    const editNameInput = node.querySelector('.recurring-income-edit-name');
-    const editAmountInput = node.querySelector('.recurring-income-edit-amount');
-    const editStartDateInput = node.querySelector('.recurring-income-edit-startdate');
-    const editFrequencyInput = node.querySelector('.recurring-income-edit-frequency');
-    const editCategoryInput = node.querySelector('.recurring-income-edit-category');
-    const editError = node.querySelector('.recurring-income-edit-error');
-
-    node.querySelector('.edit-btn').addEventListener('click', () => {
-      // Only one recurring income source can be in edit mode at a time —
-      // this is a separate invariant from the Bills list's own open-edit-form
-      // state, not a shared one (per-collection edit-form exclusivity — see
-      // docs/specs/budget-income-followups.md §5.5).
-      const otherOpenForm = list.querySelector('.recurring-income-edit-form:not([hidden])');
-      if (otherOpenForm && otherOpenForm !== editForm) {
-        otherOpenForm.hidden = true;
-        otherOpenForm.closest('.recurring-income-card').querySelector('.recurring-income-view').hidden = false;
-      }
-      editNameInput.value = source.name;
-      editAmountInput.value = String(source.amount);
-      editStartDateInput.value = source.dueDate;
-      editFrequencyInput.value = source.frequency;
-      editCategoryInput.value = source.category || '';
-      editError.hidden = true;
-      viewSection.hidden = true;
-      editForm.hidden = false;
-    });
-
-    node.querySelector('.cancel-btn').addEventListener('click', () => {
-      editForm.hidden = true;
-      viewSection.hidden = false;
-    });
-
-    editForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      // Hide the form BEFORE calling updateRecurringIncome — see the full
-      // comment on Medications'/Bills' edit-form submit handlers for why
-      // this ordering matters on both the success and failure paths.
-      editForm.hidden = true;
-      viewSection.hidden = false;
-      const result = updateRecurringIncome(source.id, {
-        name: editNameInput.value,
-        amount: editAmountInput.value,
-        dueDate: editStartDateInput.value,
-        frequency: editFrequencyInput.value,
-        category: editCategoryInput.value,
-      });
-      if (!result.ok) {
-        viewSection.hidden = true;
-        editForm.hidden = false;
-        editError.textContent = result.error;
-        editError.hidden = false;
-      }
-    });
-
-    node.querySelector('.delete-btn').addEventListener('click', () => deleteRecurringIncome(source.id));
-
-    if (openEdit && openEdit.id === source.id) {
-      editNameInput.value = openEdit.name;
-      editAmountInput.value = openEdit.amount;
-      editStartDateInput.value = openEdit.dueDate;
-      editFrequencyInput.value = openEdit.frequency;
-      editCategoryInput.value = openEdit.category;
-      viewSection.hidden = true;
-      editForm.hidden = false;
-    }
-
-    list.appendChild(node);
-  });
-
-  document.getElementById('recurring-income-empty-state').hidden = nonDeletedRecurringIncome.length !== 0;
-}
-
-// Generalizes the "preserve in-progress unsaved input across a re-render"
-// pattern to the THREE kinds of in-progress state specific to this tab: the
-// Bills list's open edit form (identical to every other collection), the
-// Recurring Income list's own open edit form (a separate, independent
-// invariant — per-collection edit-form exclusivity, not app-wide; a user CAN
-// have one Bill card and one Recurring Income card open simultaneously — see
-// docs/specs/budget-income-followups.md §5.5), AND a currently-focused
-// .budget-day-manual-input (a real, non-obvious risk unique to this tab —
-// toggling any single paid-checkbox anywhere calls renderBudget(), which
-// wipes and rebuilds all 35 day cells including whichever one the user might
-// be mid-typing into). See docs/specs/budget-tab.md §6.1.
-function renderBudget() {
-  const nonDeleted = bills.filter((b) => !b.deleted);
-  // One record per date first (the newest wins, even if it is a cleared one), then drop cleared ones.
-  const nonDeletedIncome = uniqueIncomeByDate(income).filter((r) => !r.deleted);
-  const nonDeletedRecurringIncome = recurringIncome.filter((r) => !r.deleted);
-
-  const activeEl = document.activeElement;
-  const focusedManualInput = (activeEl && activeEl.classList && activeEl.classList.contains('budget-day-manual-input'))
-    ? { dateKey: activeEl.dataset.dateKey, value: activeEl.value }
-    : null;
-
-  const list = document.getElementById('budget-list');
-  const openForm = list.querySelector('.bill-edit-form:not([hidden])');
-  const openEdit = openForm
-    ? {
-        id: openForm.closest('.bill-card').dataset.billId,
-        name: openForm.querySelector('.bill-edit-name').value,
-        amount: openForm.querySelector('.bill-edit-amount').value,
-        dueDate: openForm.querySelector('.bill-edit-duedate').value,
-        frequency: openForm.querySelector('.bill-edit-frequency').value,
-        category: openForm.querySelector('.bill-edit-category').value,
-        autopay: openForm.querySelector('.bill-edit-autopay').checked,
-      }
-    : null;
-
-  const recurringIncomeList = document.getElementById('recurring-income-list');
-  const openRecurringIncomeForm = recurringIncomeList.querySelector('.recurring-income-edit-form:not([hidden])');
-  const openRecurringIncomeEdit = openRecurringIncomeForm
-    ? {
-        id: openRecurringIncomeForm.closest('.recurring-income-card').dataset.recurringIncomeId,
-        name: openRecurringIncomeForm.querySelector('.recurring-income-edit-name').value,
-        amount: openRecurringIncomeForm.querySelector('.recurring-income-edit-amount').value,
-        dueDate: openRecurringIncomeForm.querySelector('.recurring-income-edit-startdate').value,
-        frequency: openRecurringIncomeForm.querySelector('.recurring-income-edit-frequency').value,
-        category: openRecurringIncomeForm.querySelector('.recurring-income-edit-category').value,
-      }
-    : null;
-
-  renderBudgetStats(nonDeleted);
-  renderBillCategoryFilters(nonDeleted);
-  renderBudgetCalendar(nonDeleted, nonDeletedIncome, nonDeletedRecurringIncome, focusedManualInput);
-  renderPayPeriod();
-  renderPaidHistory();
-  renderBudgetList(nonDeleted, openEdit);
-  renderRecurringIncomeList(nonDeletedRecurringIncome, openRecurringIncomeEdit);
-
-  renderHome(); // Home aggregates books/todos/bills — keep this in sync
-}
-
-// The settings form itself is populated once here, at setup time, and never
-// re-populated on every renderBudget() re-render — unlike the edit forms
-// fixed elsewhere in this file, this form has no "open/cancel" concept to
-// fight with; it's a persistent, always-visible settings form, not a
-// per-record edit form a render pass could reopen. Re-touching its inputs
-// on every render (renderBudget() runs on nearly every Budget-tab mutation)
-// would risk overwriting whatever the user is mid-typing for no benefit, so
-// renderPayPeriod() above only ever touches the summary/list, never these
-// inputs.
-(function initPaydaySettingsForm() {
-  const form = document.getElementById('payday-settings-form');
-  if (!form) return;
-  const dateInput = document.getElementById('payday-date-input');
-  const frequencyInput = document.getElementById('payday-frequency-input');
-  const settings = loadPaydaySettings();
-  if (settings.payDateKey) dateInput.value = settings.payDateKey;
-  frequencyInput.value = settings.frequency;
-
-  form.addEventListener('submit', (e) => {
-    e.preventDefault();
-    if (dateInput.value && !isReasonableDateKey(dateInput.value)) return; // a mistyped year like 0026
-    savePaydaySettings({
-      payDateKey: dateInput.value || null,
-      frequency: PAY_PERIOD_FREQUENCIES.includes(frequencyInput.value) ? frequencyInput.value : 'biweekly',
-    });
-    renderPayPeriod();
-  });
-})();
-
-document.getElementById('budget-add-form').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const nameInput = document.getElementById('budget-name-input');
-  const amountInput = document.getElementById('budget-amount-input');
-  const dueDateInput = document.getElementById('budget-duedate-input');
-  const frequencyInput = document.getElementById('budget-frequency-input');
-  const categoryInput = document.getElementById('budget-category-input');
-  const errorEl = document.getElementById('budget-form-error');
-
-  const result = addBill({
-    name: nameInput.value,
-    amount: amountInput.value,
-    dueDate: dueDateInput.value,
-    frequency: frequencyInput.value,
-    category: categoryInput.value,
-    autopay: document.getElementById('budget-autopay-input').checked,
-  });
-
-  if (!result.ok) {
-    errorEl.textContent = result.error;
-    errorEl.hidden = false;
-    return;
-  }
-
-  errorEl.hidden = true;
-  document.getElementById('budget-autopay-input').checked = false;
-  nameInput.value = '';
-  amountInput.value = '';
-  dueDateInput.value = '';
-  frequencyInput.value = 'monthly';
-  categoryInput.value = '';
-  nameInput.focus();
-});
-
-document.getElementById('budget-search-input').addEventListener('input', renderBudget);
-
-document.getElementById('budget-sort-input').addEventListener('change', (e) => {
-  selectedBillsSort = e.target.value;
-  renderBudget();
-});
-
-document.getElementById('recurring-income-add-form').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const nameInput = document.getElementById('recurring-income-name-input');
-  const amountInput = document.getElementById('recurring-income-amount-input');
-  const startDateInput = document.getElementById('recurring-income-startdate-input');
-  const frequencyInput = document.getElementById('recurring-income-frequency-input');
-  const categoryInput = document.getElementById('recurring-income-category-input');
-  const errorEl = document.getElementById('recurring-income-form-error');
-
-  const result = addRecurringIncome({
-    name: nameInput.value,
-    amount: amountInput.value,
-    dueDate: startDateInput.value,
-    frequency: frequencyInput.value,
-    category: categoryInput.value,
-  });
-
-  if (!result.ok) {
-    errorEl.textContent = result.error;
-    errorEl.hidden = false;
-    return;
-  }
-
-  errorEl.hidden = true;
-  nameInput.value = '';
-  amountInput.value = '';
-  startDateInput.value = '';
-  frequencyInput.value = 'biweekly';
-  categoryInput.value = '';
-  nameInput.focus();
-});
 
 // ---- Journal (dreams + therapy sessions) ----
 // Deliberately NOT in SYNC_COLLECTIONS: therapy/dream entries are sensitive, so
@@ -6544,7 +4813,6 @@ const SEARCH_SOURCES = [
   { tab: 'todo', label: 'To-Do', inputId: 'todo-search-input', items: () => todos, title: (t) => (t.completed ? `${t.task} (done)` : t.task), fields: (t) => [t.task] },
   { tab: 'shopping', label: 'Shopping List', inputId: 'shopping-search-input', items: () => shoppingItems, title: (s) => s.item, fields: (s) => [s.item, s.category, s.quantity] },
   { tab: 'notes', label: 'Notes', inputId: 'notes-search-input', items: () => notes, title: (n) => n.title || '(untitled note)', fields: (n) => [n.title, n.body] },
-  { tab: 'budget', label: 'Bills', inputId: 'budget-search-input', items: () => bills, title: (b) => b.name, fields: (b) => [b.name, b.category] },
   { tab: 'resume', label: 'Resume & Portfolio', inputId: 'resume-search-input', items: () => links, title: (l) => l.label, fields: (l) => [l.label, l.url, l.notes] },
 ];
 
@@ -6681,46 +4949,13 @@ document.getElementById('global-search-input').addEventListener('keydown', (e) =
 });
 
 // ---- Home ----
-// Pure, render-only aggregation over the live books/todos/bills arrays — no
+// Pure, render-only aggregation over the live books/todos/medications arrays — no
 // own storage key, nothing to sync/export/undo. Re-rendered by hooking the
-// end of renderBooks()/renderTodos()/renderBudget() rather than adding new
+// end of renderBooks()/renderTodos() rather than adding new
 // call sites at every mutation (see docs/specs/home-dashboard.md §5).
 
 // How many days ahead Home looks for things that are "due soon".
 const HOME_DUE_SOON_DAYS = 7;
-
-// Splits bills into overdue (unpaid balance before today) and due soon (unpaid, in the next week).
-function computeHomeBills(nonDeletedBills) {
-  const todayK = todayKey();
-  const yesterdayK = shiftDateKey(todayK, -1);
-
-  // Overdue: real unpaid balance strictly before today. unpaidAmountThrough
-  // (closed-form) on purpose — NOT oldestUnpaidOccurrence, which is an
-  // unbounded day-by-day walk restricted to the "mark oldest unpaid" button's
-  // click handler for cost reasons. Home re-renders on every add/edit/delete/
-  // undo/redo/sync across three collections, so it must stay cheap.
-  const overdue = nonDeletedBills
-    .filter((bill) => !bill.autopay) // a bill that pays itself is not "overdue" just because it was not ticked off
-    .map((bill) => ({ bill, amount: unpaidAmountThrough(bill, yesterdayK) }))
-    .filter((x) => x.amount > 0)
-    .sort((a, b) => b.amount - a.amount);
-
-  // Due soon: unpaid occurrences landing on any of the next HOME_DUE_SOON_DAYS
-  // days (today inclusive) — a bounded per-bill loop, same technique
-  // renderBudgetCalendar() already uses.
-  const dueSoon = [];
-  nonDeletedBills.forEach((bill) => {
-    for (let i = 0; i <= HOME_DUE_SOON_DAYS; i++) {
-      const dateKey = shiftDateKey(todayK, i);
-      if (occursOnDate(bill, dateKey) && !(bill.paidDates || []).includes(dateKey)) {
-        dueSoon.push({ bill, dateKey });
-      }
-    }
-  });
-  dueSoon.sort((a, b) => (a.dateKey < b.dateKey ? -1 : a.dateKey > b.dateKey ? 1 : 0));
-
-  return { overdue, dueSoon };
-}
 
 // Splits open to-dos into overdue and due within the next week, each ordered by due date.
 function computeHomeTodos(nonDeletedTodos) {
@@ -6756,82 +4991,41 @@ function computeHomeRefills(nonDeletedMeds) {
     .sort(compareByField((m) => m.refillDate, 1, { text: false }));
 }
 
-// How soon a bill must be due to appear in the banner at the top of every screen.
-const REMINDER_BANNER_DAYS = 2;
-let reminderBannerDismissed = false;
-
-// Shows or hides the bills banner (bills due within a few days, plus a count of overdue ones).
-function renderReminderBanner(overdueBills, dueSoonBills) {
-  const banner = document.getElementById('reminder-banner');
-  const cutoff = shiftDateKey(todayKey(), REMINDER_BANNER_DAYS);
-  // Bills that pay themselves are not nagged about; overdue ones (probably just not marked paid) still are.
-  const soon = dueSoonBills.filter((x) => x.dateKey <= cutoff && !x.bill.autopay);
-  if (reminderBannerDismissed || (soon.length === 0 && overdueBills.length === 0)) {
-    banner.hidden = true;
-    return;
-  }
-  const parts = soon.map(({ bill, dateKey }) =>
-    `${bill.name} $${bill.amount.toFixed(2)} ${whenLabel(daysUntilDateKey(dateKey))}`);
-  if (overdueBills.length > 0) {
-    const total = overdueBills.reduce((sum, x) => sum + x.amount, 0);
-    parts.push(`${overdueBills.length} overdue ($${total.toFixed(2)})`);
-  }
-  document.getElementById('reminder-banner-text').textContent = `Bills: ${parts.join(' · ')}`;
-  banner.hidden = false;
-}
-
-document.getElementById('reminder-banner-view').addEventListener('click', () => goToTab('budget'));
-document.getElementById('reminder-banner-dismiss').addEventListener('click', () => {
-  reminderBannerDismissed = true;
-  document.getElementById('reminder-banner').hidden = true;
-  // The button that had focus just disappeared; move focus to the screen you were on.
-  const visibleHeading = document.querySelector('[id$="-collection"]:not([hidden]) h2');
-  if (visibleHeading) { visibleHeading.tabIndex = -1; visibleHeading.focus(); }
-});
-
 // Books marked "currently reading", ordered by author.
 function computeCurrentlyReading(nonDeletedBooks) {
   return nonDeletedBooks.filter((b) => b.status === 'currently_reading').sort(BOOK_SORTS.author_asc);
 }
 
-// Redraws the Home dashboard: what needs attention this week (bills, to-dos, refills)
+// Redraws the Home dashboard: what needs attention this week (to-dos, refills)
 // and the books being read.
 function renderHome() {
   // Gather what to show.
   renderBackupNotes();
-  const nonDeletedBills = bills.filter((b) => !b.deleted);
   const nonDeletedTodos = todos.filter((t) => !t.deleted);
   const nonDeletedBooks = books.filter((b) => !b.deleted);
 
-  const { overdue: overdueBills, dueSoon: dueSoonBills } = computeHomeBills(nonDeletedBills);
   const { overdue: overdueTodos, dueSoon: dueSoonTodos } = computeHomeTodos(nonDeletedTodos);
   const currentlyReading = computeCurrentlyReading(nonDeletedBooks);
   const homeRefills = computeHomeRefills(medications.filter((m) => !m.deleted));
 
-  renderReminderBanner(overdueBills, dueSoonBills);
-
-  const actionableCount = overdueBills.length + dueSoonBills.length + overdueTodos.length + dueSoonTodos.length
-    + homeRefills.length;
+  const actionableCount = overdueTodos.length + dueSoonTodos.length + homeRefills.length;
 
   // Grab the panels and clear their lists before refilling them.
   const statsEl = document.getElementById('home-stats');
   const emptyEl = document.getElementById('home-empty-state');
-  const billsPanel = document.getElementById('home-bills-panel');
   const todoPanel = document.getElementById('home-todo-panel');
   const readingPanel = document.getElementById('home-reading-panel');
-  const billsList = document.getElementById('home-bills-list');
   const todoList = document.getElementById('home-todo-list');
   const readingList = document.getElementById('home-reading-list');
 
   const refillsPanel = document.getElementById('home-refills-panel');
   const refillsList = document.getElementById('home-refills-list');
 
-  billsList.innerHTML = '';
   todoList.innerHTML = '';
   readingList.innerHTML = '';
   refillsList.innerHTML = '';
 
-  // One Home row: a button that jumps to the tab, plus an optional quick-action button (e.g. Mark paid).
+  // One Home row: a button that jumps to the tab, plus an optional quick-action button.
   function makeHomeRow(onClick, buildContent, action) {
     const li = document.createElement('li');
     li.className = 'home-item';
@@ -6857,49 +5051,13 @@ function renderHome() {
     return li;
   }
 
-  // Bills and to-dos: overdue ones first, then those due soon; otherwise show the "all clear" message.
+  // To-dos: overdue ones first, then those due soon; otherwise show the "all clear" message.
   if (actionableCount > 0) {
     statsEl.textContent = `${actionableCount} thing${actionableCount === 1 ? '' : 's'} ` +
       `need${actionableCount === 1 ? 's' : ''} your attention this week.`;
     statsEl.hidden = false;
     emptyEl.hidden = true;
-    billsPanel.hidden = overdueBills.length + dueSoonBills.length === 0;
     todoPanel.hidden = overdueTodos.length + dueSoonTodos.length === 0;
-
-    overdueBills.forEach(({ bill, amount }) => {
-      billsList.appendChild(makeHomeRow(() => goToTab('budget'), (btn) => {
-        const name = document.createElement('strong');
-        name.className = 'bill-name';
-        name.textContent = bill.name;
-        const due = document.createElement('span');
-        due.className = 'bill-due overdue';
-        due.textContent = `$${amount.toFixed(2)} overdue`;
-        btn.append(name, due);
-      }, {
-        label: 'Mark paid',
-        ariaLabel: `Mark the oldest unpaid ${bill.name} payment as paid`,
-        run: () => {
-          const target = oldestUnpaidOccurrence(bill, shiftDateKey(todayKey(), -1));
-          if (target) toggleBillPaid(bill.id, target, true);
-        },
-      }));
-    });
-
-    dueSoonBills.forEach(({ bill, dateKey }) => {
-      billsList.appendChild(makeHomeRow(() => goToTab('budget'), (btn) => {
-        const name = document.createElement('strong');
-        name.className = 'bill-name';
-        name.textContent = bill.name;
-        const due = document.createElement('span');
-        due.className = 'bill-due';
-        due.textContent = `$${bill.amount.toFixed(2)} due ${dateKey}${bill.autopay ? ' \u00b7 autopay' : ''}`;
-        btn.append(name, due);
-      }, {
-        label: 'Mark paid',
-        ariaLabel: `Mark ${bill.name} due ${dateKey} as paid`,
-        run: () => toggleBillPaid(bill.id, dateKey, true),
-      }));
-    });
 
     [...overdueTodos, ...dueSoonTodos].forEach((todo) => {
       todoList.appendChild(makeHomeRow(() => goToTab('todo'), (btn) => {
@@ -6916,7 +5074,6 @@ function renderHome() {
   } else {
     statsEl.hidden = true;
     emptyEl.hidden = false;
-    billsPanel.hidden = true;
     todoPanel.hidden = true;
   }
 
@@ -6994,9 +5151,6 @@ const SYNC_COLLECTIONS = [
   { name: 'shoppingList', label: 'Shopping List', key: SHOPPING_KEY, get: () => shoppingItems, set: (v) => { shoppingItems = v; }, render: renderShoppingList, delete: deleteShoppingItem, restore: restoreShoppingItem },
   { name: 'notes', label: 'Notes', key: NOTES_KEY, get: () => notes, set: (v) => { notes = v; }, render: renderNotes, delete: deleteNote, restore: restoreNote },
   { name: 'links', label: 'Resume', key: LINKS_KEY, get: () => links, set: (v) => { links = v; }, render: renderLinks, delete: deleteLink, restore: restoreLink },
-  { name: 'bills', label: 'Bills', key: BILLS_KEY, get: () => bills, set: (v) => { bills = v; }, render: renderBudget, delete: deleteBill, restore: restoreBill },
-  { name: 'income', label: 'Income', key: INCOME_KEY, get: () => income, set: (v) => { income = v; }, render: renderBudget, delete: deleteIncome, restore: restoreIncome },
-  { name: 'recurringIncome', label: 'Recurring Income', key: RECURRING_INCOME_KEY, get: () => recurringIncome, set: (v) => { recurringIncome = v; }, render: renderBudget, delete: deleteRecurringIncome, restore: restoreRecurringIncome },
 ];
 
 // ---- Undo/redo application mechanics ----
@@ -7096,8 +5250,7 @@ function redo() {
 // Which field names a record in each collection (used in the Undo/Redo tooltips).
 const RECORD_LABEL_FIELD = {
   books: 'title', recipes: 'title', medications: 'name', diagnoses: 'condition',
-  todos: 'task', shoppingList: 'item', notes: 'title', links: 'label', bills: 'name',
-  income: 'dateKey', recurringIncome: 'name', weights: 'date',
+  todos: 'task', shoppingList: 'item', notes: 'title', links: 'label', weights: 'date',
 };
 
 // Plain-English summary of an undo entry, e.g. "deleted 'Dune'", for the button tooltips.
@@ -7194,10 +5347,14 @@ function loadSyncSnapshot() {
     const raw = localStorage.getItem(SYNC_SNAPSHOT_KEY);
     const parsed = raw ? JSON.parse(raw) : null;
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      if ('courses' in parsed || 'deadlines' in parsed || 'appointments' in parsed) {
+      // Lists this app no longer syncs (Budget moved to its own app) are dropped from the bookkeeping.
+      if ('courses' in parsed || 'deadlines' in parsed || 'appointments' in parsed || 'bills' in parsed || 'income' in parsed || 'recurringIncome' in parsed) {
         delete parsed.courses;
         delete parsed.deadlines;
         delete parsed.appointments;
+        delete parsed.bills;
+        delete parsed.income;
+        delete parsed.recurringIncome;
         saveSyncSnapshot(parsed);
       }
       return parsed;
@@ -7536,14 +5693,12 @@ function initSyncUI() {
 // discard a record, treat a byte-for-byte replay as a no-op, and keep both
 // sides on a genuine conflict rather than picking a winner.
 
-// The full backup: everything that syncs, plus the two things that only live on this device (the
-// journal and the pay-period settings), kept under `local` so they stay out of syncing.
+// The full backup: everything that syncs, plus the things that only live on this device (the
+// journal and the weight and reading goals), kept under `local` so they stay out of syncing.
 function buildExportPayload() {
   const collections = {};
   SYNC_COLLECTIONS.forEach((c) => { collections[c.name] = c.get(); });
   const local = { journal: journalEntries.slice() };
-  const payday = loadPaydaySettings();
-  if (payday.payDateKey) local.paydaySettings = payday;
   const goal = loadWeightGoal();
   if (goal !== null) local.weightGoal = goal;
   if (Object.keys(loadReadingGoals()).length > 0) local.readingGoals = loadReadingGoals();
@@ -7555,7 +5710,7 @@ function todayForFilename() {
   return todayKey(); // local date, like the rest of the app (not the UTC date)
 }
 
-// Downloads the full backup (all lists plus the journal and payday settings) as one JSON file.
+// Downloads the full backup (all lists plus the journal and goals) as one JSON file.
 function exportData() {
   recordBackupTime(EXPORT_AT_KEY);
   const json = JSON.stringify(buildExportPayload(), null, 2);
@@ -7604,15 +5759,9 @@ function deepEqual(a, b) {
 // data, not bookkeeping.
 const BOOKKEEPING_FIELDS = new Set(['version', 'updatedAt', 'deviceId']);
 
-// Per-collection extra bookkeeping fields, beyond the universal set above.
-// `income` uses id = dateKey (not a fresh UUID like every other collection)
-// specifically so two devices independently entering the same date's income
-// converge onto one record instead of duplicating — dateAdded differing
-// between two independently-created same-dateKey records is the expected
-// normal case here, not an anomaly, unlike every other collection where a
-// dateAdded mismatch on a shared id is a real red flag worth surfacing. See
-// docs/research/sync-version-inflation-bug.md.
-const EXTRA_BOOKKEEPING_FIELDS_BY_COLLECTION = { income: new Set(['dateAdded']) };
+// Per-collection extra bookkeeping fields, beyond the universal set above. None of the lists in
+// this app need any (Budget's `income` list, which did, now lives in the Budget app).
+const EXTRA_BOOKKEEPING_FIELDS_BY_COLLECTION = {};
 
 // Port of sync_server.py's _content_matches(): true if two records
 // describe the same real-world data — i.e. this import record is a
@@ -7716,21 +5865,6 @@ function mergeCollectionFromImport(localItems, importedItems, collectionName) {
       return;
     }
 
-    // Income is one entry per date (the id is the date): the most recently edited wins instead
-    // of creating a second entry, which would count the money twice.
-    if (collectionName === 'income') {
-      if ((incoming.updatedAt || '') > (existing.updatedAt || '')) {
-        const index = localItems.findIndex((item) => item.id === incoming.id);
-        const record = { ...incoming, version: existing.version };
-        localItems[index] = record;
-        byId.set(record.id, record);
-        updated += 1;
-      } else {
-        unchanged += 1;
-      }
-      return;
-    }
-
     const record = { ...incoming, id: makeId() };
     localItems.push(record);
     byId.set(record.id, record);
@@ -7750,11 +5884,8 @@ function setDataIoStatus(text, tone) {
   el.classList.toggle('sync-failed', tone === 'failed');
 }
 
-// The repeat options a bill from an import file may have (recurring income additionally rejects 'one_time').
-const IMPORT_FREQUENCIES = ['one_time', 'weekly', 'biweekly', 'monthly', 'yearly'];
-
-// Rejects records whose types would crash rendering later (e.g. a bill whose
-// amount is the string "1200" throws in toFixed on every page load).
+// Rejects records whose types would crash rendering later (e.g. a weight that is
+// not a number throws on every page load).
 function isValidImportRecord(collectionName, rec) {
   if (!rec || typeof rec !== 'object' || typeof rec.id !== 'string' || !rec.id) return false;
   const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
@@ -7762,7 +5893,6 @@ function isValidImportRecord(collectionName, rec) {
   const isText = (v) => typeof v === 'string';
   const textOrMissing = (v) => v === undefined || v === null || typeof v === 'string';
   const listOrMissing = (v) => v === undefined || (Array.isArray(v) && v.every((x) => typeof x === 'string'));
-  if (collectionName === 'bills') return isText(rec.name) && textOrMissing(rec.category) && listOrMissing(rec.paidDates) && isNum(rec.amount) && isDate(rec.dueDate) && IMPORT_FREQUENCIES.includes(rec.frequency) && (rec.autopay === undefined || typeof rec.autopay === 'boolean');
   if (collectionName === 'books') return isText(rec.title) && textOrMissing(rec.author) && BOOK_STATUSES.includes(rec.status) && (rec.rating == null || (Number.isInteger(rec.rating) && rec.rating >= 0 && rec.rating <= 5)) && (rec.dateFinished == null || isDate(rec.dateFinished));
   if (collectionName === 'recipes') return isText(rec.title) && listOrMissing(rec.ingredients) && listOrMissing(rec.steps);
   if (collectionName === 'diagnoses') return isText(rec.condition) && DIAGNOSIS_STATUSES.includes(rec.status);
@@ -7770,8 +5900,6 @@ function isValidImportRecord(collectionName, rec) {
   if (collectionName === 'shoppingList') return isText(rec.item) && textOrMissing(rec.category) && textOrMissing(rec.quantity);
   if (collectionName === 'notes') return textOrMissing(rec.title) && textOrMissing(rec.body);
   if (collectionName === 'links') return textOrMissing(rec.label) && textOrMissing(rec.url);
-  if (collectionName === 'recurringIncome') return isText(rec.name) && textOrMissing(rec.category) && isNum(rec.amount) && isDate(rec.dueDate) && IMPORT_FREQUENCIES.includes(rec.frequency) && rec.frequency !== 'one_time';
-  if (collectionName === 'income') return isNum(rec.amount) && isDate(rec.dateKey);
   if (collectionName === 'medications') return isText(rec.name) && (rec.takenDates === undefined || Array.isArray(rec.takenDates));
   if (collectionName === 'weights') return isNum(rec.weight) && rec.weight > 0 && rec.weight <= WEIGHT_MAX && isDate(rec.date);
   return true;
@@ -7821,7 +5949,8 @@ function importData(parsed) {
     summaries.push(`${parts.join(', ')} in ${c.label}`);
   });
 
-  // Step 3: the journal and pay-period settings (only present in a full backup made by this version or later).
+  // Step 3: the journal and goals (only present in a full backup made by this version or later). Lists from
+  // older exports that this app no longer has (bills, income, recurringIncome) are ignored and never stored.
   const localPart = parsed && typeof parsed === 'object' && parsed.local && typeof parsed.local === 'object' ? parsed.local : null;
   if (localPart) {
     if (Array.isArray(localPart.journal)) {
@@ -7848,18 +5977,6 @@ function importData(parsed) {
         anyChanged = true;
         summaries.push('reading goals');
       }
-    }
-    const saved = localPart.paydaySettings;
-    if (saved && isRealDateKey(saved.payDateKey) && PAY_PERIOD_FREQUENCIES.includes(saved.frequency) && !loadPaydaySettings().payDateKey) {
-      // Only fills in settings this device doesn't have yet; it never overwrites your current ones.
-      savePaydaySettings({ payDateKey: saved.payDateKey, frequency: saved.frequency });
-      const dateInput = document.getElementById('payday-date-input');
-      const frequencyInput = document.getElementById('payday-frequency-input');
-      if (dateInput) dateInput.value = saved.payDateKey;
-      if (frequencyInput) frequencyInput.value = saved.frequency;
-      safeRender(renderBudget);
-      anyChanged = true;
-      summaries.push('pay-period settings');
     }
   }
 
@@ -7913,8 +6030,7 @@ function refreshForNewDay() {
   const now = todayKey();
   if (now === lastRenderedDayKey) return;
   lastRenderedDayKey = now;
-  reminderBannerDismissed = false; // a new day can bring new due/overdue bills
-  [renderBudget, renderTodos, renderMedications, renderHome].forEach(safeRender);
+  [renderTodos, renderMedications, renderHome].forEach(safeRender);
 }
 
 setInterval(refreshForNewDay, 60000);
@@ -7926,7 +6042,7 @@ document.addEventListener('visibilitychange', () => {
 
 // The build number shown in the Menu. Keep it equal to the number in CACHE_NAME in sw.js
 // (a test checks this), so "which version am I on?" has a one-glance answer.
-const APP_VERSION = 67;
+const APP_VERSION = 68;
 const THEME_KEY = 'secondMemory.theme.v1';
 const THEMES = ['auto', 'light', 'dark'];
 
@@ -8373,7 +6489,7 @@ if (loadLock()) lockNow(); // a locked app opens locked (the lock screen is alre
 
 [
   renderBooks, renderRecipes, renderMedications, renderDiagnoses, renderWeights, renderJournal,
-  renderTodos, renderShoppingList, renderNotes, renderLinks, renderBudget,
+  renderTodos, renderShoppingList, renderNotes, renderLinks,
 ].forEach(safeRender);
 updateUndoRedoButtons();
 setActiveTab(loadUiState().activeTab || 'home');
