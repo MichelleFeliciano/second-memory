@@ -332,6 +332,7 @@ function migrateSyncFields(items, key, deviceId) {
   let changed = false;
   items.forEach((item) => {
     if (!('updatedAt' in item)) {
+      // Oldest records only had dateModified (Notes) or dateAdded; reuse whichever exists.
       item.updatedAt = item.dateModified || item.dateAdded;
       changed = true;
     }
@@ -432,10 +433,12 @@ function setActiveTab(tab) {
   }
 }
 
+// Sidebar buttons: each switches to its screen.
 document.querySelectorAll('.nav-item').forEach((btn) => {
   btn.addEventListener('click', () => setActiveTab(btn.dataset.tab));
 });
 
+// Phone menu button: opens/closes the sidebar and tells screen readers which state it is in.
 const sidebarToggleBtn = document.getElementById('sidebar-toggle');
 if (sidebarToggleBtn) {
   sidebarToggleBtn.addEventListener('click', () => {
@@ -451,7 +454,7 @@ const BOOKS_KEY = 'secondMemory.books.v1';
 // Shelves that count as "finished" for the reading goal and get a finished date.
 const READ_STATUSES = ['owned_read', 'jons_bookshelf_read'];
 // Every shelf a book can be on; stored in each book's status field (also the order of the columns).
-const BOOK_STATUSES =['want_to_buy', 'owned_unread', 'currently_reading', 'owned_read', 'textbook', 'textbook_read', 'jons_bookshelf', 'jons_bookshelf_read'];
+const BOOK_STATUSES = ['want_to_buy', 'owned_unread', 'currently_reading', 'owned_read', 'textbook', 'textbook_read', 'jons_bookshelf', 'jons_bookshelf_read'];
 
 // The only address the app ever talks to, and only when the user presses "Sync now".
 const SYNC_SERVER_URL = 'https://second-memory-mwm3.onrender.com';
@@ -701,6 +704,7 @@ function renderBooks() {
 
   renderBooksStats(nonDeleted);
 
+  // One <ul> per shelf, in BOOK_STATUSES order (index-matched with the forEach below).
   const lists = BOOK_STATUSES.map((status) => document.querySelector(`[data-list="${status}"]`));
 
   // Read any in-progress (unsaved) edit straight from the live DOM, across
@@ -744,6 +748,7 @@ function renderBooks() {
         finishedEl.textContent = `Finished ${formatDateKeyLong(book.dateFinished)}`;
         finishedEl.hidden = false;
       }
+      // The finished-date box only exists in the edit form of books on a read shelf.
       const finishedField = node.querySelector('.book-edit-finished-field');
       const showFinished = READ_STATUSES.includes(book.status);
       finishedField.hidden = !showFinished;
@@ -752,6 +757,7 @@ function renderBooks() {
       const ratingSelect = node.querySelector('.rating-select');
       const ratingDisplay = node.querySelector('.book-rating');
 
+      // Only the plain "read" shelf is rated (moving off it clears the rating).
       if (status === 'owned_read') {
         ratingLabel.hidden = false;
         ratingSelect.value = book.rating ? String(book.rating) : '';
@@ -832,6 +838,7 @@ function renderBooks() {
   renderHome(); // Home aggregates books/todos/medications — keep this in sync
 }
 
+// Add book: clears the title/author boxes only if it was saved (keeps the chosen shelf for the next one).
 document.getElementById('books-add-form').addEventListener('submit', (e) => {
   e.preventDefault();
   const titleInput = document.getElementById('books-title-input');
@@ -844,8 +851,10 @@ document.getElementById('books-add-form').addEventListener('submit', (e) => {
   titleInput.focus();
 });
 
+// Search box: filters the cards as you type.
 document.getElementById('books-search-input').addEventListener('input', renderBooks);
 
+// Sort dropdown: remembers the choice and redraws.
 document.getElementById('books-sort-input').addEventListener('change', (e) => {
   selectedBooksSort = e.target.value;
   renderBooks();
@@ -863,7 +872,11 @@ let recipes = migrateSyncFields(loadCollection(RECIPES_KEY), RECIPES_KEY, getDev
 // left alone. The chosen scale is remembered per recipe only while the app is open.
 
 const recipeScales = new Map(); // recipe id -> factor (1 when absent)
+// Values of the single-character fractions (1/4, 1/2, 3/4, 1/3, 2/3, 1/8, 3/8, 5/8, 7/8).
 const FRACTION_SYMBOLS = { '\u00bc': 0.25, '\u00bd': 0.5, '\u00be': 0.75, '\u2153': 1 / 3, '\u2154': 2 / 3, '\u215b': 0.125, '\u215c': 0.375, '\u215d': 0.625, '\u215e': 0.875 };
+// One amount, longest forms first so "1 1/2" is not read as just "1": whole + symbol, 1-1/2, 1 1/2,
+// 1/2, 1.5, 1, or a lone symbol. QTY_RE adds an optional list marker ("- ", "1. ") in front and an
+// optional "-"/"to" range ("2-3", "1 to 2") after it.
 const QTY_PART = '\\d+\\s*[\u00bc\u00bd\u00be\u2153\u2154\u215b\u215c\u215d\u215e]|\\d+-\\d+\\/\\d+|\\d+\\s+\\d+\\/\\d+|\\d+\\/\\d+|\\d+\\.\\d+|\\d+|[\u00bc\u00bd\u00be\u2153\u2154\u215b\u215c\u215d\u215e]';
 const QTY_RE = new RegExp(`^(\\s*(?:[-*\u2022]\\s+|\\d+[.)]\\s+)?)(${QTY_PART})(?:(\\s*(?:-|\u2013|to)\\s*)(${QTY_PART}))?`);
 
@@ -888,6 +901,7 @@ function formatQuantity(x) {
   if (Math.abs(x - Math.round(x)) < 0.01) return String(Math.round(x));
   const whole = Math.floor(x);
   const frac = x - whole;
+  // Snap the leftover fraction to the nearest kitchen fraction if it is within 0.04, else show decimals.
   const choices = [[1 / 8, '1/8'], [1 / 4, '1/4'], [1 / 3, '1/3'], [3 / 8, '3/8'], [1 / 2, '1/2'], [5 / 8, '5/8'], [2 / 3, '2/3'], [3 / 4, '3/4'], [7 / 8, '7/8']];
   const best = choices.reduce((a, b) => (Math.abs(b[0] - frac) < Math.abs(a[0] - frac) ? b : a));
   if (Math.abs(best[0] - frac) <= 0.04) return whole > 0 ? `${whole} ${best[1]}` : best[1];
@@ -945,6 +959,7 @@ async function requestCookWakeLock() {
   const note = document.getElementById('cook-awake');
   try {
     if ('wakeLock' in navigator) {
+      // Drop any lock we still hold before asking again (e.g. after the page was hidden and shown).
       if (cookWakeLock) { cookWakeLock.release().catch(() => {}); cookWakeLock = null; }
       const lock = await navigator.wakeLock.request('screen');
       if (!cookState) { lock.release().catch(() => {}); return; } // closed while we were waiting
@@ -1009,6 +1024,7 @@ function cookStepBy(delta) {
   renderCookStep();
 }
 
+// Next / Back / Close buttons of cook mode.
 document.getElementById('cook-next').addEventListener('click', () => cookStepBy(1));
 document.getElementById('cook-prev').addEventListener('click', () => cookStepBy(-1));
 document.getElementById('cook-close').addEventListener('click', closeCookMode);
@@ -1017,6 +1033,7 @@ document.addEventListener('keydown', (e) => {
   if (!cookState) return;
   if (e.key === 'Tab') {
     const overlay = document.getElementById('cook-mode');
+    // Wrap Tab / Shift+Tab around the first and last control so focus can't reach the page behind.
     const focusable = [...overlay.querySelectorAll('button:not(:disabled), summary')];
     if (focusable.length === 0) return;
     const first = focusable[0];
@@ -1349,6 +1366,7 @@ function renderRecipes() {
   document.getElementById('recipes-empty-state').hidden = nonDeleted.length !== 0;
 }
 
+// Add recipe: clears every box only if it was saved (a blank title keeps what was typed).
 document.getElementById('recipes-add-form').addEventListener('submit', (e) => {
   e.preventDefault();
   const titleInput = document.getElementById('recipes-title-input');
@@ -1366,8 +1384,10 @@ document.getElementById('recipes-add-form').addEventListener('submit', (e) => {
   titleInput.focus();
 });
 
+// Search box: filters the cards as you type.
 document.getElementById('recipes-search-input').addEventListener('input', renderRecipes);
 
+// Sort dropdown: remembers the choice and redraws.
 document.getElementById('recipes-sort-input').addEventListener('change', (e) => {
   selectedRecipesSort = e.target.value;
   renderRecipes();
@@ -1426,6 +1446,7 @@ function flushMedDateUndo() {
   pendingMedDateUndo = null;
   const med = medications.find((m) => m.id === id);
   if (!med) return;
+  // Typing and then restoring the same date leaves nothing worth undoing.
   if (before.startDate === med.startDate && before.refillDate === med.refillDate) return;
   recordUndo('medications', id, before, structuredClone(med));
 }
@@ -1465,6 +1486,7 @@ function medicationTakenSummary(med) {
   const taken = new Set(days);
   const today = todayKey();
   const takenToday = taken.has(today);
+  // Not ticked yet today doesn't break the streak: count back from yesterday instead.
   let cursor = takenToday ? today : shiftDateKey(today, -1);
   let streak = 0;
   while (taken.has(cursor)) {
@@ -1489,8 +1511,7 @@ function toggleMedicationTaken(id, dateKey) {
   stampSync(med);
   saveCollection(MEDICATIONS_KEY, medications);
   recordUndo('medications', id, before, structuredClone(med));
-  renderMedications();
-  renderHome();
+  renderMedications(); // also redraws Home
 }
 
 // Sets the "Taken today" button and the note beside it (streak, or when it was last taken).
@@ -1772,6 +1793,7 @@ function renderMedications() {
   renderHome(); // Home shows upcoming refills -- keep this in sync
 }
 
+// Add medication: shows the error under the form and keeps what was typed if it was refused.
 document.getElementById('medications-add-form').addEventListener('submit', (e) => {
   e.preventDefault();
   const nameInput = document.getElementById('medications-name-input');
@@ -1810,8 +1832,10 @@ document.getElementById('medications-add-form').addEventListener('submit', (e) =
   nameInput.focus();
 });
 
+// Search box: filters the cards as you type.
 document.getElementById('medications-search-input').addEventListener('input', renderMedications);
 
+// Sort dropdown: remembers the choice and redraws.
 document.getElementById('medications-sort-input').addEventListener('change', (e) => {
   selectedMedicationsSort = e.target.value;
   renderMedications();
@@ -1947,6 +1971,7 @@ function renderWeights() {
   const list = document.getElementById('weight-list');
   if (!list) return;
 
+  // Remember an edit form that is open (with its unsaved typing) so the redraw below doesn't lose it.
   const openForm = list.querySelector('.weight-edit-form:not([hidden])');
   const openEdit = openForm
     ? {
@@ -2120,13 +2145,15 @@ function drawWeightChart(svg, points, goal) {
   const values = points.map((p) => p.weight).concat(goal ? [goal] : []);
   let min = Math.min(...values);
   let max = Math.max(...values);
+  // Give a flat series some height (so it isn't a line along the edge), then add 8% padding top and bottom.
   if (max - min < 2) { min -= 1; max += 1; }
   const pad = (max - min) * 0.08;
   min -= pad;
   max += pad;
+  // Dots are spaced by real calendar days, not evenly, so gaps in weighing show as gaps.
   const days = points.map((p) => epochDays(p.date));
   const firstDay = days[0];
-  const span = Math.max(1, days[days.length - 1] - firstDay);
+  const span = Math.max(1, days[days.length - 1] - firstDay); // never 0: avoids dividing by zero when all dots share a day
   const x = (i) => (points.length === 1 ? (left + W - right) / 2 : left + ((days[i] - firstDay) / span) * (W - left - right));
   const y = (v) => top + (1 - (v - min) / (max - min)) * (H - top - bottom);
 
@@ -2338,7 +2365,7 @@ function matchesDiagnosisSearch(diagnosis, term) {
   return haystack.includes(term.toLowerCase());
 }
 
-// 'condition_asc' is the proposed default.
+// Alphabetical by condition is the default order.
 let selectedDiagnosesSort = 'condition_asc';
 
 const DIAGNOSIS_SORTS = {
@@ -2356,6 +2383,7 @@ function renderDiagnoses() {
 
   const lists = DIAGNOSIS_STATUSES.map((status) => document.querySelector(`[data-diagnosis-list="${status}"]`));
 
+  // Remember the one open edit form (with unsaved typing) across all three status lists.
   let openEdit = null;
   for (const list of lists) {
     const openForm = list.querySelector('.diagnosis-edit-form:not([hidden])');
@@ -2374,6 +2402,7 @@ function renderDiagnoses() {
   DIAGNOSIS_STATUSES.forEach((status, index) => {
     const list = lists[index];
     list.innerHTML = '';
+    // A stored diagnosis with an unknown status is shown under Active rather than vanishing.
     const items = visible.filter((d) => (DIAGNOSIS_STATUSES.includes(d.status) ? d.status : 'active') === status).sort(comparator);
     document.querySelector(`[data-diagnosis-count="${status}"]`).textContent = items.length;
 
@@ -2503,6 +2532,7 @@ function cleanRepeat(value) {
 function stepRepeatDate(dateKey, repeat, anchorDay) {
   if (repeat === 'daily') return shiftDateKey(dateKey, 1);
   if (repeat === 'weekly') return shiftDateKey(dateKey, 7);
+  // Monthly: count months as one number so December rolls into January of the next year.
   const { y, m } = parseDateKey(dateKey);
   const total = y * 12 + m + 1;
   const ny = Math.floor(total / 12);
@@ -2517,7 +2547,7 @@ function stepRepeatDate(dateKey, repeat, anchorDay) {
 // 31st goes Feb 28, then back to Mar 31, rather than staying on the 28th for good.
 function nextRepeatDate(dueDate, repeat, anchorDay) {
   const today = todayKey();
-  const base = dueDate || today;
+  const base = isRealDateKey(dueDate) ? dueDate : today; // an unreadable imported date must not produce "NaN-NaN-NaN"
   const anchor = anchorDay || parseDateKey(base).d;
   if (repeat === 'daily' || repeat === 'weekly') {
     // Jump straight past today in whole steps (no loop, so a chore years overdue is still fine).
@@ -2525,6 +2555,7 @@ function nextRepeatDate(dueDate, repeat, anchorDay) {
     const late = epochDays(today) - epochDays(base);
     return shiftDateKey(base, (Math.max(0, Math.floor(late / step)) + 1) * step);
   }
+  // Monthly: keep stepping until the date is in the future (the cap only guards against a runaway loop).
   let next = stepRepeatDate(base, repeat, anchor);
   for (let i = 0; i < 1200 && next <= today; i++) next = stepRepeatDate(next, repeat, anchor);
   return next;
@@ -2578,6 +2609,7 @@ function toggleTodoCompleted(id, completed) {
   todo.completed = completed;
   let child = null;
   let removed = null;
+  // Ticking a repeating to-do spawns the next one, unless the one it spawned earlier still exists.
   if (completed && cleanRepeat(todo.repeat) && !liveTodo(todo.spawnedId)) {
     const now = new Date().toISOString();
     child = {
@@ -2695,8 +2727,7 @@ function renderTodoCompletedFilters() {
   );
 }
 
-// 'due_date_asc' is the proposed default — it has the side effect of
-// surfacing overdue to-dos (dueDate < today) at the top, for free.
+// 'due_date_asc' is the default; as a side effect it puts overdue to-dos (dueDate < today) first.
 let selectedTodoSort = 'due_date_asc';
 
 const TODO_SORTS = {
@@ -2710,6 +2741,7 @@ const TODO_SORTS = {
 function renderTodos() {
   const searchTerm = document.getElementById('todo-search-input').value;
   renderTodoCompletedFilters();
+  // Pipeline: drop deleted, then apply search, then the All/Active/Completed chip, then sort.
   const comparator = TODO_SORTS[selectedTodoSort] || TODO_SORTS.due_date_asc;
   const visible = todos
     .filter((t) => !t.deleted)
@@ -2719,6 +2751,7 @@ function renderTodos() {
   const list = document.getElementById('todo-list');
   const template = document.getElementById('todo-card-template');
 
+  // Remember an open edit form (with unsaved typing) so the redraw doesn't lose it.
   const openForm = list.querySelector('.todo-edit-form:not([hidden])');
   const openEdit = openForm
     ? {
@@ -2987,6 +3020,7 @@ function renderShoppingList() {
   const list = document.getElementById('shopping-list');
   const template = document.getElementById('shopping-card-template');
 
+  // Remember an open edit form (with unsaved typing) so the redraw doesn't lose it.
   const openForm = list.querySelector('.shopping-edit-form:not([hidden])');
   const openEdit = openForm
     ? {
@@ -3182,9 +3216,8 @@ function noteBodySnippet(body, length = 150) {
   return trimmed.length > length ? `${trimmed.slice(0, length)}…` : trimmed;
 }
 
-// 'date_modified_desc' is the proposed default — Notes already surfaces
-// dateModified prominently in the UI ("Updated {date}"), so recency-of-edit
-// is the natural default.
+// 'date_modified_desc' is the default: each card shows "Updated {date}", so most recently
+// edited first is the natural order.
 let selectedNotesSort = 'date_modified_desc';
 
 const NOTE_SORTS = {
@@ -3240,7 +3273,10 @@ function renderNotes() {
     }
     previewEl.textContent = noteBodySnippet(note.body);
 
-    node.querySelector('.note-modified').textContent = `Updated ${new Date(note.dateModified).toLocaleString()}`;
+    // Older or hand-made records may lack dateModified; fall back to the other stamps rather than
+    // printing "Invalid Date".
+    const modified = new Date(note.dateModified || note.updatedAt || note.dateAdded);
+    node.querySelector('.note-modified').textContent = Number.isNaN(modified.getTime()) ? '' : `Updated ${modified.toLocaleString()}`;
 
     const editTitleInput = node.querySelector('.note-edit-title');
     const editBodyInput = node.querySelector('.note-edit-body');
@@ -3328,7 +3364,7 @@ const LINKS_KEY = 'secondMemory.links.v1';
 
 let links = migrateSyncFields(loadCollection(LINKS_KEY), LINKS_KEY, getDeviceId());
 
-// Adds a saved link (label, address, notes); a link needs a label or an address.
+// Adds a saved link (label, address, notes); both the label and the address are required.
 function addLink(label, url, notes) {
   const trimmedLabel = label.trim();
   const trimmedUrl = url.trim();
@@ -3433,6 +3469,7 @@ function renderLinks() {
   const list = document.getElementById('resume-list');
   const template = document.getElementById('resume-card-template');
 
+  // Remember an open edit form (with unsaved typing) so the redraw doesn't lose it.
   const openForm = list.querySelector('.link-edit-form:not([hidden])');
   const openEdit = openForm
     ? {
@@ -4171,6 +4208,7 @@ function averageOf(points) {
 // With at least 4 ratings, compare the average of the later half to the earlier half.
 function trendDirection(points) {
   if (points.length < 4) return '';
+  // Compare equal-sized halves (the middle point of an odd count is left out); half a rating point counts as a real shift.
   const mid = Math.floor(points.length / 2);
   const diff = averageOf(points.slice(-mid)) - averageOf(points.slice(0, mid));
   if (diff >= 0.5) return ', trending up';
@@ -4193,13 +4231,17 @@ function epochDays(dateKey) {
 
 // Draws the 1-5 rating line chart as inline SVG: grid and labels first, then each series' line and dots.
 function drawTrendChart(container, seriesPoints) {
+  // Drawing area in SVG units (the SVG scales to its box); left/bottom leave room for the labels.
   const W = 640, H = 200, left = 30, right = 14, top = 12, bottom = 28;
   const all = seriesPoints.flatMap((s) => s.points);
+  // x spaces points by real calendar days (a gap of a month looks like a month); a single day sits in the middle.
   const minDay = Math.min(...all.map((pt) => epochDays(pt.date)));
   const maxDay = Math.max(...all.map((pt) => epochDays(pt.date)));
   const x = (date) => (maxDay === minDay ? (left + W - right) / 2 : left + ((epochDays(date) - minDay) / (maxDay - minDay)) * (W - left - right));
+  // y: rating 5 at the top, 1 at the bottom.
   const y = (value) => top + ((5 - value) / 4) * (H - top - bottom);
 
+  // The chart is a picture to a screen reader, so its title spells out every point.
   const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img' });
   const summary = seriesPoints.map((s) => `${s.label}: ${s.points.map((pt) => `${pt.date} ${pt.value}`).join(', ')}`).join('. ');
   svg.appendChild(svgEl('title', {})).textContent = `Ratings from 1 to 5 over time. ${summary}`;
@@ -4210,6 +4252,7 @@ function drawTrendChart(container, seriesPoints) {
     label.textContent = String(v);
     svg.appendChild(label);
   }
+  // Date labels under the first and last points (only one, centred, when every point is on the same day).
   const firstDate = all.reduce((min, pt) => (pt.date < min ? pt.date : min), all[0].date);
   const lastDate = all.reduce((max, pt) => (pt.date > max ? pt.date : max), all[0].date);
   [[firstDate, maxDay === minDay ? 'middle' : 'start'], [lastDate, 'end']].forEach(([date, anchor], i) => {
@@ -4732,8 +4775,8 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ---- Backup reminders ----
-// The server keeps daily restore points of everything that syncs. These are
-// the two things only this device holds: the journal, and a full download.
+// The sync server's copy is only a temporary convenience (it can reset), so the real backups
+// are downloads: the journal file (which only this device holds) and the full export.
 // Browsers can't write files in the background, so the app tracks the last
 // download and nags when it is overdue.
 
@@ -4792,7 +4835,7 @@ function renderBackupNotes() {
   const exportDays = daysSinceBackup(EXPORT_AT_KEY);
   if (hasAnyData && (exportDays === null || exportDays >= EXPORT_DUE_DAYS)) {
     reminders.push({
-      text: `You haven't downloaded a full backup of everything ${exportDays === null ? 'yet' : `in ${exportDays} days`}. It includes your journal. Your synced data is also kept safe on the server.`,
+      text: `You haven't downloaded a full backup of everything ${exportDays === null ? 'yet' : `in ${exportDays} days`}. It includes your journal. Synced lists are also copied to the sync server, but that copy can be reset.`,
       label: 'Download full backup',
       action: exportData,
     });
@@ -4869,6 +4912,7 @@ function searchSnippet(values, needle) {
     const text = String(value || '');
     const at = text.toLowerCase().indexOf(needle);
     if (at === -1) continue;
+    // Show a little context: 30 characters before the match, 50 after.
     const start = Math.max(0, at - 30);
     const end = Math.min(text.length, at + needle.length + 50);
     return {
@@ -4889,8 +4933,9 @@ function runGlobalSearch(term, includeJournal) {
   sources.forEach((source) => {
     const hits = [];
     source.items().forEach((item) => {
-      if (item.deleted) return;
+      if (item.deleted) return; // removed records stay in the list as tombstones
       const values = source.fields(item);
+      // Match against all the fields joined by spaces, like each tab's own search box does.
       const haystack = values.map((v) => String(v || '')).join(' ').toLowerCase();
       if (!haystack.includes(needle)) return;
       hits.push({ title: source.title(item), snippet: searchSnippet(values, needle) });
@@ -4979,6 +5024,9 @@ function renderGlobalSearch() {
   });
 }
 
+// Search results are a snapshot, so redraw them when Home is opened again (an item may have been
+// deleted or edited on another tab meanwhile) and whenever Home itself is redrawn (see renderHome).
+document.querySelector('.nav-item[data-tab="home"]').addEventListener('click', renderGlobalSearch);
 document.getElementById('global-search-input').addEventListener('input', renderGlobalSearch);
 document.getElementById('global-search-journal').addEventListener('change', renderGlobalSearch);
 document.getElementById('global-search-input').addEventListener('keydown', (e) => {
@@ -5002,10 +5050,8 @@ function computeHomeTodos(nonDeletedTodos) {
     .filter((t) => !t.completed && isTodoOverdue(t))
     .sort(compareByField((t) => t.dueDate, 1, { text: false }));
 
-  // Local-date math on both sides (isTodoOverdue also uses todayKey()), so the
-  // overdue and due-soon buckets split on the same boundary. The old UTC
-  // idiom flagged a to-do due today as overdue for the evening hours in the
-  // US timezones.
+  // Local-date math on both sides (isTodoOverdue also uses todayKey()), so the overdue and
+  // due-soon buckets split on the same boundary (a UTC date would call today's to-dos overdue in the evening).
   const dueSoonThroughKey = shiftDateKey(todayKey(), HOME_DUE_SOON_DAYS);
 
   const dueSoon = nonDeletedTodos
@@ -5040,6 +5086,7 @@ function computeCurrentlyReading(nonDeletedBooks) {
 function renderHome() {
   // Gather what to show.
   renderBackupNotes();
+  renderGlobalSearch(); // keep any open search results in step with the data
   const nonDeletedTodos = todos.filter((t) => !t.deleted);
   const nonDeletedBooks = books.filter((b) => !b.deleted);
 
@@ -5202,7 +5249,7 @@ function applyEntrySnapshot(entry, which) {
     return;
   }
 
-  if (!record) return; // defensive: id no longer exists at all — see spec §7.1
+  if (!record) return; // defensive: the record is gone entirely (records are tombstoned, never removed, so this should not happen)
 
   // Case 2: the target state is deleted. Case 3: it is live but the record is deleted, so restore it first.
   if (target.deleted && !record.deleted) {
@@ -5246,12 +5293,14 @@ function undo() {
   flushMedDateUndo();
   if (undoStack.length === 0) return;
   const entry = undoStack.pop();
+  // While true, the collection's own delete/restore must not record a new undo entry for this replay.
   isApplyingHistory = true;
   try {
     applyEntrySnapshot(entry, 'before');
   } finally {
     isApplyingHistory = false;
   }
+  // The undone change moves to the redo list (capped like the undo list).
   redoStack.push(entry);
   if (redoStack.length > MAX_UNDO_DEPTH) redoStack.shift();
   updateUndoRedoButtons();
@@ -5284,6 +5333,7 @@ function describeEntry(entry) {
   const labelField = RECORD_LABEL_FIELD[entry.collection];
   const source = entry.after || entry.before;
   const identifier = source && labelField ? source[labelField] : null;
+  // Work out the verb by comparing the two sides: no "before" means an add; a flipped `deleted` flag means delete/restore.
   let action;
   if (entry.before === null) action = 'added';
   else if (entry.after.deleted && !entry.before.deleted) action = 'deleted';
@@ -5411,9 +5461,10 @@ function syncTokenHeader(token) {
   return /^[\x20-\x7e]*$/.test(token) ? token : 'u:' + encodeURIComponent(token);
 }
 
-// A stalled connection would otherwise leave "Sync now" disabled until the browser gives up.
+// Sync timing. `let` so the tests can shorten the notice delay.
 let SYNC_WAKE_NOTICE_MS = 5000; // after this long with no answer, explain the wait
-// After SYNC_TIMEOUT_MS the request is abandoned and the sync reports a timeout.
+// A stalled connection would otherwise leave "Sync now" disabled until the browser gives up,
+// so after SYNC_TIMEOUT_MS the request is abandoned and the sync reports a timeout.
 const SYNC_TIMEOUT_MS = 60000; // generous: a sleeping free-tier server can take ~30s to wake
 
 // Sends the changed records to the server and returns { kind: 'ok', data } or a failure kind:
@@ -5645,8 +5696,8 @@ async function runSync() {
     } else {
       setSyncStatus('Synced just now', 'ok');
     }
-  // Network failures and timeouts end up here; always unlock the button afterwards.
   } catch (err) {
+    // Network failures and timeouts end up here (the finally below always unlocks the button).
     setSyncStatus(
       err && err.name === 'AbortError'
         ? 'Sync timed out. The server did not answer — tap Sync now to try again'
@@ -6041,9 +6092,15 @@ function refreshForNewDay() {
   const now = todayKey();
   if (now === lastRenderedDayKey) return;
   lastRenderedDayKey = now;
-  [renderTodos, renderMedications, renderHome].forEach(safeRender);
+  [
+    renderTodos, renderMedications, renderHome,
+    // The reading goal is for "this year", so it must roll over on 1 January too.
+    () => renderReadingGoal(books.filter((b) => !b.deleted)),
+  ].forEach(safeRender);
 }
 
+// A timer covers a tab left open overnight; visibilitychange covers a phone waking up on a new day
+// (timers are paused while the app is in the background).
 setInterval(refreshForNewDay, 60000);
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') refreshForNewDay();
@@ -6053,7 +6110,7 @@ document.addEventListener('visibilitychange', () => {
 
 // The build number shown in the Menu. Keep it equal to the number in CACHE_NAME in sw.js
 // (a test checks this), so "which version am I on?" has a one-glance answer.
-const APP_VERSION = 69;
+const APP_VERSION = 70;
 const THEME_KEY = 'secondMemory.theme.v1';
 const THEMES = ['auto', 'light', 'dark'];
 
@@ -6133,8 +6190,8 @@ function buildHealthSummaryData() {
     }),
   });
 
-  // Diagnoses, active first, then monitoring, then resolved.
-  const diags = diagnoses.filter((d) => !d.deleted)
+  // Diagnoses, active first, then monitoring, then resolved. An unknown status sorts (and prints) as active.
+  const diags =diagnoses.filter((d) => !d.deleted)
     .sort((a, b) => Math.max(0, DIAGNOSIS_STATUSES.indexOf(a.status)) - Math.max(0, DIAGNOSIS_STATUSES.indexOf(b.status))
       || String(a.condition || '').localeCompare(String(b.condition || ''), undefined, { sensitivity: 'base' }));
   sections.push({
@@ -6152,7 +6209,7 @@ function buildHealthSummaryData() {
 
   // Weight: the four figures, the goal, the 30-day change and the last five entries.
   const live = weights.filter((w) => !w.deleted);
-  const stats = computeWeightStats(live);
+  const stats = computeWeightStats(live); // null when there are no entries
   const weightLines = [];
   if (stats) {
     weightLines.push(`Most recent: ${formatWeight(stats.recent.weight)} on ${formatDateKeyLong(stats.recent.date)}`);
@@ -6163,6 +6220,7 @@ function buildHealthSummaryData() {
     if (goal !== null) weightLines.push(`Goal: ${formatWeight(goal)}`);
     const trend = weightChangeLast30(live);
     if (trend) weightLines.push(`Change over the last 30 days: ${trend.change > 0 ? '+' : ''}${trend.change.toFixed(1)} ${WEIGHT_UNIT}`);
+    // Oldest-first from the chart helper, so the last five reversed are the newest five, newest first.
     const recent = weightEntriesForChart(live, 0).slice(-5).reverse()
       .map((w) => `${formatDateKeyLong(w.date)}: ${formatWeight(w.weight)}`);
     weightLines.push(`Recent entries: ${recent.join('; ')}`);
@@ -6394,6 +6452,7 @@ function wipeDeviceData() {
 document.getElementById('lock-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const errorEl = document.getElementById('lock-error');
+  // Still in the pause after too many wrong tries: don't even check the PIN.
   if (Date.now() < lockBlockedUntil) {
     errorEl.textContent = `Too many tries. Wait ${Math.ceil((lockBlockedUntil - Date.now()) / 1000)} seconds.`;
     errorEl.hidden = false;
@@ -6415,6 +6474,7 @@ document.getElementById('lock-form').addEventListener('submit', async (e) => {
     lockFailures += 1;
     input.value = '';
     if (lockFailures >= LOCK_MAX_TRIES) {
+      // Start the pause and reset the count, so the next round of tries starts fresh after it.
       lockFailures = 0;
       lockBlockedUntil = Date.now() + LOCK_COOLDOWN_MS;
       errorEl.textContent = 'Too many tries. Wait 30 seconds.';
@@ -6493,8 +6553,9 @@ document.getElementById('lock-setup-form').addEventListener('submit', async (e) 
 // Re-lock after the app has been out of sight for a couple of minutes.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
-    lockHiddenAt = Date.now();
+    lockHiddenAt = Date.now(); // remember when it went out of sight
   } else if (lockHiddenAt !== null && Date.now() - lockHiddenAt >= LOCK_AFTER_MS) {
+    // Back in view after the grace period: lock again.
     lockNow();
   }
   if (document.visibilityState === 'visible') lockHiddenAt = null;
@@ -6509,6 +6570,7 @@ if (document.documentElement.hasAttribute('data-locked') && !loadLock()) {
 if (loadLock()) lockNow(); // a locked app opens locked (the lock screen is already showing)
 
 // ---- Init ----
+// First draw of every screen (Home is drawn by setActiveTab), then the sync controls and the service worker.
 
 [
   renderBooks, renderRecipes, renderMedications, renderDiagnoses, renderWeights, renderJournal,
@@ -6521,6 +6583,7 @@ initSyncUI();
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js').then((registration) => {
+      // Check for a newer version now and each time the app comes back to the front.
       registration.update();
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') registration.update();

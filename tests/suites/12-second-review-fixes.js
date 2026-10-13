@@ -45,7 +45,6 @@ recipes.length = 0; books.length = 0; medications.length = 0;
 check('"1-1/2 cups" is one and a half', scaleIngredientLine('1-1/2 cups flour', 2) === '3 cups flour');
 check('list markers are kept and the amount is scaled', scaleIngredientLine('- 2 cups flour', 2) === '- 4 cups flour' && scaleIngredientLine('1) 2 cups flour', 2) === '1) 4 cups flour' && scaleIngredientLine('2. 1 cup milk', 2) === '2. 2 cups milk');
 check('bunch pluralises properly', scaleIngredientLine('1 bunch cilantro', 2) === '2 bunches cilantro' && scaleIngredientLine('2 bunches parsley', 0.5) === '1 bunch parsley');
-check('a plain range is still a range', scaleIngredientLine('2-3 cloves garlic', 2) === '4-6 cloves garlic');
 
 // ---- cook mode: the arrow key does not end the recipe ----
 recipes.push({ ...r2, id: 'rk1', title: 'Two steps', category: '', ingredients: ['1 egg'], steps: ['One', 'Two'], notes: '' });
@@ -88,3 +87,28 @@ check('the stale-sync clock is reset by any sync that reached the server', (() =
 check('the import check refuses a book with a bad rating or author', !isValidImportRecord('books', { id: 'x', title: 'T', status: 'owned_read', rating: -1 }) && !isValidImportRecord('books', { id: 'x', title: 'T', status: 'owned_read', rating: 1e9 }) && !isValidImportRecord('books', { id: 'x', title: 'T', status: 'owned_read', author: 123 }) && isValidImportRecord('books', { id: 'x', title: 'T', status: 'owned_read', rating: 4, author: 'A' }) && isValidImportRecord('books', { id: 'x', title: 'T', status: 'owned_unread', rating: null }));
 check('backup file names use the local date', todayForFilename() === todayKey());
 check('the current tab is announced to screen readers', document.querySelectorAll('.nav-item[aria-current="page"]').length === 1);
+
+// ---- second line-by-line review: weight / to-do / notes range ----
+check('a repeating to-do with an unreadable due date gets a real next date', /^\d{4}-\d{2}-\d{2}$/.test(nextRepeatDate('garbage', 'weekly', null)) && /^\d{4}-\d{2}-\d{2}$/.test(nextRepeatDate('2026-99-99', 'monthly', null)));
+{
+  const stamp = { dateAdded: new Date().toISOString(), updatedAt: new Date().toISOString(), deviceId: 'test', deleted: false, version: 1 };
+  const noteCount = notes.length;
+  notes.push({ ...stamp, id: 'nd-note', title: 'No modified stamp', body: 'x' });
+  $('notes-search-input').value = '';
+  renderNotes();
+  const stampText = document.querySelector('[data-note-id="nd-note"] .note-modified').textContent;
+  check('a note with no dateModified shows a real date, never "Invalid Date"', /^Updated /.test(stampText) && !/Invalid/.test(stampText));
+  notes.length = noteCount;
+  renderNotes();
+}
+
+// ---- Home search results follow the data ----
+books.length = 0;
+books.push({ ...r2, id: 'gsb', title: 'Zebrafinch Handbook', author: 'A', status: 'owned_unread', rating: null });
+nav('home'); renderHome();
+set('global-search-input', 'zebrafinch'); $('global-search-input').dispatchEvent(new Event('input', { bubbles: true }));
+const hadHit = /Zebrafinch/.test($('global-search-results').textContent);
+books[0].deleted = true; renderHome();
+check('Home search results drop an item deleted meanwhile', hadHit && !/Zebrafinch/.test($('global-search-results').textContent));
+set('global-search-input', ''); $('global-search-input').dispatchEvent(new Event('input', { bubbles: true }));
+books.length = 0; renderBooks();

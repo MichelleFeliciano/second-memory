@@ -1,6 +1,7 @@
 // The health summary sheet and the app lock (PIN screen).
 
 // ================= health summary =================
+// Sample records: two medications (one stopped, one deleted), two diagnoses and two weights.
 const base0 = { dateAdded: new Date().toISOString(), updatedAt: new Date().toISOString(), deviceId: 'test', deleted: false, version: 0 };
 medications.length = 0; diagnoses.length = 0; weights.length = 0;
 medications.push({ ...base0, id: 'hm1', name: 'Zyrtec', dosage: '10mg', frequency: 'daily', prescribingDoctor: 'Dr. Lee', startDate: dk(-90), endDate: null, refillDate: dk(10), notes: 'with food', takenDates: [dk(0), dk(-1)] });

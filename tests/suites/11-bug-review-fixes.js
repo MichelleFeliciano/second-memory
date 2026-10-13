@@ -1,6 +1,7 @@
 // Regression tests for bugs found in the whole-code review: each check fails if its bug comes back.
 const stamp = new Date().toISOString();
-const old = '2026-01-01T00:00:00.000Z';
+const old = '2026-01-01T00:00:00.000Z'; // an old save time, so edits made "now" are clearly newer
+// the sync fields every record carries; spread into each sample record below
 const rb = { dateAdded: old, updatedAt: old, deviceId: 'test', deleted: false, version: 0 };
 
 // ---- importing an older backup never duplicates a record that was edited since ----

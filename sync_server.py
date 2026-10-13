@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """Second Memory sync server.
 
-Serves a single API endpoint, POST /api/sync, over plain HTTP. Intended to
-run on Render (Starter plan + persistent disk); Render terminates TLS at its
-edge, so this process never handles certificates itself. The app's static
-files (index.html/style.css/app.js) are hosted separately on GitHub Pages —
-this server does not serve them. Stdlib only — no pip installs.
+Serves the API endpoints POST /api/sync and POST /api/backup over plain HTTP.
+Intended to run on Render's Free plan, which has NO persistent disk: the data
+lives in a temporary folder (DATA_DIR) and is lost whenever the service sleeps
+or is redeployed. That is safe because every device keeps its own full copy
+and re-sends it on the next sync, so a wiped server simply gets refilled.
+Render terminates TLS at its edge, so this process never handles certificates
+itself. The app's static files (index.html/style.css/app.js) are hosted
+separately on GitHub Pages — this server does not serve them. Stdlib only —
+no pip installs.
 """
 
 # Endpoints (both POST, both need the X-Sync-Token header to match SYNC_TOKEN):
@@ -23,12 +27,18 @@ this server does not serve them. Stdlib only — no pip installs.
 #   - Resending identical content is a no-op and does not bump the version.
 #
 # Backups: the first save each UTC day keeps a copy of the data as it was before
-# that save, under DATA_DIR/backups, and the newest 30 are kept.
+# that save, under DATA_DIR/backups, and the newest 30 are kept. (On the Free
+# plan these vanish with the rest of DATA_DIR when the service sleeps.)
+#
+# A missing DATA_DIR, backups folder or data file is never an error: it is
+# created on the next save, and a read finds an empty dataset.
 #
 # Environment variables:
 #   PORT        Port to listen on (default 8443).
 #   SYNC_TOKEN  Shared passphrase clients must send; the server refuses to start without it.
-#   DATA_DIR    Folder holding sync_data.json and backups/ (default /var/data, the Render disk).
+#               It is never printed or logged.
+#   DATA_DIR    Folder holding sync_data.json and backups/. On Render Free set it to
+#               /tmp/second-memory-data. Default: second-memory-data inside the system temp folder.
 
 import hmac
 import json
@@ -36,6 +46,7 @@ import os
 import re
 import shutil
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -44,7 +55,9 @@ from pathlib import Path
 from urllib.parse import unquote
 
 PORT = int(os.environ.get("PORT", "8443"))
-DATA_DIR = Path(os.environ.get("DATA_DIR", "/var/data"))
+# The default is a temp folder (writable everywhere) so a forgotten DATA_DIR no longer
+# crashes startup the way the old disk path /var/data did once the disk was removed.
+DATA_DIR = Path(os.environ.get("DATA_DIR") or Path(tempfile.gettempdir()) / "second-memory-data")
 DATA_PATH = DATA_DIR / "sync_data.json"
 
 # Automatic daily restore points. The first save on each UTC day first copies
@@ -67,6 +80,8 @@ COLLECTION_NAMES = [
 # are ever allowed to call /api/sync from a browser.
 ALLOWED_SYNC_ORIGINS = {"https://sagebrushsites.com", "https://michellefeliciano.github.io"}
 
+# One lock guards every read-modify-write of the data file and backups (the server is
+# threaded, so two devices can sync at the same moment).
 data_lock = threading.Lock()
 
 
@@ -79,6 +94,8 @@ def load_dataset():
     """Reads the stored data file, repairing it if needed (corrupt file falls
     back to the .bak copy, missing collections are added, retired ones dropped).
     Callers must hold data_lock."""
+    # No file (first run, or the Free plan's temp folder was wiped, folder included):
+    # start empty. exists() is simply False when the folder itself is gone.
     if not DATA_PATH.exists():
         return empty_dataset()
     # A transient OSError must NOT be treated as "no data": the next save would
@@ -91,7 +108,7 @@ def load_dataset():
             # Valid JSON but not our data (for example a list): treat it as corrupt, so it is set
             # aside instead of being copied over the good .bak by the next save.
             raise json.JSONDecodeError("data file is not an object", "", 0)
-    except ValueError:  # includes JSONDecodeError and UnicodeDecodeError (bytes that are not valid text)
+    except ValueError:  # includes JSONDecodeError and UnicodeDecodeError (bytes that are not valid text); an empty file lands here too
         # Corrupt file: set it aside instead of overwriting it, and fall back
         # to the last good backup if there is one.
         quarantine = DATA_PATH.with_name(f"sync_data.corrupt-{int(time.time())}.json")
@@ -105,17 +122,19 @@ def load_dataset():
                 return empty_dataset()
         else:
             return empty_dataset()
+    # The .bak could itself be valid JSON of the wrong shape.
     if not isinstance(data, dict):
         return empty_dataset()
+    # Repair the shape so the merge code can rely on every collection being a list of dicts.
     for name in COLLECTION_NAMES:
         if not isinstance(data.get(name), list):
             data[name] = []
         else:
             # Only real records are kept (a stray number or null in a list must not crash the merge).
             data[name] = [item for item in data[name] if isinstance(item, dict)]
-    # Lists the app no longer has (coursework and appointments were removed) are dropped, so the
-    # next save no longer carries them. Older daily restore points keep them
-    # until they age out after BACKUP_KEEP days.
+    # Lists the app no longer has (coursework, appointments and the Budget lists were removed)
+    # are dropped, so the next save no longer carries them. Older daily restore points keep
+    # them until they age out after BACKUP_KEEP days.
     for stale in [key for key in data if key not in COLLECTION_NAMES]:
         del data[stale]
     return data
@@ -128,11 +147,17 @@ def save_dataset(data):
     # The threading.Lock around every caller of this function is the real
     # correctness mechanism; os.replace() is defense in depth on top of it
     # (its atomicity isn't fully guaranteed on Windows, per CPython #143909).
+    # Recreate the folder if it is missing (first run, or something cleared the temp folder
+    # while the server kept running); otherwise the temp-file write below would fail.
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
     tmp_path = DATA_PATH.with_suffix(".tmp")
+    # Write the whole new file first and fsync it, so a crash mid-write can never
+    # leave a half-written sync_data.json behind.
     with tmp_path.open("w", encoding="utf-8") as f:
         json.dump(data, f)
         f.flush()
         os.fsync(f.fileno())
+    # Only when there is an old file is there anything to keep as .bak / a restore point.
     if DATA_PATH.exists():
         shutil.copyfile(DATA_PATH, DATA_PATH.with_suffix(".bak"))
         try:
@@ -145,25 +170,32 @@ def save_dataset(data):
 def snapshot_daily():
     """Copies the current (pre-save) data file to today's restore point if
     today doesn't have one yet, then prunes to the newest BACKUP_KEEP."""
-    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)  # created on first use; absent until then
     today = time.strftime("%Y-%m-%d", time.gmtime())
     target = BACKUP_DIR / f"sync_data-{today}.json"
     if not target.exists():
         shutil.copyfile(DATA_PATH, target)
+    # Names are YYYY-MM-DD, so sorting by name sorts by date; anything else in the folder is left alone.
     files = sorted(f for f in BACKUP_DIR.iterdir() if BACKUP_NAME_RE.match(f.name))
     for old in files[:-BACKUP_KEEP]:
         old.unlink()
 
 
 def list_backups():
-    """The available daily restore points, oldest first, as {"date", "bytes"}."""
-    if not BACKUP_DIR.exists():
+    """The available daily restore points, oldest first, as {"date", "bytes"}.
+    No backups folder yet (or it was wiped) just means an empty list."""
+    try:
+        files = sorted(BACKUP_DIR.iterdir())
+    except FileNotFoundError:  # also covers the folder vanishing between a check and the read
         return []
     out = []
-    for f in sorted(BACKUP_DIR.iterdir()):
+    for f in files:
         m = BACKUP_NAME_RE.match(f.name)
         if m:
-            out.append({"date": m.group(1), "bytes": f.stat().st_size})
+            try:
+                out.append({"date": m.group(1), "bytes": f.stat().st_size})
+            except FileNotFoundError:  # pruned by a save while we were listing
+                continue
     return out
 
 
@@ -224,6 +256,7 @@ def merge_collection(server_items, client_items, collection_name):
     removes a record — tombstones (`deleted: true`) are merged like any
     other record so a delete round-trips to every other device instead of
     being lost."""
+    # Index the stored records by id for quick lookup (skipping any stored without a usable id).
     by_id = {item["id"]: item for item in server_items if isinstance(item, dict) and _usable_id(item.get("id"))}
     conflicts = []
 
@@ -238,6 +271,7 @@ def merge_collection(server_items, client_items, collection_name):
         client_version = _safe_version(incoming.get("version", 0))
         existing = by_id.get(record_id)
 
+        # Case 1: an id the server has never seen is simply added (the server sets version 1).
         if existing is None:
             new_record = dict(incoming)
             new_record["version"] = 1
@@ -247,6 +281,8 @@ def merge_collection(server_items, client_items, collection_name):
 
         server_version = _safe_version(existing.get("version", 0))
 
+        # Case 2: the client's copy is based on an older version than the server holds, so
+        # someone else (or an earlier retry of this device) already changed this record.
         if client_version < server_version:
             # A dropped response can make a client retry a payload the server
             # already applied — its version bookkeeping never advanced, so
@@ -265,6 +301,7 @@ def merge_collection(server_items, client_items, collection_name):
             if existing.get("deleted"):
                 continue
             if incoming.get("deleted") and not existing.get("deleted"):
+                # Keep the server's data, mark it deleted, and take the delete's audit stamps.
                 tombstone = dict(existing)
                 tombstone["deleted"] = True
                 tombstone["updatedAt"] = incoming.get("updatedAt", existing.get("updatedAt"))
@@ -276,6 +313,7 @@ def merge_collection(server_items, client_items, collection_name):
             # The same device editing its own record again (typically after a reply to its earlier
             # save was lost, so its version number is behind) is a plain update, not a conflict:
             # forking here would hand the user a duplicate of their own record.
+            # (updatedAt is an ISO-8601 UTC string, so comparing it as text compares it as time.)
             same_device = bool(incoming.get("deviceId")) and incoming.get("deviceId") == existing.get("deviceId")
             if same_device and str(incoming.get("updatedAt", "")) < str(existing.get("updatedAt", "")):
                 continue  # a late or repeated older copy of its own edit: already superseded, not a conflict
@@ -297,6 +335,7 @@ def merge_collection(server_items, client_items, collection_name):
             conflicts.append({"originalId": record_id, "newId": conflict_record["id"]})
             continue
 
+        # Case 3: the client's version is current (or, oddly, ahead).
         # client_version == server_version is the expected clean-update case.
         # client_version > server_version shouldn't happen under normal
         # operation (the server is the sole version authority) but is
@@ -387,6 +426,7 @@ class SyncHandler(BaseHTTPRequestHandler):
             self._send_json(401, {"error": "invalid or missing X-Sync-Token"})
             return
         try:
+            # The body is only {"date": ...}, so reading is capped at 4 KB.
             length = int(self.headers.get("Content-Length", 0) or 0)
             body = json.loads(self.rfile.read(min(max(length, 0), 4096)) or b"{}")
         except ValueError:
@@ -422,7 +462,9 @@ class SyncHandler(BaseHTTPRequestHandler):
         try:
             self._do_POST()
         except Exception as err:  # noqa: BLE001 (anything at all must still get an answer)
-            print(f"ERROR: {err!r}", file=sys.stderr)
+            # Log only the kind of error: its message can contain a stored record's text
+            # (for example a KeyError shows the missing key's value), and notes are private.
+            print(f"ERROR: {type(err).__name__} while handling {self.path}", file=sys.stderr)
             try:
                 self._send_json(500, {"error": "server error"})
             except Exception:  # noqa: BLE001 (the connection may already be gone)
@@ -447,6 +489,7 @@ class SyncHandler(BaseHTTPRequestHandler):
         except ValueError:
             self._send_json(400, {"error": "invalid Content-Length"})
             return
+        # Refuse oversized bodies before reading them (50 MB is far above any real data set).
         if length < 0 or length > 50 * 1024 * 1024:
             self._send_json(413, {"error": "payload too large"})
             return
@@ -470,9 +513,12 @@ class SyncHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "invalid payload: 'collections' must be an object"})
             return
 
+        # Load, merge and save under one lock so two devices syncing at once cannot overwrite
+        # each other. A missing data file just loads as empty, and the save recreates it.
         with data_lock:
             dataset = load_dataset()
             all_conflicts = []
+            # Only the known lists are merged; a list the client omits is left as stored.
             for name in COLLECTION_NAMES:
                 incoming = client_collections.get(name)
                 if isinstance(incoming, list):
@@ -500,14 +546,23 @@ def main():
               "the Render dashboard before starting this service.", file=sys.stderr)
         sys.exit(1)
 
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    # Create the data folder and an empty data file when they are missing. This is the normal
+    # case on the Free plan after every sleep or redeploy, so it must never be fatal; a folder
+    # that truly cannot be written to is reported plainly instead of with a traceback.
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        if not DATA_PATH.exists():
+            save_dataset(empty_dataset())
+    except OSError as err:
+        print(f"FATAL: cannot use data directory {DATA_DIR}: {type(err).__name__}. "
+              "Set DATA_DIR to a writable folder (on Render Free: /tmp/second-memory-data).",
+              file=sys.stderr)
+        sys.exit(1)
+    # The folder path is safe to print; the token is deliberately never logged anywhere.
     print(f"Using data directory: {DATA_DIR}")
 
-    if not DATA_PATH.exists():
-        save_dataset(empty_dataset())
-
     server = ThreadingHTTPServer(("0.0.0.0", PORT), SyncHandler)
-    server.sync_token = token
+    server.sync_token = token  # read by SyncHandler._check_token
     print(f"Second Memory sync server listening on 0.0.0.0:{PORT} (plain HTTP; "
           f"TLS terminated by Render).")
     try:

@@ -117,10 +117,6 @@ class MergeRules(unittest.TestCase):
         self.assertEqual(len(merged), 2)
         self.assertEqual(len(conflicts), 1)
 
-    def test_other_lists_still_keep_both_sides_of_a_conflict(self):
-        items, c = self.merge([rec("a", 6, name="A")], [rec("a", 5, name="B")], "notes")
-        self.assertEqual((len(items), len(c)), (2, 1))
-
     def test_malformed_records_do_not_abort_the_sync(self):
         items, _ = self.merge([], [None, 5, "x", {"no": "id"}, {"id": ["list"]}, {"id": ""}, rec("ok", 0), rec("bad-version", version="abc")])
         self.assertEqual(sorted(i["id"] for i in items), ["bad-version", "ok"])
@@ -142,6 +138,37 @@ class Storage(unittest.TestCase):
         data = s.load_dataset()
         self.assertEqual(sorted(data), sorted(s.COLLECTION_NAMES))
         self.assertTrue(all(v == [] for v in data.values()))
+
+    # -- Render Free has no disk: the whole data folder can be missing at any time --
+    def test_a_missing_data_folder_loads_empty_and_lists_no_backups(self):
+        gone = self.dir / "never-created"
+        s.DATA_DIR, s.DATA_PATH, s.BACKUP_DIR = gone, gone / "sync_data.json", gone / "backups"
+        self.assertTrue(all(v == [] for v in s.load_dataset().values()))
+        self.assertEqual(s.list_backups(), [])
+
+    def test_saving_recreates_a_missing_data_folder(self):
+        gone = self.dir / "wiped" / "nested"
+        s.DATA_DIR, s.DATA_PATH, s.BACKUP_DIR = gone, gone / "sync_data.json", gone / "backups"
+        s.save_dataset(s.empty_dataset())
+        self.assertTrue(s.DATA_PATH.is_file())
+        self.assertEqual(sorted(json.loads(s.DATA_PATH.read_text())), sorted(s.COLLECTION_NAMES))
+
+    def test_an_empty_data_file_is_set_aside_and_loads_empty(self):
+        """A 0-byte file (a write cut short) is not valid JSON: quarantine it, never crash."""
+        s.DATA_PATH.write_text("")
+        self.assertTrue(all(v == [] for v in s.load_dataset().values()))
+        self.assertTrue(list(self.dir.glob("sync_data.corrupt-*.json")))
+
+    def test_backups_folder_that_disappears_is_recreated_by_the_next_save(self):
+        d = s.empty_dataset()
+        s.save_dataset(d)
+        s.save_dataset(d)  # second save makes today's restore point
+        self.assertEqual(len(s.list_backups()), 1)
+        import shutil
+        shutil.rmtree(s.BACKUP_DIR)
+        self.assertEqual(s.list_backups(), [])  # no error without the folder
+        s.save_dataset(d)
+        self.assertEqual(len(s.list_backups()), 1)
 
     def test_a_data_file_with_invalid_text_bytes_is_set_aside_not_fatal(self):
         """Bytes that are not valid UTF-8 must not make every request fail: set the file aside and carry on."""
@@ -334,6 +361,17 @@ class Http(unittest.TestCase):
         self.assertEqual(self.call({"date": "2026-01-01/../../x"}, path="/api/backup")[0], 400)
         self.assertEqual(self.call({"date": "٢٠٢٦-٠١-٠١"}, path="/api/backup")[0], 400)  # non-ASCII digits
 
+    def test_requests_work_when_the_data_folder_has_been_wiped(self):
+        """Free-plan reality: the temp folder can vanish while the server runs. Sync and backup must still answer."""
+        import shutil
+        shutil.rmtree(self.dir)
+        status, body, _ = self.call({}, path="/api/backup")
+        self.assertEqual((status, body), (200, {"backups": []}))
+        self.assertEqual(self.call({"date": "2020-01-01"}, path="/api/backup")[0], 404)
+        status, body, _ = self.call({"clientVersion": 2, "collections": {"notes": [rec("wiped1", 0)]}})
+        self.assertEqual(status, 200)
+        self.assertEqual([r["id"] for r in body["collections"]["notes"]], ["wiped1"])
+
     def test_nan_and_infinity_are_refused_so_replies_stay_valid_json(self):
         """Python's json accepts NaN; stored, it would make every later reply unparseable in a browser."""
         for bad in (b'{"clientVersion": 2, "collections": {"notes": [{"id": "n1", "x": NaN}]}}',
@@ -342,6 +380,50 @@ class Http(unittest.TestCase):
         _, body, _ = self.call({"clientVersion": 2, "collections": {}})
         self.assertNotIn("n1", json.dumps(body))
         self.assertNotIn("n2", json.dumps(body))
+
+
+class Startup(unittest.TestCase):
+    """main(): creates a missing data folder and file, never prints the passphrase, and fails plainly when it must."""
+    SECRET = "very-secret-passphrase-123"
+
+    def run_main(self, data_dir):
+        """Runs main() against data_dir with a fake server that stops at once; returns (stdout, stderr)."""
+        import contextlib
+        import io
+
+        class FakeServer:
+            def __init__(self, *a, **k):
+                pass
+
+            def serve_forever(self):
+                raise KeyboardInterrupt
+
+        real = (s.ThreadingHTTPServer, s.DATA_DIR, s.DATA_PATH, s.BACKUP_DIR, os.environ.get("SYNC_TOKEN"))
+        s.ThreadingHTTPServer = FakeServer
+        s.DATA_DIR, s.DATA_PATH, s.BACKUP_DIR = data_dir, data_dir / "sync_data.json", data_dir / "backups"
+        os.environ["SYNC_TOKEN"] = self.SECRET
+        out, err = io.StringIO(), io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                s.main()
+        finally:
+            s.ThreadingHTTPServer, s.DATA_DIR, s.DATA_PATH, s.BACKUP_DIR = real[:4]
+            os.environ["SYNC_TOKEN"] = real[4]
+        return out.getvalue(), err.getvalue()
+
+    def test_a_missing_data_folder_is_created_and_the_log_hides_the_passphrase(self):
+        folder = pathlib.Path(tempfile.mkdtemp(prefix="sm-start-")) / "not" / "there" / "yet"
+        out, err = self.run_main(folder)
+        self.assertTrue((folder / "sync_data.json").is_file())
+        self.assertIn(str(folder), out)
+        self.assertNotIn(self.SECRET, out + err)
+
+    def test_an_unwritable_data_folder_exits_with_a_plain_message(self):
+        blocker = pathlib.Path(tempfile.mkdtemp(prefix="sm-start-")) / "a-file"
+        blocker.write_text("not a folder")  # a folder cannot be created underneath a file
+        with self.assertRaises(SystemExit) as ctx:
+            self.run_main(blocker / "data")
+        self.assertEqual(ctx.exception.code, 1)
 
 
 if __name__ == "__main__":

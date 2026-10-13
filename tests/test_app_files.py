@@ -13,6 +13,8 @@ CREATED_BY_APP = {"storage-warning", "therapy-summary-title", "health-summary-ti
 
 
 class AppFiles(unittest.TestCase):
+    """Static checks on app.js, index.html and sw.js that catch packaging mistakes without a browser."""
+
     def test_version_label_matches_the_service_worker_cache(self):
         """APP_VERSION (shown in the Menu) must equal the number in CACHE_NAME in sw.js."""
         shown = re.search(r"const APP_VERSION = (\d+);", APP)
@@ -22,6 +24,7 @@ class AppFiles(unittest.TestCase):
         self.assertEqual(shown.group(1), cache.group(1))
 
     def test_no_duplicate_element_ids(self):
+        """A repeated id makes getElementById silently pick the first one."""
         ids = re.findall(r'\bid="([^"]+)"', HTML)
         self.assertEqual(sorted(i for i in set(ids) if ids.count(i) > 1), [])
 
@@ -43,7 +46,8 @@ class AppFiles(unittest.TestCase):
         self.assertIn("SYNC_SERVER_URL", calls[0])
 
     def test_every_local_file_the_page_loads_is_in_the_offline_cache(self):
-        shell = set(re.findall(r"'\./([^']*)'", SW[SW.index("const APP_SHELL"):SW.index("];", SW.index("const APP_SHELL"))]))
+        """Both directions: nothing index.html loads is missing from APP_SHELL, and nothing cached is missing on disk."""
+        shell =set(re.findall(r"'\./([^']*)'", SW[SW.index("const APP_SHELL"):SW.index("];", SW.index("const APP_SHELL"))]))
         loaded = set(re.findall(r'(?:src|href)="(?!https?:|#|data:|mailto:)([^"]+)"', HTML))
         loaded = {x.lstrip("./") for x in loaded}
         for name in loaded:

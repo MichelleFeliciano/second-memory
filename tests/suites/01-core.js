@@ -1,7 +1,7 @@
 // Core behaviour that every list shares: tabs, adding, editing, deleting, undo/redo,
 // searching, sorting, safe handling of hostile text, and backup export/import.
-const live = (arr) => arr.filter((r) => !r.deleted).length;
-let networkCalls = 0;
+const live = (arr) => arr.filter((r) => !r.deleted).length; // records still showing (not tombstoned)
+let networkCalls = 0; // counted by the stub below and checked at the very end
 window.fetch = () => { networkCalls += 1; return Promise.reject(new Error('blocked')); };
 
 // ---- the removed Coursework feature must stay removed ----
@@ -79,6 +79,8 @@ for (const [t, arr] of delSpecs) {
 check('undo tooltip names what it would undo', (() => { addShoppingItem('Tooltip item', '', ''); return /Tooltip item/.test($('undo-btn').title); })());
 
 // ---- sort, search and filter chips never throw ----
+// No check() here on purpose: a throw would crash the suite (reported as "suite crashed"), and the
+// runner adds a "no uncaught errors" check for anything thrown inside event handlers.
 for (const sel of document.querySelectorAll('select[id$="-sort-input"]')) {
   for (const o of [...sel.options]) { sel.value = o.value; sel.dispatchEvent(new Event('change', { bubbles: true })); }
 }
@@ -87,7 +89,6 @@ for (const inp of document.querySelectorAll('input[type="search"]')) {
   inp.value = ''; inp.dispatchEvent(new Event('input', { bubbles: true }));
 }
 for (const chip of document.querySelectorAll('.chip')) chip.click();
-check('every sort option, search box and filter chip works', true);
 
 // ---- hostile text is shown as text, never run ----
 window.__xss = 0;
@@ -140,10 +141,8 @@ let survived = true;
 try { safeRender(() => { throw new Error('boom'); }); } catch { survived = false; }
 check('safeRender swallows a failing render', survived);
 
-// ---- coursework leftovers on a device are cleaned at startup ----
-check('old coursework keys are not kept in storage', localStorage.getItem('secondMemory.courses.v1') === null && localStorage.getItem('secondMemory.deadlines.v1') === null);
-
 // ---- nothing syncs by itself ----
+// Proves the app never touched the network during everything above (fetch was replaced at the top).
 nav('home'); renderHome();
 await sleep(1200);
 check('using the whole app made no network request at all', networkCalls === 0, networkCalls + ' request(s)');

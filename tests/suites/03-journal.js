@@ -78,7 +78,6 @@ const order = () => [...$('journal-list').children].map((c) => c.dataset.entryId
 check('entries run oldest to newest, left to right', order() === 'abcdefgh', order());
 check('one date button per entry, in the same order', [...document.querySelectorAll('.journal-date-chip')].length === 8);
 check('a past year shows its year on the button', (() => { journalEntries.push(entry('old', 'daily', '2025-12-03', { on_mind: 'x' })); renderJournal(); const t = document.querySelector('.journal-date-chip').textContent; journalEntries.pop(); renderJournal(); return /'25/.test(t); })());
-check('the date strip is built from the dates', [...document.querySelectorAll('.journal-date-chip')][0].textContent.length > 3);
 check('filtering to dreams shows only dreams', (() => { [...document.querySelectorAll('#journal-filters .chip')].find((c) => c.textContent === 'Dreams').click(); const r = order(); [...document.querySelectorAll('#journal-filters .chip')].find((c) => c.textContent === 'All').click(); return r === 'e'; })());
 
 // ---- search ----
@@ -190,7 +189,7 @@ check('a damaged local part is ignored without errors, and old pay-period settin
 importData({ collections: {}, local: { journal: [entry('ok1', 'daily', dk(0), { on_mind: 'x' }), { id: 5 }, null, { id: 'z', type: 'nope', date: 'd', answers: {} }] } });
 check('only valid journal entries are taken from a backup', journalEntries.length === 3 && journalEntries.some((e) => e.id === 'ok1'));
 importData({ collections: {} });
-check('an older backup without a local part still imports', true);
+check('an older backup without a local part still imports and leaves the journal alone', journalEntries.length === 3 && /nothing new|Imported|Restored/i.test($('data-io-status').textContent), $('data-io-status').textContent);
 
 // ---- review fixes: mistyped year, date strip accessibility ----
 journalEntries.length = 0; saveJournalEntries();

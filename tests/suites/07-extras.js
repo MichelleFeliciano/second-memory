@@ -51,3 +51,9 @@ backupNotesDismissed = false;
 renderBackupNotes();
 check('a recent sync clears the reminder', !/synced in/.test(reminderText()));
 localStorage.removeItem('secondMemory.syncConfig.v1');
+
+// ---- day rollover also redraws the reading goal (it is for "this year") ----
+$('reading-goal-text').textContent = 'stale text from last year';
+lastRenderedDayKey = '2000-01-01';
+refreshForNewDay();
+check('a new day redraws the reading goal', $('reading-goal-text').textContent.startsWith(`${new Date().getFullYear()}:`), $('reading-goal-text').textContent);

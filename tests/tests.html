@@ -37,6 +37,7 @@ Serve the project folder first (<code>python -m http.server</code>) and open <co
 // Suite files are plain async-function bodies. They are evaluated INSIDE a fresh copy of the app,
 // so they can use the app's own globals (books, todos, renderHome, ...) plus these helpers:
 //   check(name, condition, detail?)   nav(tab)   set(id, value)   sleep(ms)   dk(daysFromToday)   $(id)
+//
 // Test runner for the front-end. Each suite is [title, file]; all of them run one after another.
 // A first line like "// @width 390" in a suite file sets the frame width (e.g. to test phone layout).
 const SUITES = [
@@ -48,8 +49,9 @@ const SUITES = [
   ['Menu extras: theme, version, quick add, sync reminder', 'suites/07-extras.js'],
   ['Medications: taken-today check-off and streaks', 'suites/08-medications.js'],
   ['Health summary and app lock', 'suites/09-summary-and-lock.js'],
+  // (the file name still says "bills" from before Budget moved out; it now holds books, recipes and journal checks)
   ['Reading goal, recipe scaling, cook mode, journal prompt', 'suites/10-bills-books-recipes-journal.js'],
-  ['Bug-review regressions: import, journal, repeats, money, lock', 'suites/11-bug-review-fixes.js'],
+  ['Bug-review regressions: import, journal, repeats, weight, lock', 'suites/11-bug-review-fixes.js'],
   ['Second review regressions: repeats, scaling, forms, journal', 'suites/12-second-review-fixes.js'],
 ];
 

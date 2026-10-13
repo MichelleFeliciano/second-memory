@@ -4,9 +4,12 @@
 const now = new Date().toISOString();
 const rec = (id, item) => ({ id, item, quantity: '', checked: false, category: '', dateAdded: now, updatedAt: now, deviceId: 'other', deleted: false, version: 1 });
 
+// The pretend server: `mode` makes it fail ('426', '401', 'down'), `omit` drops one list from its
+// reply, and `gate` is a promise that holds every reply until a test releases it.
 const server = { collections: {}, calls: [], mode: 'ok', omit: null, gate: null };
 SYNC_COLLECTIONS.forEach((c) => { server.collections[c.name] = []; });
-const strip = (r) => JSON.stringify({ ...r, version: 0, updatedAt: 0, deviceId: 0 });
+const strip = (r) => JSON.stringify({ ...r, version: 0, updatedAt: 0, deviceId: 0 }); // content only, like the real server's no-op check
+// A tiny stand-in for the real merge: add new ids, bump the version only when content really changed.
 function fakeMerge(incoming) {
   for (const [name, items] of Object.entries(incoming)) {
     const list = server.collections[name];
