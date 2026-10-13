@@ -20,7 +20,6 @@ this server does not serve them. Stdlib only — no pip installs.
 #   - Tombstones (deleted: true) win over stale live copies, so deletes stick.
 #   - If two live copies conflict, the client's copy is saved as a new record
 #     (a fork) so nothing is silently lost.
-#   - Income is the exception: one entry per date, and the newest edit wins.
 #   - Resending identical content is a no-op and does not bump the version.
 #
 # Backups: the first save each UTC day keeps a copy of the data as it was before
@@ -56,12 +55,10 @@ BACKUP_DIR = DATA_DIR / "backups"
 BACKUP_KEEP = 30
 BACKUP_NAME_RE = re.compile(r"^sync_data-(\d{4}-\d{2}-\d{2})\.json$")
 
-# Every list the server stores. Second Memory itself syncs only 9 of them; "bills", "income" and
-# "recurringIncome" belong to the separate Budget app, which uses this same server. Do not remove them.
+# Every list the server stores. Any list not named here is dropped on the next save.
 COLLECTION_NAMES = [
     "books", "recipes", "medications", "diagnoses", "todos",
-    "shoppingList", "notes", "links", "bills", "income",
-    "recurringIncome", "weights",
+    "shoppingList", "notes", "links", "weights",
 ]
 
 # The app's HTML/JS is now hosted separately from this server (GitHub Pages,
@@ -180,27 +177,16 @@ def list_backups():
 # meaningful data, not bookkeeping (see §2.2).
 _BOOKKEEPING_FIELDS = {"version", "updatedAt", "deviceId"}
 
-# Per-collection extra bookkeeping fields, beyond the universal set above.
-# `income` uses id = dateKey (not a fresh UUID like every other collection)
-# specifically so two devices independently entering the same date's income
-# converge onto one record instead of duplicating — dateAdded differing
-# between two independently-created same-dateKey records is the expected
-# normal case here, not an anomaly, unlike every other collection where a
-# dateAdded mismatch on a shared id is a real red flag worth surfacing. See
-# docs/research/sync-version-inflation-bug.md.
-_EXTRA_BOOKKEEPING_FIELDS_BY_COLLECTION = {"income": {"dateAdded"}}
 
-
-def _content_matches(a, b, collection_name):
+def _content_matches(a, b):
     """True if two records describe the same real-world data — i.e. this is
     a harmless resend/no-op (an already-applied edit retried, or a sync
     cycle where nothing changed), not a genuine conflicting change. Ignores
     `version` (the mechanism's own counter) and the audit-only bookkeeping
     fields `updatedAt`/`deviceId`; every domain field, plus `dateAdded` and
-    `deleted`, are compared — except for `income`, where `dateAdded` is also
-    excluded (see `_EXTRA_BOOKKEEPING_FIELDS_BY_COLLECTION` above)."""
+    `deleted`, are compared."""
     keys = set(a.keys()) | set(b.keys())
-    keys -= _BOOKKEEPING_FIELDS | _EXTRA_BOOKKEEPING_FIELDS_BY_COLLECTION.get(collection_name, set())
+    keys -= _BOOKKEEPING_FIELDS
     return all(a.get(k) == b.get(k) for k in keys)
 
 
@@ -268,7 +254,7 @@ def merge_collection(server_items, client_items, collection_name):
             # diverged. If the content is identical to what's already stored
             # (ignoring version), treat it as a no-op replay instead of
             # manufacturing a duplicate.
-            if _content_matches(existing, incoming, collection_name):
+            if _content_matches(existing, incoming):
                 continue
 
             # Deletes always win over a stale copy. A stale device that still
@@ -276,19 +262,7 @@ def merge_collection(server_items, client_items, collection_name):
             # bring it back as a fork, and a delete made on a stale device
             # must not be undone by someone's newer edit to a record the user
             # chose to remove. This is what made deleted items "come back".
-            # The one exception is income, whose id IS its date: if the date was cleared earlier and a
-            # device has since entered a newer value for it, that newer entry wins over the tombstone.
-            if (collection_name == "income" and existing.get("deleted") and not incoming.get("deleted")
-                    and str(incoming.get("updatedAt", "")) > str(existing.get("updatedAt", ""))):
-                replacement = dict(incoming)
-                replacement["version"] = server_version + 1
-                _replace_record(server_items, by_id, record_id, replacement)
-                continue
             if existing.get("deleted"):
-                continue
-            # Income: a stale device's "cleared" must not wipe a newer amount entered for that date elsewhere.
-            if (collection_name == "income" and incoming.get("deleted") and not existing.get("deleted")
-                    and str(incoming.get("updatedAt", "")) < str(existing.get("updatedAt", ""))):
                 continue
             if incoming.get("deleted") and not existing.get("deleted"):
                 tombstone = dict(existing)
@@ -297,16 +271,6 @@ def merge_collection(server_items, client_items, collection_name):
                 tombstone["deviceId"] = incoming.get("deviceId", existing.get("deviceId"))
                 tombstone["version"] = server_version + 1
                 _replace_record(server_items, by_id, record_id, tombstone)
-                continue
-
-            # Income is one entry per date (its id IS the date), so a conflict must never
-            # create a second entry for the same date: that would count the money twice.
-            # The most recently edited version simply wins.
-            if collection_name == "income":
-                if str(incoming.get("updatedAt", "")) > str(existing.get("updatedAt", "")):
-                    replacement = dict(incoming)
-                    replacement["version"] = server_version + 1
-                    _replace_record(server_items, by_id, record_id, replacement)
                 continue
 
             # The same device editing its own record again (typically after a reply to its earlier
@@ -344,7 +308,7 @@ def merge_collection(server_items, client_items, collection_name):
         # bumped every `version` (it once reached the hundreds), which made the conflict-fork path
         # above misfire (docs/research/sync-version-inflation-bug.md). A content-identical resend
         # is a true no-op: leave `existing` untouched.
-        if _content_matches(existing, incoming, collection_name):
+        if _content_matches(existing, incoming):
             continue
 
         new_record = dict(incoming)

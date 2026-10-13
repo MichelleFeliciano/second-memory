@@ -36,7 +36,7 @@ def rec(record_id, version=1, deleted=False, **extra):
 
 
 class MergeRules(unittest.TestCase):
-    """merge_collection: versioning, no-op resends, tombstones, conflict forks, income, bad input."""
+    """merge_collection: versioning, no-op resends, tombstones, conflict forks, bad input."""
     def merge(self, server_items, client_items, name="shoppingList"):
         """Runs one merge and returns (the updated server list, the conflicts)."""
         conflicts = s.merge_collection(server_items, client_items, name)
@@ -91,38 +91,6 @@ class MergeRules(unittest.TestCase):
         items, _ = self.merge([rec("a", 5)], [rec("a", 5, deleted=True)])
         self.assertEqual((items[0]["deleted"], items[0]["version"]), (True, 6))
 
-    def test_income_ignores_dateAdded_differences(self):
-        items, c = self.merge([rec("2026-09-22", 4, dateAdded="x", amount=100)], [rec("2026-09-22", 4, dateAdded="y", amount=100)], "income")
-        self.assertEqual((len(items), items[0]["version"], c), (1, 4, []))
-
-    def test_income_conflict_never_makes_a_second_entry_for_the_date(self):
-        server = [rec("2026-09-22", 6, amount=100, updatedAt="2026-10-01T10:00:00Z")]
-        items, c = self.merge(server, [rec("2026-09-22", 5, amount=250, updatedAt="2026-10-02T10:00:00Z")], "income")
-        self.assertEqual((len(items), c), (1, []))
-        self.assertEqual((items[0]["amount"], items[0]["version"]), (250, 7), "the more recent edit wins")
-
-    def test_income_conflict_keeps_the_newer_server_value(self):
-        server = [rec("2026-09-22", 6, amount=100, updatedAt="2026-10-05T10:00:00Z")]
-        items, c = self.merge(server, [rec("2026-09-22", 5, amount=250, updatedAt="2026-10-02T10:00:00Z")], "income")
-        self.assertEqual((len(items), c, items[0]["amount"], items[0]["version"]), (1, [], 100, 6))
-
-    def test_a_newer_income_entry_beats_an_older_cleared_one(self):
-        """A date cleared on one device and filled in later on another keeps the newer value."""
-        server = [rec("2026-10-01", version=3, deleted=True, updatedAt="2026-10-02T10:00:00Z", deviceId="A", amount=0)]
-        client = [rec("2026-10-01", version=1, deleted=False, updatedAt="2026-10-05T10:00:00Z", deviceId="B", amount=50)]
-        merged, conflicts = self.merge(server, client, "income")
-        self.assertEqual(len(merged), 1)
-        self.assertFalse(merged[0]["deleted"])
-        self.assertEqual(merged[0]["amount"], 50)
-        self.assertEqual(merged[0]["version"], 4)
-        self.assertEqual(conflicts, [])
-
-    def test_an_older_income_entry_does_not_beat_a_newer_clear(self):
-        server = [rec("2026-10-01", version=3, deleted=True, updatedAt="2026-10-09T10:00:00Z", deviceId="A", amount=0)]
-        client = [rec("2026-10-01", version=1, deleted=False, updatedAt="2026-10-05T10:00:00Z", deviceId="B", amount=50)]
-        merged, _ = self.merge(server, client, "income")
-        self.assertTrue(merged[0]["deleted"])
-
     def test_a_device_editing_its_own_record_again_is_an_update_not_a_fork(self):
         """After a lost reply the device is behind on version; its next edit must not duplicate the record."""
         server = [rec("n1", version=2, deviceId="A", updatedAt="2026-10-07T10:00:00Z", name="first edit")]
@@ -141,14 +109,6 @@ class MergeRules(unittest.TestCase):
         self.assertEqual(len(merged), 1)
         self.assertEqual(merged[0]["name"], "second edit")
         self.assertEqual(conflicts, [])
-
-    def test_a_stale_income_clear_never_wipes_a_newer_amount(self):
-        """Income: a 'cleared' made earlier on an out-of-date device must not delete a newer amount for the date."""
-        server = [rec("2026-10-01", version=2, deleted=False, updatedAt="2026-10-05T10:00:00Z", deviceId="B", amount=50)]
-        client = [rec("2026-10-01", version=1, deleted=True, updatedAt="2026-10-03T10:00:00Z", deviceId="A", amount=0)]
-        merged, _ = self.merge(server, client, "income")
-        self.assertFalse(merged[0]["deleted"])
-        self.assertEqual(merged[0]["amount"], 50)
 
     def test_a_different_device_with_a_stale_version_still_forks(self):
         server = [rec("n1", version=2, deviceId="A", updatedAt="2026-10-07T10:00:00Z", name="from A")]
