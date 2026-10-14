@@ -143,3 +143,109 @@ check('redrawing keeps the scroll position', track.scrollLeft === scrolledTo, tr
 set('recipes-title-input', 'Brand new'); addBox.open = true; $('recipes-add-form').requestSubmit(); await sleep(50);
 check('adding a recipe closes the dropdown again', !addBox.open && recipes.some((r) => r.title === 'Brand new'));
 recipes.length = 0; renderRecipes();
+
+// ---- friendlier app: undo toast, phone bottom bar, Home panels, empty-state buttons, text size ----
+todos.length = 0; shoppingItems.length = 0; weights.length = 0;
+addTodo('Toast me', '', '');
+const toastTodo = todos[0];
+deleteTodo(toastTodo.id);
+check('deleting shows a toast with an Undo button', !$('toast').hidden && /Toast me/.test($('toast-text').textContent) && !$('toast-undo').hidden, $('toast-text').textContent);
+$('toast-undo').click(); await sleep(30);
+check('the toast Undo brings the item back and hides the toast', todos.find((t) => t.id === toastTodo.id).deleted === false && $('toast').hidden);
+addTodo('Second', '', '');
+check('adding something clears an old toast', $('toast').hidden);
+
+nav('shopping');
+check('the bottom bar marks the current screen', document.querySelector('.bottom-bar [data-quick-tab="shopping"]').getAttribute('aria-current') === 'page' && !document.querySelector('.bottom-bar [data-quick-tab="home"]').hasAttribute('aria-current'));
+document.querySelector('.bottom-bar [data-quick-tab="notes"]').click();
+check('a bottom bar button switches screen', !$('notes-collection').hidden && $('home-collection').hidden);
+
+weights.length = 0; shoppingItems.length = 0;
+shoppingItems.push({ ...r2, id: 'hs1', item: 'Milk', quantity: '2', category: '', checked: false }, { ...r2, id: 'hs2', item: 'Eggs', quantity: '', category: '', checked: true });
+nav('home'); renderHome();
+check('Home shows the weigh-in box until today has a weight', !$('home-weigh-panel').hidden);
+check('Home lists only unchecked shopping items', !$('home-shopping-panel').hidden && /Milk/.test($('home-shopping-list').textContent) && !/Eggs/.test($('home-shopping-list').textContent));
+set('home-weigh-input', 'abc'); $('home-weigh-form').requestSubmit();
+check('a bad weight on Home shows an error and saves nothing', !$('home-weigh-error').hidden && weights.length === 0);
+set('home-weigh-input', '150.4'); $('home-weigh-form').requestSubmit(); await sleep(30);
+check('saving on Home records today and hides the box', weights.length === 1 && weights[0].date === todayKey() && weights[0].weight === 150.4 && $('home-weigh-panel').hidden);
+shoppingItems.length = 0; weights.length = 0; todos.length = 0; renderHome(); renderWeights(); renderShoppingList(); renderTodos();
+
+books.length = 0; renderBooks();
+const emptyBtn = document.querySelector('#books-empty-state .empty-state-add');
+check('an empty screen offers an Add one now button', !!emptyBtn);
+emptyBtn.click();
+check('it opens the add form', document.querySelector('#books-collection details.add-dropdown').open);
+
+$('text-size-btn').click();
+check('Text size cycles to Large', document.documentElement.getAttribute('data-text') === 'large' && /Large/.test($('text-size-btn').textContent));
+$('text-size-btn').click(); $('text-size-btn').click();
+check('and back to Normal', !document.documentElement.hasAttribute('data-text') && /Normal/.test($('text-size-btn').textContent));
+
+// ---- buy again, pinned recipes, refill pickup, Home weight, weekly backup, contrast ----
+shoppingItems.length = 0;
+shoppingItems.push({ ...r2, id: 'ba1', item: 'Milk', quantity: '2', category: 'dairy', checked: true });
+shoppingItems.push({ ...r2, id: 'ba2', item: 'Eggs', quantity: '', category: '', checked: false, deleted: true });
+shoppingItems.push({ ...r2, id: 'ba3', item: 'Bread', quantity: '', category: '', checked: true });
+shoppingItems.push({ ...r2, id: 'ba4', item: 'bread', quantity: '', category: '', checked: false });
+nav('shopping'); renderShoppingList();
+check('Buy again offers earlier items that are not on the list now', buyAgainSuggestions().map((s) => s.item).sort().join(',') === 'Eggs,Milk', buyAgainSuggestions().map((s) => s.item).join(','));
+check('the chips show on the shopping screen', !$('shopping-buy-again').hidden && /Milk \(2\)/.test($('shopping-buy-again-chips').textContent));
+[...document.querySelectorAll('#shopping-buy-again-chips .chip')].find((c) => /Milk/.test(c.textContent)).click();
+const readded = shoppingItems.find((i) => i.item === 'Milk' && !i.checked && !i.deleted);
+check('tapping a chip adds it back with its old quantity and category', !!readded && readded.quantity === '2' && readded.category === 'dairy');
+check('and it leaves the suggestions', !buyAgainSuggestions().some((s) => s.item === 'Milk'));
+shoppingItems.length = 0; renderShoppingList();
+
+recipes.length = 0;
+recipes.push({ ...r2, id: 'pr1', title: 'Aaa soup', category: '', ingredients: [], steps: ['Stir'], notes: '' });
+recipes.push({ ...r2, id: 'pr2', title: 'Zzz cake', category: '', ingredients: [], steps: [], notes: '' });
+nav('recipes'); selectedRecipesSort = 'title_asc'; renderRecipes();
+const recipeTitles = () => [...document.querySelectorAll('#recipes-list .recipe-title')].map((e) => e.textContent).join('|');
+check('recipes start in the chosen order', recipeTitles() === 'Aaa soup|Zzz cake', recipeTitles());
+toggleRecipePinned('pr2');
+check('a pinned recipe moves to the front', recipeTitles() === 'Zzz cake|Aaa soup' && recipes.find((r) => r.id === 'pr2').pinned === true);
+check('its button reads Pinned', /Pinned/.test(document.querySelector('#recipes-list .pin-btn').textContent) && document.querySelector('#recipes-list .pin-btn').getAttribute('aria-pressed') === 'true');
+check('Home lists pinned recipes', !$('home-recipes-panel').hidden && /Zzz cake/.test($('home-recipes-list').textContent));
+undo(); await sleep(30);
+check('undo unpins it', !recipes.find((r) => r.id === 'pr2').pinned && recipeTitles() === 'Aaa soup|Zzz cake');
+toggleRecipePinned('pr1'); renderHome();
+let openedCook = false;
+const realOpenCook = window.openCookMode; window.openCookMode = () => { openedCook = true; };
+document.querySelector('#home-recipes-list .home-item-link').click();
+window.openCookMode = realOpenCook;
+check('a pinned recipe with steps opens Cook mode from Home', openedCook);
+recipes.length = 0; selectedRecipesSort = 'date_added_asc'; renderRecipes();
+
+medications.length = 0;
+medications.push({ id: 'pk1', name: 'Pill', dosage: '', frequency: '', prescribingDoctor: '', startDate: null, endDate: null, refillDate: dk(-2), notes: '', ...r2 });
+nav('medications'); renderMedications();
+check('the first pickup asks how many days', document.querySelector('#medications-list .refill-interval').hidden === true);
+document.querySelector('#medications-list .refill-picked-btn').click();
+check('tapping Picked up shows 30 / 60 / 90 days', document.querySelector('#medications-list .refill-interval').hidden === false);
+document.querySelector('#medications-list .refill-interval .chip[data-days="60"]').click();
+check('choosing 60 days sets the next refill and remembers the number', medications[0].refillDate === shiftDateKey(todayKey(), 60) && medications[0].refillEveryDays === 60);
+check('the button now says how long until the next one', /next in 60 days/.test(document.querySelector('#medications-list .refill-picked-btn').textContent));
+medications[0].refillDate = dk(-1); renderMedications();
+document.querySelector('#medications-list .refill-picked-btn').click();
+check('with a remembered interval one tap is enough', medications[0].refillDate === shiftDateKey(todayKey(), 60));
+check('a wrong number of days is refused', markRefillPickedUp('pk1', 0) === false && markRefillPickedUp('pk1', 1.5) === false && markRefillPickedUp('pk1', 400) === false && markRefillPickedUp('nope', 30) === false);
+undo(); await sleep(30);
+check('undo puts the old refill date back', medications[0].refillDate === dk(-1));
+medications.length = 0; renderMedications();
+
+weights.length = 0;
+weights.push({ ...r2, id: 'wt1', date: dk(-6), weight: 160, note: '' }, { ...r2, id: 'wt2', date: dk(-3), weight: 159, note: '' }, { ...r2, id: 'wt3', date: dk(0), weight: 158.5, note: '' });
+nav('home'); renderHome();
+check('Home shows the weight trend', !$('home-weight-panel').hidden && /158\.5 lb/.test($('home-weight-text').textContent) && /down 1\.5 lb over the last 7 days/.test($('home-weight-text').textContent), $('home-weight-text').textContent);
+check('and a small line of recent weights', document.querySelectorAll('#home-weight-spark polyline').length === 1);
+weights.length = 1; renderHome();
+check('one weight is not enough for a trend', $('home-weight-panel').hidden);
+weights.length = 0; renderHome();
+
+check('the full backup reminder comes after a week', EXPORT_DUE_DAYS === 7);
+
+$('contrast-btn').click();
+check('Contrast switches to High', document.documentElement.getAttribute('data-contrast') === 'high' && /High/.test($('contrast-btn').textContent));
+$('contrast-btn').click();
+check('and back to Normal', !document.documentElement.hasAttribute('data-contrast') && /Normal/.test($('contrast-btn').textContent));

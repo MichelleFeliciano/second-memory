@@ -120,7 +120,7 @@ check('an out-of-date copy is told to reload', /out of date/.test(status()), sta
 server.mode = '401'; await runSync(); await sleep(30);
 check('a wrong passphrase is reported', /check passphrase/i.test(status()), status());
 server.mode = 'down'; await runSync(); await sleep(30);
-check('no connection is reported with a way forward', /tap Sync now to try again/.test(status()), status());
+check('no connection is reported with a way forward', /Sync now to try again/.test(status()), status());
 server.mode = 'ok'; server.omit = 'books'; await runSync(); await sleep(30);
 check('a reply missing a list is not called "synced"', /incomplete/.test(status()), status());
 server.omit = null; await runSync(); await sleep(30);

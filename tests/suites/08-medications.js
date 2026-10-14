@@ -23,12 +23,14 @@ check('refill notices cover due soon, today and up to a week overdue', medicatio
 
 // ---- reminders: weigh-in ----
 weights.length = 0;
-check('weigh-in is not due before 9:00', weighInDue(new Date(2026, 0, 5, 8, 59)) === false);
-check('weigh-in is due after 9:00 when today has no weight', weighInDue(new Date(2026, 0, 5, 9, 0)) === true);
+check('weigh-in is not due before 9:00', weighInDue(new Date(2026, 0, 5, 8, 59), '09:00') === false);
+check('weigh-in is due after 9:00 when today has no weight', weighInDue(new Date(2026, 0, 5, 9, 0), '09:00') === true);
+check('a later chosen time holds the weigh-in back', weighInDue(new Date(2026, 0, 5, 9, 0), '18:30') === false && weighInDue(new Date(2026, 0, 5, 18, 30), '18:30') === true);
+check('a damaged time counts as 9:00', minutesOf('nope') === 540 && minutesOf('07:15') === 435);
 weights.push({ id: 'w1', date: todayKey(), weight: 150, note: '', dateAdded: tNow, updatedAt: tNow, deviceId: 'test', deleted: false, version: 0 });
-check('weigh-in is not due once today has a weight', weighInDue(new Date(2026, 0, 5, 12, 0)) === false);
+check('weigh-in is not due once today has a weight', weighInDue(new Date(2026, 0, 5, 12, 0), '09:00') === false);
 weights[0].deleted = true;
-check('a deleted weight does not count', weighInDue(new Date(2026, 0, 5, 12, 0)) === true);
+check('a deleted weight does not count', weighInDue(new Date(2026, 0, 5, 12, 0), '09:00') === true);
 weights.length = 0;
 
 // ---- reminders: saved state ----
@@ -42,23 +44,39 @@ const RealNotification = window.Notification;
 const shown = [];
 window.Notification = function (title, options) { shown.push({ title, options }); };
 window.Notification.permission = 'granted';
-saveReminderState({ enabled: true, refills: {}, weighIn: '' });
+saveReminderState({ enabled: true, refills: {}, weighIn: '', weighInTime: '00:00', refillTime: '00:00' });
 await checkReminders();
 const refillNote = shown.find((n) => /refill/i.test(n.title));
 check('an overdue refill sends one notice that names no medication', shown.filter((n) => /refill/i.test(n.title)).length === 1 && /overdue/i.test(refillNote.title) && !/late|today|soon/.test(refillNote.options.body), JSON.stringify(shown));
 check('the notice says how many refills need attention', /3 refills/.test(refillNote.options.body), refillNote.options.body);
-const weighHour = new Date().getHours() >= WEIGH_IN_HOUR;
-check('the weigh-in nudge is sent only after 9:00', shown.filter((n) => /weigh/i.test(n.title)).length === (weighHour ? 1 : 0));
+check('the weigh-in nudge is sent once the chosen time has passed', shown.filter((n) => /weigh/i.test(n.title)).length === 1);
 const before = shown.length;
 await checkReminders();
 check('checking again the same day sends nothing new', shown.length === before);
-saveReminderState({ enabled: false, refills: {}, weighIn: '' });
+saveReminderState({ enabled: false, refills: {}, weighIn: '', weighInTime: '00:00', refillTime: '00:00' });
 await checkReminders();
 check('nothing is sent while reminders are off', shown.length === before);
 window.Notification.permission = 'denied';
-saveReminderState({ enabled: true, refills: {}, weighIn: '' });
+saveReminderState({ enabled: true, refills: {}, weighIn: '', weighInTime: '00:00', refillTime: '00:00' });
 await checkReminders();
 check('nothing is sent without permission', shown.length === before);
+window.Notification = RealNotification;
+localStorage.removeItem(REMINDERS_KEY);
+medications.length = 0; renderMedications();
+
+// ---- reminder times ----
+check('reminder times default to 9:00 and wrong values are ignored', (() => { localStorage.setItem(REMINDERS_KEY, JSON.stringify({ enabled: true, weighInTime: '25:99', refillTime: 5 })); const s = loadReminderState(); return s.weighInTime === '09:00' && s.refillTime === '09:00'; })());
+window.Notification = function (title, options) { shown.push({ title, options }); };
+window.Notification.permission = 'granted';
+medications.push(mrec('late2', dk(-1)));
+const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+if (nowMin < 22 * 60) {
+  const laterTime = String(Math.floor(nowMin / 60) + 1).padStart(2, '0') + ':59';
+  const countBefore = shown.length;
+  saveReminderState({ enabled: true, refills: {}, weighIn: '', weighInTime: laterTime, refillTime: laterTime });
+  await checkReminders();
+  check('nothing is sent before the chosen times', shown.length === countBefore, JSON.stringify(shown.slice(countBefore)));
+}
 window.Notification = RealNotification;
 localStorage.removeItem(REMINDERS_KEY);
 medications.length = 0; renderMedications();

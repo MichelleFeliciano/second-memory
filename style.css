@@ -829,6 +829,7 @@ body::before {
 }
 .carousel-arrow:hover { border-color: var(--accent); }
 .carousel-arrow:disabled { opacity: 0.35; cursor: default; }
+.carousel-arrow[hidden] { display: none; }
 @media (max-width: 600px) { .carousel-arrow { width: 32px; height: 32px; font-size: 1.2rem; } }
 
 /* Shared look for every kind of card: same border, radius, padding and shadow. */
@@ -2358,4 +2359,174 @@ select[id$="-sort-input"],
   .sync-change-btn,
   .recipe-open-shopping,
   .reminder-banner-btn { min-height: 36px; }
+}
+
+/* ===== 26. Friendlier extras: undo toast, phone bottom bar, text size, Home weigh-in ===== */
+
+/* Undo toast: a small bar that slides in near the bottom for a few seconds after a delete. */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: calc(100vw - 32px);
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: var(--text);
+  color: var(--bg);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+}
+.toast[hidden] { display: none; }
+.toast button {
+  padding: 6px 12px;
+  border: 1px solid currentColor;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+/* Bottom bar: phones only; sits above the page content and under the toast. */
+.bottom-bar { display: none; }
+@media (max-width: 700px) {
+  .bottom-bar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    display: flex;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+  .bottom-bar button {
+    flex: 1;
+    min-height: 52px;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+  .bottom-bar button.active { color: var(--accent); box-shadow: inset 0 3px 0 var(--accent); }
+  /* Leave room so the bar never covers the end of a page, and lift the toast above the bar. */
+  .content { padding-bottom: 76px; }
+  .toast { bottom: 70px; }
+}
+html[data-locked] .bottom-bar,
+html[data-locked] .toast { visibility: hidden; }
+
+/* Text size: scales everything sized in rem. Set from the Menu. */
+html[data-text="large"] { font-size: 112.5%; }
+html[data-text="larger"] { font-size: 125%; }
+
+/* Finger-sized tap targets on touch screens. */
+@media (pointer: coarse) {
+  .edit-btn, .cancel-btn, .delete-btn, .data-io-btn, .nav-item, #undo-btn, #redo-btn { min-height: 44px; }
+}
+
+/* The Home "Weigh in" box: number and Save side by side. */
+.home-weigh-form { display: flex; gap: 8px; }
+.home-weigh-form input { flex: 1; min-width: 0; }
+
+/* The two reminder-time boxes in the Menu. */
+.reminder-times { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; font-size: 0.85rem; color: var(--muted); }
+.reminder-times label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+/* The "Add one now" button inside an empty-state message. */
+.empty-state-add { margin-left: 8px; }
+
+/* ===== 27. Buy again, pinned recipes, refill pickup, Home weight, high contrast ===== */
+
+.buy-again { margin: 0 0 14px; }
+.buy-again-label { margin: 0 0 6px; font-size: 0.85rem; color: var(--muted); font-weight: 600; }
+
+.pin-btn {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+.pin-btn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+
+.refill-pickup { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0; }
+.refill-picked-btn {
+  padding: 6px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 13px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+.refill-interval { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: 100%; font-size: 0.85rem; color: var(--muted); }
+
+.home-sparkline { width: 100%; max-width: 240px; height: 40px; }
+.home-sparkline polyline { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+
+/* High contrast: near-black on white (or white on black in dark mode) with strong borders. Set from the Menu. */
+:root[data-contrast="high"] {
+  --bg: #FFFFFF;
+  --surface: #FFFFFF;
+  --text: #000000;
+  --muted: #1A1A1A;
+  --accent: #004D12;
+  --accent-2: #8A2A00;
+  --border: #000000;
+  --accent-contrast: #FFFFFF;
+  --accent-rose: #7A1F3D;
+  --accent-lavender: #3D2A7A;
+  --tint-blush: #FFFFFF;
+  --border-soft: #333333;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-contrast="high"]:not([data-theme="light"]) {
+    --bg: #000000;
+    --surface: #000000;
+    --text: #FFFFFF;
+    --muted: #E6E6E6;
+    --accent: #9FE89A;
+    --accent-2: #FFB48A;
+    --border: #FFFFFF;
+    --accent-contrast: #000000;
+    --accent-rose: #FFC2D6;
+    --accent-lavender: #DCCFFF;
+    --tint-blush: #000000;
+    --border-soft: #CCCCCC;
+  }
+}
+:root[data-contrast="high"][data-theme="dark"] {
+  --bg: #000000;
+  --surface: #000000;
+  --text: #FFFFFF;
+  --muted: #E6E6E6;
+  --accent: #9FE89A;
+  --accent-2: #FFB48A;
+  --border: #FFFFFF;
+  --accent-contrast: #000000;
+  --accent-rose: #FFC2D6;
+  --accent-lavender: #DCCFFF;
+  --tint-blush: #000000;
+  --border-soft: #CCCCCC;
+}
+
+/* "Change days" next to Picked up refill: a quiet outlined button like Edit and Cancel. */
+.refill-change-btn {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.85rem;
 }

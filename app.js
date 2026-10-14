@@ -372,6 +372,32 @@ let redoStack = [];
 let isApplyingHistory = false; // guard: undo/redo replays never re-record themselves
 const MAX_UNDO_DEPTH = 50;
 
+// ---- Undo toast ----
+// A short message with an Undo button, shown for a few seconds after something is deleted
+// (the Undo button in the Menu is easy to miss, especially on a phone where the Menu is folded away).
+
+let toastTimer = null;
+
+// Shows the toast; withUndo adds the Undo button. A newer toast replaces an older one.
+function showToast(message, withUndo) {
+  document.getElementById('toast-text').textContent = message;
+  document.getElementById('toast-undo').hidden = !withUndo;
+  document.getElementById('toast').hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(hideToast, 7000);
+}
+
+// Hides the toast (also called when anything else is done, so it never offers a stale Undo).
+function hideToast() {
+  clearTimeout(toastTimer);
+  document.getElementById('toast').hidden = true;
+}
+
+document.getElementById('toast-undo').addEventListener('click', () => {
+  undo();
+  hideToast();
+});
+
 // Remembers one change (the record before and after) so it can be undone; clears the redo list.
 function recordUndo(collectionName, id, before, after) {
   if (isApplyingHistory) return;
@@ -386,6 +412,13 @@ function recordUndo(collectionName, id, before, after) {
   if (undoStack.length > MAX_UNDO_DEPTH) undoStack.shift();
   redoStack = [];
   updateUndoRedoButtons();
+  // A delete offers an immediate Undo; any other change clears an older offer.
+  if (before !== null && after.deleted && !before.deleted) {
+    const said = describeEntry(undoStack[undoStack.length - 1]);
+    showToast(said.charAt(0).toUpperCase() + said.slice(1), true);
+  } else {
+    hideToast();
+  }
 }
 
 // ---- UI state (active tab) ----
@@ -422,6 +455,12 @@ function setActiveTab(tab) {
     navItem.classList.toggle('active', t === activeTab);
     if (t === activeTab) navItem.setAttribute('aria-current', 'page'); else navItem.removeAttribute('aria-current');
   });
+  // Phone bottom bar: highlight the current screen when it is one of the four shortcuts.
+  document.querySelectorAll('.bottom-bar [data-quick-tab]').forEach((btn) => {
+    const on = btn.dataset.quickTab === activeTab;
+    btn.classList.toggle('active', on);
+    if (on) btn.setAttribute('aria-current', 'page'); else btn.removeAttribute('aria-current');
+  });
   saveUiState({ activeTab });
   if (showingJournal) renderJournal(); // the tab is visible now, so widths (and the scroll position) are real
   if (activeTab === 'recipes') updateRecipeArrows(); // arrows can only be judged once the row has a width
@@ -433,6 +472,15 @@ function setActiveTab(tab) {
     if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'false');
   }
 }
+
+// Phone bottom bar: the shortcut buttons switch screens; Menu opens the folded-away sidebar at the top.
+document.querySelectorAll('.bottom-bar [data-quick-tab]').forEach((btn) => {
+  btn.addEventListener('click', () => setActiveTab(btn.dataset.quickTab));
+});
+document.getElementById('bottom-more').addEventListener('click', () => {
+  if (!document.querySelector('.sidebar').classList.contains('sidebar-open')) document.getElementById('sidebar-toggle').click();
+  window.scrollTo({ top: 0 });
+});
 
 // Sidebar buttons: each switches to its screen.
 document.querySelectorAll('.nav-item').forEach((btn) => {
@@ -1109,6 +1157,18 @@ function restoreRecipe(id) {
   renderRecipes();
 }
 
+// Pins or unpins a recipe: pinned recipes come first in the row and appear on Home with a Cook mode shortcut.
+function toggleRecipePinned(id) {
+  const recipe = recipes.find((r) => r.id === id);
+  if (!recipe) return;
+  const before = structuredClone(recipe);
+  recipe.pinned = !recipe.pinned;
+  stampSync(recipe);
+  saveCollection(RECIPES_KEY, recipes);
+  recordUndo('recipes', id, before, structuredClone(recipe));
+  renderRecipes();
+}
+
 // Saves edits to a recipe.
 function updateRecipe(id, fields) {
   const recipe = recipes.find((r) => r.id === id);
@@ -1215,7 +1275,8 @@ function renderRecipes() {
   const visible = nonDeleted
     .filter((r) => matchesRecipeSearch(r, searchTerm))
     .filter((r) => matchesRecipeCategory(r, selectedRecipeCategory))
-    .sort(comparator);
+    .sort(comparator)
+    .sort(doneLast((r) => !r.pinned)); // pinned recipes first, in the chosen order
 
   const keptScroll = list.scrollLeft;
   const openForm = list.querySelector('.recipe-edit-form:not([hidden])');
@@ -1267,6 +1328,10 @@ function renderRecipes() {
         });
       });
     }
+    const pinBtn = node.querySelector('.pin-btn');
+    pinBtn.setAttribute('aria-pressed', String(!!recipe.pinned));
+    pinBtn.textContent = recipe.pinned ? 'Pinned \u2605' : 'Pin';
+    pinBtn.addEventListener('click', () => toggleRecipePinned(recipe.id));
     const cookBtn = node.querySelector('.cook-mode-btn');
     cookBtn.hidden = !(recipe.steps && recipe.steps.length);
     cookBtn.addEventListener('click', () => openCookMode(recipe.id));
@@ -1372,6 +1437,7 @@ function renderRecipes() {
   updateRecipeArrows();
 
   document.getElementById('recipes-empty-state').hidden = nonDeleted.length !== 0;
+  renderHome(); // pinned recipes show on Home
 }
 
 // Add recipe: clears every box only if it was saved (a blank title keeps what was typed).
@@ -1384,6 +1450,10 @@ function scrollRecipes(direction) {
 // Dims the arrows when there is nothing further to scroll to in that direction.
 function updateRecipeArrows() {
   const track = document.getElementById('recipes-list');
+  // With nothing to scroll (no recipes, or they all fit) the arrows are hidden altogether.
+  const nothingToScroll = track.scrollWidth <= track.clientWidth + 4;
+  document.getElementById('recipes-prev').hidden = nothingToScroll;
+  document.getElementById('recipes-next').hidden = nothingToScroll;
   document.getElementById('recipes-prev').disabled = track.scrollLeft <= 4;
   document.getElementById('recipes-next').disabled = track.scrollLeft + track.clientWidth >= track.scrollWidth - 4;
 }
@@ -1491,6 +1561,22 @@ function updateMedicationDate(id, field, value) {
   saveCollection(MEDICATIONS_KEY, medications);
   renderHome(); // refills show on Home; this does not touch the medication list
   return { ok: true };
+}
+
+// "Picked up refill": the next refill date becomes today plus the number of days, and that number is remembered
+// on the medication so the next pickup is a single tap. One undoable change.
+function markRefillPickedUp(id, days) {
+  const med = medications.find((m) => m.id === id);
+  if (!med || !Number.isInteger(days) || days < 1 || days > 365) return false;
+  flushMedDateUndo();
+  const before = structuredClone(med);
+  med.refillDate = shiftDateKey(todayKey(), days);
+  med.refillEveryDays = days;
+  stampSync(med);
+  saveCollection(MEDICATIONS_KEY, medications);
+  recordUndo('medications', id, before, structuredClone(med));
+  renderMedications(); // also redraws Home
+  return true;
 }
 
 // The "overdue / due in N days" and "unknown" labels under the date boxes.
@@ -1614,6 +1700,22 @@ function renderMedicationList(items, template, openEdit) {
     startInput.value = med.startDate || '';
     refillInput.value = med.refillDate || '';
     updateMedHints(med, refillHint, unknownHint);
+
+    // Picked up refill: one tap when the interval is already known, otherwise pick 30 / 60 / 90 days.
+    const pickedBtn = node.querySelector('.refill-picked-btn');
+    const changeBtn = node.querySelector('.refill-change-btn');
+    const intervalRow = node.querySelector('.refill-interval');
+    const knownDays = Number.isInteger(med.refillEveryDays) && med.refillEveryDays >= 1 && med.refillEveryDays <= 365 ? med.refillEveryDays : null;
+    pickedBtn.textContent = knownDays ? `Picked up refill (next in ${knownDays} days)` : 'Picked up refill';
+    changeBtn.hidden = !knownDays;
+    pickedBtn.addEventListener('click', () => {
+      if (knownDays) markRefillPickedUp(med.id, knownDays);
+      else intervalRow.hidden = !intervalRow.hidden;
+    });
+    changeBtn.addEventListener('click', () => { intervalRow.hidden = !intervalRow.hidden; });
+    intervalRow.querySelectorAll('.chip').forEach((chip) => {
+      chip.addEventListener('click', () => markRefillPickedUp(med.id, Number(chip.dataset.days)));
+    });
 
     // `change` fires on every digit once a date is complete, so each one saves quietly in
     // place. A half-typed year (e.g. 0002) is never saved; if it is still out of range when
@@ -2014,6 +2116,7 @@ function renderWeights() {
 
   document.getElementById('weight-empty-state').hidden = live.length !== 0;
   renderWeightChart();
+  renderHome(); // Home's "Weigh in" box depends on whether today has a weight
 }
 
 document.getElementById('weight-add-form').addEventListener('submit', (e) => {
@@ -2071,19 +2174,24 @@ function weightEntriesForChart(entries, days) {
   return sorted.filter((w) => w.date >= since);
 }
 
-// How much the weight changed over the last 30 days: the latest entry compared with the last entry
-// on or before 30 days earlier, or with the first entry inside the window when there is none.
+// How much the weight changed over the last `days` days: the latest entry compared with the last entry
+// on or before that many days earlier, or with the first entry inside the window when there is none.
 // Returns null when there is nothing to compare.
-function weightChangeLast30(entries) {
+function weightChangeOver(entries, days) {
   const sorted = weightEntriesForChart(entries, 0);
   if (sorted.length < 2) return null;
   const latest = sorted[sorted.length - 1];
-  if (latest.date < shiftDateKey(todayKey(), -30)) return null; // the newest weight is old: there is no "last 30 days" to describe
-  const cutoff = shiftDateKey(latest.date, -30);
+  if (latest.date < shiftDateKey(todayKey(), -days)) return null; // the newest weight is old: there is no such window to describe
+  const cutoff = shiftDateKey(latest.date, -days);
   const before = sorted.filter((w) => w.date <= cutoff);
   const base = before.length ? before[before.length - 1] : sorted.find((w) => w.date > cutoff && w !== latest);
   if (!base) return null;
   return { change: Math.round((latest.weight - base.weight) * 10) / 10, since: base.date };
+}
+
+// The 30-day version used on the Weight tab and in the health summary.
+function weightChangeLast30(entries) {
+  return weightChangeOver(entries, 30);
 }
 
 // Draws the chart into the <svg>: grid, axis labels, the line and dots, and the goal line.
@@ -2802,6 +2910,45 @@ const SHOPPING_KEY = 'secondMemory.shoppingList.v1';
 
 let shoppingItems = migrateSyncFields(loadCollection(SHOPPING_KEY), SHOPPING_KEY, getDeviceId());
 
+// ---- Buy again ----
+// Everything bought (ticked off) or removed before, that is not on the list right now, most often first.
+const BUY_AGAIN_SHOWN = 12;
+
+// The records to offer: one per item name, the most recently touched copy of each (so its last quantity and category come back).
+function buyAgainSuggestions() {
+  const onList = new Set(shoppingItems.filter((i) => !i.deleted && !i.checked).map((i) => String(i.item || '').trim().toLowerCase()));
+  const byName = new Map();
+  shoppingItems.forEach((rec) => {
+    const key = String(rec.item || '').trim().toLowerCase();
+    if (!key || onList.has(key)) return;
+    const entry = byName.get(key) || { count: 0, last: rec };
+    entry.count += 1;
+    if (String(rec.updatedAt || '') >= String(entry.last.updatedAt || '')) entry.last = rec;
+    byName.set(key, entry);
+  });
+  return [...byName.values()]
+    .sort((a, b) => b.count - a.count || String(b.last.updatedAt || '').localeCompare(String(a.last.updatedAt || '')))
+    .slice(0, BUY_AGAIN_SHOWN)
+    .map((entry) => entry.last);
+}
+
+// Draws the "Buy again" chips under the add form; one tap adds the item back with its old quantity and category.
+function renderBuyAgain() {
+  const box = document.getElementById('shopping-buy-again');
+  const row = document.getElementById('shopping-buy-again-chips');
+  const suggestions = buyAgainSuggestions();
+  row.innerHTML = '';
+  box.hidden = suggestions.length === 0;
+  suggestions.forEach((rec) => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'chip';
+    chip.textContent = rec.quantity ? `${rec.item} (${rec.quantity})` : rec.item;
+    chip.addEventListener('click', () => addShoppingItem(rec.item, rec.quantity || '', rec.category || ''));
+    row.appendChild(chip);
+  });
+}
+
 // Adds an item to the shopping list; a blank item name is ignored.
 function addShoppingItem(item, quantity, category) {
   const trimmedItem = item.trim();
@@ -2944,6 +3091,7 @@ const SHOPPING_SORTS = {
 function renderShoppingList() {
   const searchTerm = document.getElementById('shopping-search-input').value;
   const nonDeleted = shoppingItems.filter((i) => !i.deleted);
+  renderBuyAgain();
   renderShoppingCategoryFilters(nonDeleted);
   renderShoppingCheckedFilters();
   const comparator = SHOPPING_SORTS[selectedShoppingSort] || SHOPPING_SORTS.date_added_asc;
@@ -3045,6 +3193,7 @@ function renderShoppingList() {
   });
 
   document.getElementById('shopping-empty-state').hidden = shoppingItems.filter((i) => !i.deleted).length !== 0;
+  renderHome(); // Home lists what is still unchecked
 }
 
 document.getElementById('shopping-add-form').addEventListener('submit', (e) => {
@@ -4720,7 +4869,7 @@ document.addEventListener('keydown', (e) => {
 const JOURNAL_BACKUP_AT_KEY = 'secondMemory.journalBackupAt.v1';
 const EXPORT_AT_KEY = 'secondMemory.exportAt.v1';
 const JOURNAL_BACKUP_DUE_DAYS = 7;
-const EXPORT_DUE_DAYS = 30;
+const EXPORT_DUE_DAYS = 7;
 
 // Remembers that a backup file was just downloaded.
 function recordBackupTime(key) {
@@ -4997,6 +5146,20 @@ function computeHomeTodos(nonDeletedTodos) {
   return { overdue, dueSoon };
 }
 
+// Draws a tiny trend line (no axes) into an <svg viewBox="0 0 120 32"> from a list of numbers.
+function drawSparkline(svg, values) {
+  svg.innerHTML = '';
+  if (values.length < 2) return;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1; // a flat line sits in the middle instead of dividing by zero
+  const points = values.map((v, i) => `${(i / (values.length - 1)) * 116 + 2},${30 - ((v - min) / range) * 28 + (max === min ? -13 : 0)}`);
+  svg.appendChild(svgEl('polyline', { points: points.join(' ') }));
+}
+
+// How many unchecked shopping items Home lists before saying "+ N more".
+const HOME_SHOPPING_SHOWN = 6;
+
 // Plain-English timing for Home rows, e.g. "today", "tomorrow", "in 4 days", "2 days ago".
 function whenLabel(days) {
   if (days < 0) return `${-days} day${days === -1 ? '' : 's'} ago`;
@@ -5042,10 +5205,18 @@ function renderHome() {
 
   const refillsPanel = document.getElementById('home-refills-panel');
   const refillsList = document.getElementById('home-refills-list');
+  const weighPanel = document.getElementById('home-weigh-panel');
+  const shoppingPanel = document.getElementById('home-shopping-panel');
+  const shoppingList = document.getElementById('home-shopping-list');
+  const weightPanel = document.getElementById('home-weight-panel');
+  const recipesPanel = document.getElementById('home-recipes-panel');
+  const recipesList = document.getElementById('home-recipes-list');
 
   todoList.innerHTML = '';
   readingList.innerHTML = '';
   refillsList.innerHTML = '';
+  shoppingList.innerHTML = '';
+  recipesList.innerHTML = '';
 
   // One Home row: a button (filled in by buildContent) that jumps to the tab.
   function makeHomeRow(onClick, buildContent) {
@@ -5101,6 +5272,60 @@ function renderHome() {
     }));
   });
 
+  // Weigh-in: shown until a weight is saved for today, with a box to save it right here.
+  weighPanel.hidden = weights.some((w) => !w.deleted && w.date === todayKey());
+
+  // Shopping: what is still unchecked (the first few), so the list is one glance away.
+  const toBuy = shoppingItems.filter((i) => !i.deleted && !i.checked);
+  shoppingPanel.hidden = toBuy.length === 0;
+  toBuy.slice(0, HOME_SHOPPING_SHOWN).forEach((item) => {
+    shoppingList.appendChild(makeHomeRow(() => goToTab('shopping'), (btn) => {
+      const name = document.createElement('span');
+      name.className = 'shopping-item-name';
+      name.textContent = item.quantity ? `${item.item} (${item.quantity})` : item.item;
+      btn.append(name);
+    }));
+  });
+  if (toBuy.length > HOME_SHOPPING_SHOWN) {
+    shoppingList.appendChild(makeHomeRow(() => goToTab('shopping'), (btn) => {
+      btn.textContent = `+ ${toBuy.length - HOME_SHOPPING_SHOWN} more`;
+    }));
+  }
+
+  // Weight trend: the latest weight, how it moved this week (or this month), and a small line of recent entries.
+  const trendPoints = weightEntriesForChart(weights, 0);
+  weightPanel.hidden = trendPoints.length < 2;
+  if (!weightPanel.hidden) {
+    const latest = trendPoints[trendPoints.length - 1];
+    const week = weightChangeOver(weights, 7);
+    const month = week ? null : weightChangeOver(weights, 30);
+    const found = week || month;
+    const span = week ? 'the last 7 days' : 'the last 30 days';
+    let words = '';
+    if (found) words = found.change === 0 ? ` \u2014 no change over ${span}` : ` \u2014 ${found.change < 0 ? 'down' : 'up'} ${Math.abs(found.change).toFixed(1)} ${WEIGHT_UNIT} over ${span}`;
+    document.getElementById('home-weight-text').textContent = `${formatWeight(latest.weight)}${words}`;
+    drawSparkline(document.getElementById('home-weight-spark'), trendPoints.slice(-14).map((w) => w.weight));
+  }
+
+  // Pinned recipes: tap to open Cook mode (or the Recipes tab when the recipe has no steps yet).
+  const pinned = recipes.filter((r) => !r.deleted && r.pinned);
+  recipesPanel.hidden = pinned.length === 0;
+  pinned.forEach((recipe) => {
+    const hasSteps = (recipe.steps || []).length > 0;
+    recipesList.appendChild(makeHomeRow(() => (hasSteps ? openCookMode(recipe.id) : goToTab('recipes')), (btn) => {
+      const title = document.createElement('strong');
+      title.className = 'recipe-title';
+      title.textContent = recipe.title;
+      const hint = document.createElement('span');
+      hint.className = 'book-author';
+      hint.textContent = hasSteps ? 'Cook mode' : '';
+      btn.append(title, hint);
+    }));
+  });
+
+  // The "all caught up" message only makes sense when nothing at all is waiting on Home.
+  if (!weighPanel.hidden || !shoppingPanel.hidden) emptyEl.hidden = true;
+
   // Books currently being read.
   if (currentlyReading.length > 0) {
     readingPanel.hidden = false;
@@ -5119,6 +5344,22 @@ function renderHome() {
     readingPanel.hidden = true;
   }
 }
+
+// Home "Weigh in" box: saves today's weight without opening the Weight tab.
+document.getElementById('home-weigh-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const input = document.getElementById('home-weigh-input');
+  const errorEl = document.getElementById('home-weigh-error');
+  const result = addWeight({ date: todayKey(), value: input.value, note: '' });
+  if (!result.ok) {
+    errorEl.textContent = result.error;
+    errorEl.hidden = false;
+    return;
+  }
+  errorEl.hidden = true;
+  input.value = '';
+  renderHome(); // today now has a weight, so this box goes away
+});
 
 // ---- Device Sync ----
 // Optional: the app is fully functional offline with no sync configured, and
@@ -5228,6 +5469,7 @@ function applyEntrySnapshot(entry, which) {
 function undo() {
   flushMedDateUndo();
   if (undoStack.length === 0) return;
+  hideToast();
   const entry = undoStack.pop();
   // While true, the collection's own delete/restore must not record a new undo entry for this replay.
   isApplyingHistory = true;
@@ -5559,7 +5801,7 @@ async function runSync() {
         return;
       }
       if (boot.kind !== 'ok') {
-        setSyncStatus('Sync failed — tap Sync now to try again', 'failed');
+        setSyncStatus('Sync failed — the server may be waking up (it can take up to a minute). Tap Sync now to try again', 'failed');
         return;
       }
       snapshot = bootstrapSyncSnapshot(boot.data);
@@ -5586,7 +5828,7 @@ async function runSync() {
       return;
     }
     if (result.kind !== 'ok') {
-      setSyncStatus('Sync failed — tap Sync now to try again', 'failed');
+      setSyncStatus('Sync failed — the server may be waking up (it can take up to a minute). Tap Sync now to try again', 'failed');
       return;
     }
     const data = result.data;
@@ -5637,7 +5879,7 @@ async function runSync() {
     setSyncStatus(
       err && err.name === 'AbortError'
         ? 'Sync timed out. The server did not answer — tap Sync now to try again'
-        : 'Sync failed — tap Sync now to try again',
+        : 'Sync failed — the server may be waking up (it can take up to a minute). Tap Sync now to try again',
       'failed'
     );
   } finally {
@@ -6046,7 +6288,7 @@ document.addEventListener('visibilitychange', () => {
 
 // The build number shown in the Menu. Keep it equal to the number in CACHE_NAME in sw.js
 // (a test checks this), so "which version am I on?" has a one-glance answer.
-const APP_VERSION = 73;
+const APP_VERSION = 75;
 const THEME_KEY = 'secondMemory.theme.v1';
 const THEMES = ['auto', 'light', 'dark'];
 
@@ -6105,14 +6347,22 @@ document.getElementById('quick-add-form').addEventListener('submit', (e) => {
 // "already told you today" notes stay on this device and are not synced.
 
 const REMINDERS_KEY = 'secondMemory.reminders.v1';
-const WEIGH_IN_HOUR = 9; // the weigh-in reminder starts at 9:00 local time
+const DEFAULT_REMINDER_TIME = '09:00'; // when each reminder starts, until changed in the Menu
+const TIME_RE = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
 const REFILL_NOTICE_DAYS = 2; // remind from this many days before the refill date
 const REFILL_OVERDUE_DAYS = 7; // ...and for this many days after it
 const REMINDER_CHECK_MS = 15 * 60 * 1000;
 
-// Reads { enabled, refills: { medId: lastDayTold }, weighIn: lastDayTold }; damaged data becomes the defaults.
+// Minutes since midnight for an "HH:MM" time (a damaged value counts as the default time).
+function minutesOf(time) {
+  const [h, m] = (TIME_RE.test(time) ? time : DEFAULT_REMINDER_TIME).split(':').map(Number);
+  return h * 60 + m;
+}
+
+// Reads { enabled, refills: { medId: lastDayTold }, weighIn: lastDayTold, weighInTime, refillTime };
+// damaged data becomes the defaults.
 function loadReminderState() {
-  const blank = { enabled: false, refills: {}, weighIn: '' };
+  const blank = { enabled: false, refills: {}, weighIn: '', weighInTime: DEFAULT_REMINDER_TIME, refillTime: DEFAULT_REMINDER_TIME };
   try {
     const raw = JSON.parse(localStorage.getItem(REMINDERS_KEY));
     if (!raw || typeof raw !== 'object') return blank;
@@ -6120,6 +6370,8 @@ function loadReminderState() {
       enabled: raw.enabled === true,
       refills: raw.refills && typeof raw.refills === 'object' && !Array.isArray(raw.refills) ? raw.refills : {},
       weighIn: typeof raw.weighIn === 'string' ? raw.weighIn : '',
+      weighInTime: TIME_RE.test(raw.weighInTime) ? raw.weighInTime : DEFAULT_REMINDER_TIME,
+      refillTime: TIME_RE.test(raw.refillTime) ? raw.refillTime : DEFAULT_REMINDER_TIME,
     };
   } catch {
     return blank;
@@ -6148,9 +6400,9 @@ function medicationsNeedingRefillNotice() {
     .sort(compareByField((m) => m.refillDate, 1, { text: false }));
 }
 
-// True when it is past the weigh-in hour and no weight has been recorded for today.
-function weighInDue(now = new Date()) {
-  if (now.getHours() < WEIGH_IN_HOUR) return false;
+// True when the weigh-in time has passed and no weight has been recorded for today.
+function weighInDue(now = new Date(), time = loadReminderState().weighInTime) {
+  if (now.getHours() * 60 + now.getMinutes() < minutesOf(time)) return false;
   const today = todayKey();
   return !weights.some((w) => !w.deleted && w.date === today);
 }
@@ -6176,7 +6428,9 @@ async function checkReminders() {
   let changed = false;
 
   // One refill notice per medication per day, until the refill date is moved or a week has gone by.
-  const needing = medicationsNeedingRefillNotice().filter((m) => state.refills[m.id] !== today);
+  const nowDate = new Date();
+  const refillTimeReached = nowDate.getHours() * 60 + nowDate.getMinutes() >= minutesOf(state.refillTime);
+  const needing = refillTimeReached ? medicationsNeedingRefillNotice().filter((m) => state.refills[m.id] !== today) : [];
   if (needing.length > 0) {
     const overdue = needing.some((m) => daysUntilDateKey(m.refillDate) < 0);
     await showReminder(
@@ -6189,7 +6443,7 @@ async function checkReminders() {
   }
 
   // One weigh-in nudge per day, and none once today's weight is in.
-  if (state.weighIn !== today && weighInDue()) {
+  if (state.weighIn !== today && weighInDue(nowDate, state.weighInTime)) {
     await showReminder('Time to weigh in', 'Add today’s weight in Second Memory.', 'weigh-in');
     state.weighIn = today;
     changed = true;
@@ -6212,6 +6466,10 @@ function updateReminderButton() {
     return;
   }
   const on = loadReminderState().enabled && Notification.permission === 'granted';
+  document.getElementById('reminder-times').hidden = !on;
+  const saved = loadReminderState();
+  document.getElementById('weigh-time-input').value = saved.weighInTime;
+  document.getElementById('refill-time-input').value = saved.refillTime;
   btn.textContent = Notification.permission === 'denied' ? 'Reminders: blocked' : `Reminders: ${on ? 'On' : 'Off'}`;
 }
 
@@ -6238,6 +6496,20 @@ document.getElementById('reminders-btn').addEventListener('click', async () => {
   }
   updateReminderButton();
   checkReminders();
+});
+
+// Changing a time saves it on this device (a cleared box is ignored) and re-checks straight away.
+[['weigh-time-input', 'weighInTime'], ['refill-time-input', 'refillTime']].forEach(([id, field]) => {
+  document.getElementById(id).addEventListener('change', (e) => {
+    if (!TIME_RE.test(e.target.value)) { e.target.value = loadReminderState()[field]; return; }
+    const state = loadReminderState();
+    state[field] = e.target.value;
+    // A new time starts the day over, so the reminder can still go out today if it is now later than the new time.
+    if (field === 'weighInTime') state.weighIn = '';
+    else state.refills = {};
+    saveReminderState(state);
+    checkReminders();
+  });
 });
 
 updateReminderButton();
@@ -6665,6 +6937,58 @@ document.querySelectorAll('details.add-dropdown').forEach((details) => {
     }
   });
 });
+
+// Each empty screen gets an "Add one now" button that opens that screen's add form and moves the cursor into it.
+document.querySelectorAll('.empty-state').forEach((message) => {
+  const section = message.closest('section.collection');
+  if (!section) return;
+  const details = section.querySelector('details.add-dropdown');
+  const form = details ? details.querySelector('form') : section.querySelector('form.add-form');
+  if (!form) return; // Home, Journal and Resume have no plain add form
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'edit-btn empty-state-add';
+  btn.textContent = 'Add one now';
+  btn.addEventListener('click', () => {
+    if (details) details.open = true;
+    const first = form.querySelector('input:not([type="hidden"]), textarea');
+    if (first) first.focus();
+    form.scrollIntoView({ block: 'center' });
+  });
+  message.appendChild(btn);
+});
+
+// Menu button: contrast toggles between Normal and High (remembered on this device).
+const CONTRAST_KEY = 'secondMemory.contrast.v1';
+function applyContrast(high) {
+  if (high) document.documentElement.setAttribute('data-contrast', 'high');
+  else document.documentElement.removeAttribute('data-contrast');
+  try {
+    if (high) localStorage.setItem(CONTRAST_KEY, 'high'); else localStorage.removeItem(CONTRAST_KEY);
+  } catch { /* storage unavailable: the choice lasts until the page closes */ }
+  document.getElementById('contrast-btn').textContent = `Contrast: ${high ? 'High' : 'Normal'}`;
+}
+document.getElementById('contrast-btn').addEventListener('click', () => {
+  applyContrast(document.documentElement.getAttribute('data-contrast') !== 'high');
+});
+applyContrast(document.documentElement.getAttribute('data-contrast') === 'high');
+
+// Menu button: text size cycles Normal -> Large -> Larger (the choice is remembered on this device).
+const TEXT_SIZE_KEY = 'secondMemory.textSize.v1';
+const TEXT_SIZES = ['normal', 'large', 'larger'];
+function applyTextSize(size) {
+  if (size === 'normal') document.documentElement.removeAttribute('data-text');
+  else document.documentElement.setAttribute('data-text', size);
+  try {
+    if (size === 'normal') localStorage.removeItem(TEXT_SIZE_KEY); else localStorage.setItem(TEXT_SIZE_KEY, size);
+  } catch { /* storage unavailable: the size lasts until the page closes */ }
+  document.getElementById('text-size-btn').textContent = `Text size: ${size.charAt(0).toUpperCase()}${size.slice(1)}`;
+}
+document.getElementById('text-size-btn').addEventListener('click', () => {
+  const current = document.documentElement.getAttribute('data-text') || 'normal';
+  applyTextSize(TEXT_SIZES[(TEXT_SIZES.indexOf(current) + 1) % TEXT_SIZES.length]);
+});
+applyTextSize(TEXT_SIZES.includes(document.documentElement.getAttribute('data-text')) ? document.documentElement.getAttribute('data-text') : 'normal');
 
 // ---- Init ----
 // First draw of every screen (Home is drawn by setActiveTab), then the sync controls and the service worker.

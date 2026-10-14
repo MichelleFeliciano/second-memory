@@ -7,6 +7,8 @@
 <!-- Applies a Light/Dark theme chosen in the Menu before the page paints, so it does not flash. -->
 <script>
 try { var t = localStorage.getItem('secondMemory.theme.v1'); if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); } catch (e) { /* storage unavailable: follow the device */ }
+try { var z = localStorage.getItem('secondMemory.textSize.v1'); if (z === 'large' || z === 'larger') document.documentElement.setAttribute('data-text', z); } catch (e) { /* storage unavailable: normal size */ }
+try { if (localStorage.getItem('secondMemory.contrast.v1') === 'high') document.documentElement.setAttribute('data-contrast', 'high'); } catch (e) { /* storage unavailable: normal contrast */ }
 // If an app lock is set, start locked (the lock screen is shown by CSS until the PIN is entered).
 try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement.setAttribute('data-locked', '1'); } catch (e) { /* storage unavailable: no lock */ }
 </script>
@@ -204,8 +206,15 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         <button type="button" id="lock-btn" class="data-io-btn">App lock: Off</button>
         <button type="button" id="lock-now-btn" class="data-io-btn" hidden>Lock now</button>
         <button type="button" id="reminders-btn" class="data-io-btn">Reminders: Off</button>
+        <button type="button" id="text-size-btn" class="data-io-btn">Text size: Normal</button>
+        <button type="button" id="contrast-btn" class="data-io-btn">Contrast: Normal</button>
       </div>
       <p class="sync-status-text data-io-status" id="reminders-status" role="status" hidden></p>
+      <!-- When the reminders go out each day; shown while Reminders is on. -->
+      <div class="reminder-times" id="reminder-times" hidden>
+        <label>Weigh-in reminder <input type="time" id="weigh-time-input" value="09:00" aria-label="Weigh-in reminder time"></label>
+        <label>Refill reminder <input type="time" id="refill-time-input" value="09:00" aria-label="Refill reminder time"></label>
+      </div>
       <p class="app-version" id="app-version"></p>
     </div>
   </nav>
@@ -252,6 +261,27 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         <div class="column" id="home-refills-panel" hidden>
           <h3>Medication Refills</h3>
           <ul class="card-list" id="home-refills-list"></ul>
+        </div>
+        <div class="column" id="home-weigh-panel" hidden>
+          <h3>Weigh in</h3>
+          <form class="home-weigh-form add-form" id="home-weigh-form" novalidate>
+            <input type="number" id="home-weigh-input" min="0.1" max="1500" step="any" placeholder="Today's weight (lb)" aria-label="Today's weight in pounds">
+            <button type="submit">Save</button>
+          </form>
+          <p class="form-error" id="home-weigh-error" role="alert" hidden></p>
+        </div>
+        <div class="column" id="home-weight-panel" hidden>
+          <h3>Weight</h3>
+          <p class="weight-trend" id="home-weight-text"></p>
+          <svg class="home-sparkline" id="home-weight-spark" viewBox="0 0 120 32" role="img" aria-label="Recent weights"></svg>
+        </div>
+        <div class="column" id="home-recipes-panel" hidden>
+          <h3>Pinned recipes</h3>
+          <ul class="card-list" id="home-recipes-list"></ul>
+        </div>
+        <div class="column" id="home-shopping-panel" hidden>
+          <h3>Still to buy</h3>
+          <ul class="card-list" id="home-shopping-list"></ul>
         </div>
         <div class="column" id="home-reading-panel" hidden>
           <h3>Currently Reading</h3>
@@ -643,6 +673,12 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         <button type="submit">Add item</button>
       </form>
 
+      <!-- Things bought before that are not on the list now; one tap puts them back (renderBuyAgain). -->
+      <div class="buy-again" id="shopping-buy-again" hidden>
+        <p class="buy-again-label">Buy again</p>
+        <div class="chip-row" id="shopping-buy-again-chips"></div>
+      </div>
+
       <div class="chip-row" id="shopping-category-filters"></div>
       <div class="chip-row" id="shopping-checked-filters"></div>
 
@@ -786,6 +822,7 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
       </div>
       <p class="recipe-notes" hidden></p>
       <div class="recipe-actions">
+        <button type="button" class="pin-btn" aria-pressed="false">Pin</button>
         <button type="button" class="cook-mode-btn" hidden>Cook mode</button>
         <button type="button" class="add-to-shopping-btn" hidden>Add to shopping list</button>
         <button type="button" class="edit-btn">Edit</button>
@@ -832,6 +869,17 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         <p class="form-error med-date-error" hidden></p>
       </div>
       <p class="med-notes" hidden></p>
+      <!-- "Picked up refill" moves the refill date forward by the remembered number of days. -->
+      <div class="refill-pickup">
+        <button type="button" class="refill-picked-btn">Picked up refill</button>
+        <button type="button" class="refill-change-btn" hidden>Change days</button>
+        <div class="refill-interval" hidden>
+          <span>Picked up &mdash; refills every:</span>
+          <button type="button" class="chip" data-days="30">30 days</button>
+          <button type="button" class="chip" data-days="60">60 days</button>
+          <button type="button" class="chip" data-days="90">90 days</button>
+        </div>
+      </div>
       <div class="med-actions">
         <button type="button" class="edit-btn">Edit</button>
         <button type="button" class="delete-btn" aria-label="Delete medication">Delete</button>
@@ -1049,6 +1097,21 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
 </div>
 
 <!-- App lock screen: shown (by the data-locked attribute on <html>) until the right PIN is typed. -->
+<!-- Phone-only bar along the bottom with the four most-used screens and the Menu. -->
+<nav class="bottom-bar" id="bottom-bar" aria-label="Quick tabs">
+  <button type="button" data-quick-tab="home">Home</button>
+  <button type="button" data-quick-tab="todo">To-Do</button>
+  <button type="button" data-quick-tab="shopping">Shopping</button>
+  <button type="button" data-quick-tab="notes">Notes</button>
+  <button type="button" id="bottom-more">Menu</button>
+</nav>
+
+<!-- Short message with an Undo button after a delete; shown by showToast. -->
+<div class="toast" id="toast" role="status" aria-live="polite" hidden>
+  <span id="toast-text"></span>
+  <button type="button" id="toast-undo">Undo</button>
+</div>
+
 <div class="lock-screen" id="lock-screen" role="dialog" aria-modal="true" aria-labelledby="lock-screen-title">
   <form class="lock-card" id="lock-form">
     <h2 id="lock-screen-title">Second Memory is locked</h2>
