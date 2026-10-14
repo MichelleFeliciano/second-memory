@@ -14,7 +14,7 @@ importData({ collections: { books: [{ ...rb, id: 'bk1', title: 'Newer than local
 check('a genuinely newer backup copy is still kept (as a copy, nothing is lost)', books.length === 2 && books.some((b) => b.title === 'Newer than local'));
 
 // ---- import refuses records that would break a screen ----
-check('import refuses text fields that are not text', !isValidImportRecord('medications', { id: 'x', name: null }) && !isValidImportRecord('diagnoses', { id: 'x', condition: 'c' }) && !isValidImportRecord('recipes', { id: 'x', title: 't', ingredients: 'not a list' }) && !isValidImportRecord('books', { id: 'x', title: 't', status: 'nonsense' }) && !isValidImportRecord('todos', { id: 'x' }));
+check('import refuses text fields that are not text', !isValidImportRecord('medications', { id: 'x', name: null }) && !isValidImportRecord('diagnoses', { id: 'x', condition: null }) && !isValidImportRecord('recipes', { id: 'x', title: 't', ingredients: 'not a list' }) && !isValidImportRecord('books', { id: 'x', title: 't', status: 'nonsense' }) && !isValidImportRecord('todos', { id: 'x' }));
 check('import still accepts normal records', isValidImportRecord('diagnoses', { id: 'x', condition: 'c', status: 'active' }) && isValidImportRecord('recipes', { id: 'x', title: 't', ingredients: ['a'], steps: [] }) && isValidImportRecord('notes', { id: 'x', title: '', body: 'b' }));
 
 // ---- a damaged saved list cannot stop the app loading ----
@@ -101,12 +101,13 @@ journalEntries.push({ id: 't1', type: 'therapy', date: dk(-1), answers: { topics
 check('two same-day sessions, one without a saved time, sort without error', therapySessions(5).length === 2);
 journalEntries.length = 0;
 
-// ---- diagnoses with a missing status still show up ----
+// ---- diagnoses are one list with no status ----
 diagnoses.length = 0;
 diagnoses.push({ ...rb, id: 'dg1', condition: 'Odd one', dateDiagnosed: null, provider: '', notes: '' });
 nav('diagnoses'); renderDiagnoses();
-check('a diagnosis with no status appears under Active', [...document.querySelectorAll('[data-diagnosis-list="active"] .diagnosis-card')].length === 1);
-check('and the health summary lists it as Active', (() => { const text = buildHealthSummaryText(buildHealthSummaryData()); return /Odd one/.test(text) && /Status: Active/.test(text); })());
+check('a diagnosis with no status shows in the list, with no Move menu', document.querySelectorAll('#diagnoses-list .diagnosis-card').length === 1 && !document.querySelector('#diagnoses-list .move-select') && !document.querySelector('#diagnoses-collection .column'));
+check('and the health summary lists it with no status line', (() => { const text = buildHealthSummaryText(buildHealthSummaryData()); return /Odd one/.test(text) && !/Status:/.test(text); })());
+check('import accepts a diagnosis with no status', isValidImportRecord('diagnoses', { id: 'x', condition: 'c' }));
 diagnoses.length = 0;
 
 // ---- app lock ----

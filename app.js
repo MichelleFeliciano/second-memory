@@ -424,6 +424,7 @@ function setActiveTab(tab) {
   });
   saveUiState({ activeTab });
   if (showingJournal) renderJournal(); // the tab is visible now, so widths (and the scroll position) are real
+  if (activeTab === 'recipes') updateRecipeArrows(); // arrows can only be judged once the row has a width
 
   if (window.matchMedia('(max-width: 700px)').matches) {
     const sidebar = document.querySelector('.sidebar');
@@ -1216,6 +1217,7 @@ function renderRecipes() {
     .filter((r) => matchesRecipeCategory(r, selectedRecipeCategory))
     .sort(comparator);
 
+  const keptScroll = list.scrollLeft;
   const openForm = list.querySelector('.recipe-edit-form:not([hidden])');
   const openEdit = openForm
     ? {
@@ -1363,10 +1365,34 @@ function renderRecipes() {
     list.appendChild(node);
   });
 
+  // Redrawing empties the row; put it back where it was so scaling or editing a card doesn't jump to the first one.
+  list.style.scrollBehavior = 'auto';
+  list.scrollLeft = keptScroll;
+  list.style.scrollBehavior = '';
+  updateRecipeArrows();
+
   document.getElementById('recipes-empty-state').hidden = nonDeleted.length !== 0;
 }
 
 // Add recipe: clears every box only if it was saved (a blank title keeps what was typed).
+// Carousel arrows: scroll the recipe row by about one card; an arrow is dimmed at its end.
+function scrollRecipes(direction) {
+  const track = document.getElementById('recipes-list');
+  track.scrollBy({ left: direction * Math.max(track.clientWidth * 0.85, 200), behavior: 'smooth' });
+}
+
+// Dims the arrows when there is nothing further to scroll to in that direction.
+function updateRecipeArrows() {
+  const track = document.getElementById('recipes-list');
+  document.getElementById('recipes-prev').disabled = track.scrollLeft <= 4;
+  document.getElementById('recipes-next').disabled = track.scrollLeft + track.clientWidth >= track.scrollWidth - 4;
+}
+
+document.getElementById('recipes-prev').addEventListener('click', () => scrollRecipes(-1));
+document.getElementById('recipes-next').addEventListener('click', () => scrollRecipes(1));
+document.getElementById('recipes-list').addEventListener('scroll', updateRecipeArrows);
+window.addEventListener('resize', updateRecipeArrows);
+
 document.getElementById('recipes-add-form').addEventListener('submit', (e) => {
   e.preventDefault();
   const titleInput = document.getElementById('recipes-title-input');
@@ -1380,8 +1406,9 @@ document.getElementById('recipes-add-form').addEventListener('submit', (e) => {
     ingredientsInput.value = '';
     stepsInput.value = '';
     notesInput.value = '';
+  } else {
+    titleInput.focus();
   }
-  titleInput.focus();
 });
 
 // Search box: filters the cards as you type.
@@ -1419,7 +1446,6 @@ function addMedication(fields) {
     endDate: null,
     refillDate,
     notes: fields.notes.trim(),
-    takenDates: [],
     dateAdded: now,
     updatedAt: now,
     deviceId: getDeviceId(),
@@ -1465,68 +1491,6 @@ function updateMedicationDate(id, field, value) {
   saveCollection(MEDICATIONS_KEY, medications);
   renderHome(); // refills show on Home; this does not touch the medication list
   return { ok: true };
-}
-
-// ---- Medication check-off ----
-// Each medication keeps `takenDates`: the days you ticked "Taken today" (newest 365 are kept).
-// It is part of the medication record, so it syncs and is undoable like any other edit.
-
-const TAKEN_DATES_KEPT = 365;
-
-// The valid, de-duplicated, sorted list of days a medication was taken (damaged data becomes []).
-function takenDatesOf(med) {
-  const raw = Array.isArray(med.takenDates) ? med.takenDates : [];
-  return [...new Set(raw.filter((d) => isRealDateKey(d)))].sort();
-}
-
-// Summarises the check-off: taken today?, the current streak of days in a row, the last day taken,
-// and how many of the last 7 days (today included) were ticked.
-function medicationTakenSummary(med) {
-  const days = takenDatesOf(med); // already sorted
-  const taken = new Set(days);
-  const today = todayKey();
-  const takenToday = taken.has(today);
-  // Not ticked yet today doesn't break the streak: count back from yesterday instead.
-  let cursor = takenToday ? today : shiftDateKey(today, -1);
-  let streak = 0;
-  while (taken.has(cursor)) {
-    streak += 1;
-    cursor = shiftDateKey(cursor, -1);
-  }
-  let last7 = 0;
-  for (let i = 0; i < 7; i++) if (taken.has(shiftDateKey(today, -i))) last7 += 1;
-  return { takenToday, streak, lastTaken: days.length ? days[days.length - 1] : null, last7 };
-}
-
-// Ticks or unticks "taken" for one day (defaults to today) and saves it as one undoable change.
-function toggleMedicationTaken(id, dateKey) {
-  const med = medications.find((m) => m.id === id);
-  if (!med) return;
-  const day = dateKey || todayKey();
-  flushMedDateUndo();
-  const before = structuredClone(med);
-  const taken = new Set(takenDatesOf(med));
-  if (taken.has(day)) taken.delete(day); else taken.add(day);
-  med.takenDates = [...taken].sort().slice(-TAKEN_DATES_KEPT);
-  stampSync(med);
-  saveCollection(MEDICATIONS_KEY, medications);
-  recordUndo('medications', id, before, structuredClone(med));
-  renderMedications(); // also redraws Home
-}
-
-// Sets the "Taken today" button and the note beside it (streak, or when it was last taken).
-function renderMedicationTaken(med, button, note) {
-  const s = medicationTakenSummary(med);
-  button.setAttribute('aria-pressed', String(s.takenToday));
-  button.textContent = s.takenToday ? 'Taken today \u2713' : 'Taken today';
-  if (s.streak >= 2) {
-    note.textContent = `${s.streak} days in a row`;
-  } else if (s.lastTaken && !s.takenToday) {
-    const ago = -daysUntilDateKey(s.lastTaken);
-    note.textContent = ago <= 1 ? 'Last taken yesterday' : `Last taken ${ago} days ago`;
-  } else {
-    note.textContent = '';
-  }
 }
 
 // The "overdue / due in N days" and "unknown" labels under the date boxes.
@@ -1650,11 +1614,6 @@ function renderMedicationList(items, template, openEdit) {
     startInput.value = med.startDate || '';
     refillInput.value = med.refillDate || '';
     updateMedHints(med, refillHint, unknownHint);
-
-    // "Taken today" check-off with a streak note.
-    const takenBtn = node.querySelector('.med-taken-btn');
-    renderMedicationTaken(med, takenBtn, node.querySelector('.med-taken-note'));
-    takenBtn.addEventListener('click', () => toggleMedicationTaken(med.id));
 
     // `change` fires on every digit once a date is complete, so each one saves quietly in
     // place. A half-typed year (e.g. 0002) is never saved; if it is still out of range when
@@ -2276,12 +2235,10 @@ document.getElementById('weight-goal-clear').addEventListener('click', () => {
 // ---- Diagnoses ----
 
 const DIAGNOSES_KEY = 'secondMemory.diagnoses.v1';
-// The states a diagnosis can be in; stored in each diagnosis's status field.
-const DIAGNOSIS_STATUSES = ['active', 'monitoring', 'resolved'];
 
 let diagnoses = migrateSyncFields(loadCollection(DIAGNOSES_KEY), DIAGNOSES_KEY, getDeviceId());
 
-// Adds a diagnosis (starts as 'active'); a blank condition is refused.
+// Adds a diagnosis; a blank condition is refused.
 function addDiagnosis(condition, dateDiagnosed, provider, notes) {
   const trimmedCondition = condition.trim();
   if (!trimmedCondition) return;
@@ -2291,7 +2248,6 @@ function addDiagnosis(condition, dateDiagnosed, provider, notes) {
     condition: trimmedCondition,
     dateDiagnosed: dateDiagnosed || null,
     provider: provider.trim(),
-    status: 'active',
     notes: notes.trim(),
     dateAdded: now,
     updatedAt: now,
@@ -2302,18 +2258,6 @@ function addDiagnosis(condition, dateDiagnosed, provider, notes) {
   diagnoses.push(diagnosis);
   saveCollection(DIAGNOSES_KEY, diagnoses);
   recordUndo('diagnoses', diagnosis.id, null, structuredClone(diagnosis));
-  renderDiagnoses();
-}
-
-// Changes a diagnosis between active, monitoring and resolved.
-function updateDiagnosisStatus(id, newStatus) {
-  const diagnosis = diagnoses.find((d) => d.id === id);
-  if (!diagnosis || !DIAGNOSIS_STATUSES.includes(newStatus)) return;
-  const before = structuredClone(diagnosis);
-  diagnosis.status = newStatus;
-  stampSync(diagnosis);
-  saveCollection(DIAGNOSES_KEY, diagnoses);
-  recordUndo('diagnoses', id, before, structuredClone(diagnosis));
   renderDiagnoses();
 }
 
@@ -2374,118 +2318,102 @@ const DIAGNOSIS_SORTS = {
   date_diagnosed_asc: compareByField((d) => d.dateDiagnosed, 1, { text: false }),
 };
 
-// Redraws the whole Diagnoses screen: status filter, search, sort and the cards.
+// Redraws the whole Diagnoses screen: search, sort and one flat list of cards.
 function renderDiagnoses() {
   const searchTerm = document.getElementById('diagnoses-search-input').value;
   const visible = diagnoses.filter((d) => !d.deleted).filter((d) => matchesDiagnosisSearch(d, searchTerm));
   const template = document.getElementById('diagnoses-card-template');
   const comparator = DIAGNOSIS_SORTS[selectedDiagnosesSort] || DIAGNOSIS_SORTS.condition_asc;
+  const list = document.getElementById('diagnoses-list');
 
-  const lists = DIAGNOSIS_STATUSES.map((status) => document.querySelector(`[data-diagnosis-list="${status}"]`));
-
-  // Remember the one open edit form (with unsaved typing) across all three status lists.
-  let openEdit = null;
-  for (const list of lists) {
-    const openForm = list.querySelector('.diagnosis-edit-form:not([hidden])');
-    if (openForm) {
-      openEdit = {
+  // Remember the open edit form (with unsaved typing) so the redraw doesn't lose it.
+  const openForm = list.querySelector('.diagnosis-edit-form:not([hidden])');
+  const openEdit = openForm
+    ? {
         id: openForm.closest('.diagnosis-card').dataset.diagnosisId,
         condition: openForm.querySelector('.diagnosis-edit-condition').value,
         dateDiagnosed: openForm.querySelector('.diagnosis-edit-date').value,
         provider: openForm.querySelector('.diagnosis-edit-provider').value,
         notes: openForm.querySelector('.diagnosis-edit-notes').value,
-      };
-      break;
+      }
+    : null;
+
+  list.innerHTML = '';
+  visible.sort(comparator).forEach((diagnosis) => {
+    const node = template.content.cloneNode(true);
+    const card = node.querySelector('.diagnosis-card');
+    card.dataset.diagnosisId = diagnosis.id;
+    const viewSection = node.querySelector('.diagnosis-view');
+    const editForm = node.querySelector('.diagnosis-edit-form');
+
+    node.querySelector('.diagnosis-condition').textContent = diagnosis.condition;
+    node.querySelector('.diagnosis-date').textContent = diagnosis.dateDiagnosed || 'Date unknown';
+
+    const providerEl = node.querySelector('.diagnosis-provider');
+    if (diagnosis.provider) {
+      providerEl.textContent = diagnosis.provider;
+      providerEl.hidden = false;
     }
-  }
 
-  DIAGNOSIS_STATUSES.forEach((status, index) => {
-    const list = lists[index];
-    list.innerHTML = '';
-    // A stored diagnosis with an unknown status is shown under Active rather than vanishing.
-    const items = visible.filter((d) => (DIAGNOSIS_STATUSES.includes(d.status) ? d.status : 'active') === status).sort(comparator);
-    document.querySelector(`[data-diagnosis-count="${status}"]`).textContent = items.length;
+    const notesEl = node.querySelector('.diagnosis-notes');
+    if (diagnosis.notes) {
+      notesEl.textContent = diagnosis.notes;
+      notesEl.hidden = false;
+    }
 
-    items.forEach((diagnosis) => {
-      const node = template.content.cloneNode(true);
-      const card = node.querySelector('.diagnosis-card');
-      card.dataset.diagnosisId = diagnosis.id;
-      const viewSection = node.querySelector('.diagnosis-view');
-      const editForm = node.querySelector('.diagnosis-edit-form');
+    const editConditionInput = node.querySelector('.diagnosis-edit-condition');
+    const editDateInput = node.querySelector('.diagnosis-edit-date');
+    const editProviderInput = node.querySelector('.diagnosis-edit-provider');
+    const editNotesInput = node.querySelector('.diagnosis-edit-notes');
 
-      node.querySelector('.diagnosis-condition').textContent = diagnosis.condition;
-      node.querySelector('.diagnosis-date').textContent = diagnosis.dateDiagnosed || 'Date unknown';
-
-      const providerEl = node.querySelector('.diagnosis-provider');
-      if (diagnosis.provider) {
-        providerEl.textContent = diagnosis.provider;
-        providerEl.hidden = false;
-      }
-
-      const notesEl = node.querySelector('.diagnosis-notes');
-      if (diagnosis.notes) {
-        notesEl.textContent = diagnosis.notes;
-        notesEl.hidden = false;
-      }
-
-      const moveSelect = node.querySelector('.move-select');
-      moveSelect.value = DIAGNOSIS_STATUSES.includes(diagnosis.status) ? diagnosis.status : 'active';
-      moveSelect.addEventListener('change', (e) => updateDiagnosisStatus(diagnosis.id, e.target.value));
-
-      const editConditionInput = node.querySelector('.diagnosis-edit-condition');
-      const editDateInput = node.querySelector('.diagnosis-edit-date');
-      const editProviderInput = node.querySelector('.diagnosis-edit-provider');
-      const editNotesInput = node.querySelector('.diagnosis-edit-notes');
-
-      node.querySelector('.edit-btn').addEventListener('click', () => {
-        lists.forEach((otherList) => {
-          const otherOpenForm = otherList.querySelector('.diagnosis-edit-form:not([hidden])');
-          if (otherOpenForm && otherOpenForm !== editForm) {
-            otherOpenForm.hidden = true;
-            otherOpenForm.closest('.diagnosis-card').querySelector('.diagnosis-view').hidden = false;
-          }
-        });
-        editConditionInput.value = diagnosis.condition;
-        editDateInput.value = diagnosis.dateDiagnosed || '';
-        editProviderInput.value = diagnosis.provider || '';
-        editNotesInput.value = diagnosis.notes || '';
-        viewSection.hidden = true;
-        editForm.hidden = false;
+    node.querySelector('.edit-btn').addEventListener('click', () => {
+      // Only one card is edited at a time: close any other open form first.
+      list.querySelectorAll('.diagnosis-edit-form:not([hidden])').forEach((otherOpenForm) => {
+        if (otherOpenForm !== editForm) {
+          otherOpenForm.hidden = true;
+          otherOpenForm.closest('.diagnosis-card').querySelector('.diagnosis-view').hidden = false;
+        }
       });
-
-      node.querySelector('.cancel-btn').addEventListener('click', () => {
-        editForm.hidden = true;
-        viewSection.hidden = false;
-      });
-
-      editForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        // Hide before calling updateDiagnosis — see the identical comment
-        // on Books' edit-form submit handler.
-        if (rejectBlank(editConditionInput, 'Enter a condition.')) return;
-        editForm.hidden = true;
-        viewSection.hidden = false;
-        updateDiagnosis(diagnosis.id, {
-          condition: editConditionInput.value,
-          dateDiagnosed: editDateInput.value,
-          provider: editProviderInput.value,
-          notes: editNotesInput.value,
-        });
-      });
-
-      node.querySelector('.delete-btn').addEventListener('click', () => deleteDiagnosis(diagnosis.id));
-
-      if (openEdit && openEdit.id === diagnosis.id) {
-        editConditionInput.value = openEdit.condition;
-        editDateInput.value = openEdit.dateDiagnosed;
-        editProviderInput.value = openEdit.provider;
-        editNotesInput.value = openEdit.notes;
-        viewSection.hidden = true;
-        editForm.hidden = false;
-      }
-
-      list.appendChild(node);
+      editConditionInput.value = diagnosis.condition;
+      editDateInput.value = diagnosis.dateDiagnosed || '';
+      editProviderInput.value = diagnosis.provider || '';
+      editNotesInput.value = diagnosis.notes || '';
+      viewSection.hidden = true;
+      editForm.hidden = false;
     });
+
+    node.querySelector('.cancel-btn').addEventListener('click', () => {
+      editForm.hidden = true;
+      viewSection.hidden = false;
+    });
+
+    editForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      // Hide before calling updateDiagnosis — see the identical comment
+      // on Books' edit-form submit handler.
+      if (rejectBlank(editConditionInput, 'Enter a condition.')) return;
+      editForm.hidden = true;
+      viewSection.hidden = false;
+      updateDiagnosis(diagnosis.id, {
+        condition: editConditionInput.value,
+        dateDiagnosed: editDateInput.value,
+        provider: editProviderInput.value,
+        notes: editNotesInput.value,
+      });
+    });
+
+    node.querySelector('.delete-btn').addEventListener('click', () => deleteDiagnosis(diagnosis.id));
+
+    if (openEdit && openEdit.id === diagnosis.id) {
+      editConditionInput.value = openEdit.condition;
+      editDateInput.value = openEdit.dateDiagnosed;
+      editProviderInput.value = openEdit.provider;
+      editNotesInput.value = openEdit.notes;
+      viewSection.hidden = true;
+      editForm.hidden = false;
+    }
+
+    list.appendChild(node);
   });
 
   document.getElementById('diagnoses-empty-state').hidden = diagnoses.filter((d) => !d.deleted).length !== 0;
@@ -5961,7 +5889,7 @@ function isValidImportRecord(collectionName, rec) {
   const listOrMissing = (v) => v === undefined || (Array.isArray(v) && v.every((x) => typeof x === 'string'));
   if (collectionName === 'books') return isText(rec.title) && textOrMissing(rec.author) && BOOK_STATUSES.includes(rec.status) && (rec.rating == null || (Number.isInteger(rec.rating) && rec.rating >= 0 && rec.rating <= 5)) && (rec.dateFinished == null || isDate(rec.dateFinished));
   if (collectionName === 'recipes') return isText(rec.title) && listOrMissing(rec.ingredients) && listOrMissing(rec.steps);
-  if (collectionName === 'diagnoses') return isText(rec.condition) && DIAGNOSIS_STATUSES.includes(rec.status);
+  if (collectionName === 'diagnoses') return isText(rec.condition);
   if (collectionName === 'todos') return isText(rec.task);
   if (collectionName === 'shoppingList') return isText(rec.item) && textOrMissing(rec.category) && textOrMissing(rec.quantity);
   if (collectionName === 'notes') return textOrMissing(rec.title) && textOrMissing(rec.body);
@@ -6118,7 +6046,7 @@ document.addEventListener('visibilitychange', () => {
 
 // The build number shown in the Menu. Keep it equal to the number in CACHE_NAME in sw.js
 // (a test checks this), so "which version am I on?" has a one-glance answer.
-const APP_VERSION = 71;
+const APP_VERSION = 73;
 const THEME_KEY = 'secondMemory.theme.v1';
 const THEMES = ['auto', 'light', 'dark'];
 
@@ -6169,6 +6097,156 @@ document.getElementById('quick-add-form').addEventListener('submit', (e) => {
   input.focus();
 });
 
+// ---- Reminders (device notifications) ----
+// Notifications for medication refills and the daily weigh-in. They are made on this device by the
+// app itself (no server, nothing leaves the phone), so they appear while the app is open or in the
+// background, and as soon as it is opened again; a closed app cannot send them. The wording never
+// includes a medication name, so nothing private shows on a lock screen. The on/off choice and the
+// "already told you today" notes stay on this device and are not synced.
+
+const REMINDERS_KEY = 'secondMemory.reminders.v1';
+const WEIGH_IN_HOUR = 9; // the weigh-in reminder starts at 9:00 local time
+const REFILL_NOTICE_DAYS = 2; // remind from this many days before the refill date
+const REFILL_OVERDUE_DAYS = 7; // ...and for this many days after it
+const REMINDER_CHECK_MS = 15 * 60 * 1000;
+
+// Reads { enabled, refills: { medId: lastDayTold }, weighIn: lastDayTold }; damaged data becomes the defaults.
+function loadReminderState() {
+  const blank = { enabled: false, refills: {}, weighIn: '' };
+  try {
+    const raw = JSON.parse(localStorage.getItem(REMINDERS_KEY));
+    if (!raw || typeof raw !== 'object') return blank;
+    return {
+      enabled: raw.enabled === true,
+      refills: raw.refills && typeof raw.refills === 'object' && !Array.isArray(raw.refills) ? raw.refills : {},
+      weighIn: typeof raw.weighIn === 'string' ? raw.weighIn : '',
+    };
+  } catch {
+    return blank;
+  }
+}
+
+// Saves the state; if storage is unavailable the reminders just work for this visit only.
+function saveReminderState(state) {
+  try { localStorage.setItem(REMINDERS_KEY, JSON.stringify(state)); } catch { /* nothing to save to */ }
+}
+
+// True when this browser can show notifications at all.
+function remindersSupported() {
+  return typeof Notification !== 'undefined';
+}
+
+// The medications that need a refill reminder today: refill date within the next couple of days,
+// today, or up to a week overdue. Soonest first.
+function medicationsNeedingRefillNotice() {
+  return medications
+    .filter((m) => !m.deleted && isRealDateKey(m.refillDate))
+    .filter((m) => {
+      const days = daysUntilDateKey(m.refillDate);
+      return days <= REFILL_NOTICE_DAYS && days >= -REFILL_OVERDUE_DAYS;
+    })
+    .sort(compareByField((m) => m.refillDate, 1, { text: false }));
+}
+
+// True when it is past the weigh-in hour and no weight has been recorded for today.
+function weighInDue(now = new Date()) {
+  if (now.getHours() < WEIGH_IN_HOUR) return false;
+  const today = todayKey();
+  return !weights.some((w) => !w.deleted && w.date === today);
+}
+
+// Shows one notification. Phones need the service worker to do it; desktops can do it directly.
+async function showReminder(title, body, tag) {
+  const options = { body, tag, icon: './icons/icon-192.png', badge: './icons/icon-192.png' };
+  try {
+    const registration = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration() : null;
+    if (registration) { await registration.showNotification(title, options); return; }
+  } catch { /* no usable service worker here: fall through to the direct way */ }
+  try {
+    new Notification(title, options);
+  } catch { /* the browser refused; try again at the next check */ }
+}
+
+// Looks at today's situation and sends whatever has not been sent yet today. Safe to call often.
+async function checkReminders() {
+  if (!remindersSupported() || Notification.permission !== 'granted') return;
+  const state = loadReminderState();
+  if (!state.enabled) return;
+  const today = todayKey();
+  let changed = false;
+
+  // One refill notice per medication per day, until the refill date is moved or a week has gone by.
+  const needing = medicationsNeedingRefillNotice().filter((m) => state.refills[m.id] !== today);
+  if (needing.length > 0) {
+    const overdue = needing.some((m) => daysUntilDateKey(m.refillDate) < 0);
+    await showReminder(
+      overdue ? 'Medication refill overdue' : 'Medication refill coming up',
+      needing.length === 1 ? 'Open Second Memory to see which one.' : `${needing.length} refills need attention.`,
+      'refill'
+    );
+    needing.forEach((m) => { state.refills[m.id] = today; });
+    changed = true;
+  }
+
+  // One weigh-in nudge per day, and none once today's weight is in.
+  if (state.weighIn !== today && weighInDue()) {
+    await showReminder('Time to weigh in', 'Add today’s weight in Second Memory.', 'weigh-in');
+    state.weighIn = today;
+    changed = true;
+  }
+
+  if (changed) {
+    // Forget medications that no longer need a notice so this list cannot grow forever.
+    const live = new Set(medicationsNeedingRefillNotice().map((m) => m.id));
+    Object.keys(state.refills).forEach((id) => { if (!live.has(id)) delete state.refills[id]; });
+    saveReminderState(state);
+  }
+}
+
+// Sets the Menu button's label from the saved choice and the browser's permission.
+function updateReminderButton() {
+  const btn = document.getElementById('reminders-btn');
+  if (!remindersSupported()) {
+    btn.textContent = 'Reminders: not supported';
+    btn.disabled = true;
+    return;
+  }
+  const on = loadReminderState().enabled && Notification.permission === 'granted';
+  btn.textContent = Notification.permission === 'denied' ? 'Reminders: blocked' : `Reminders: ${on ? 'On' : 'Off'}`;
+}
+
+// The Menu button turns reminders on (asking the browser for permission the first time) or off.
+document.getElementById('reminders-btn').addEventListener('click', async () => {
+  if (!remindersSupported()) return;
+  const status = document.getElementById('reminders-status');
+  const state = loadReminderState();
+  if (state.enabled) {
+    state.enabled = false;
+    saveReminderState(state);
+    status.hidden = true;
+  } else {
+    const permission = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
+    if (permission === 'granted') {
+      state.enabled = true;
+      saveReminderState(state);
+      status.textContent = 'Refill and daily weigh-in reminders are on. They appear while the app is open or in the background.';
+      status.hidden = false;
+    } else {
+      status.textContent = 'Notifications are blocked. Allow them for this site in your browser settings, then try again.';
+      status.hidden = false;
+    }
+  }
+  updateReminderButton();
+  checkReminders();
+});
+
+updateReminderButton();
+checkReminders();
+setInterval(checkReminders, REMINDER_CHECK_MS);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') checkReminders();
+});
+
 // ---- Health summary ----
 // One printable page for a doctor: current medications, diagnoses, and weight. The journal is
 // never included. The page is built as plain sections so the same data makes both the on-screen
@@ -6192,22 +6270,19 @@ function buildHealthSummaryData() {
       if (m.prescribingDoctor) lines.push(`Prescribed by ${m.prescribingDoctor}`);
       if (isRealDateKey(m.startDate)) lines.push(`Started ${formatDateKeyLong(m.startDate)}`);
       if (isRealDateKey(m.refillDate)) lines.push(`Next refill ${formatDateKeyLong(m.refillDate)}`);
-      if (takenDatesOf(m).length > 0) lines.push(`Taken on ${medicationTakenSummary(m).last7} of the last 7 days`);
       if (m.notes) lines.push(m.notes);
       return { head: m.name, lines };
     }),
   });
 
-  // Diagnoses, active first, then monitoring, then resolved. An unknown status sorts (and prints) as active.
-  const diags =diagnoses.filter((d) => !d.deleted)
-    .sort((a, b) => Math.max(0, DIAGNOSIS_STATUSES.indexOf(a.status)) - Math.max(0, DIAGNOSIS_STATUSES.indexOf(b.status))
-      || String(a.condition || '').localeCompare(String(b.condition || ''), undefined, { sensitivity: 'base' }));
+  // Diagnoses, alphabetical by condition.
+  const diags = diagnoses.filter((d) => !d.deleted)
+    .sort((a, b) => String(a.condition || '').localeCompare(String(b.condition || ''), undefined, { sensitivity: 'base' }));
   sections.push({
     title: 'Diagnoses',
     empty: 'No diagnoses recorded.',
     entries: diags.map((d) => {
-      const status = DIAGNOSIS_STATUSES.includes(d.status) ? d.status : 'active';
-      const lines = [`Status: ${status.charAt(0).toUpperCase()}${status.slice(1)}`];
+      const lines = [];
       if (d.dateDiagnosed) lines.push(`Diagnosed ${isRealDateKey(d.dateDiagnosed) ? formatDateKeyLong(d.dateDiagnosed) : d.dateDiagnosed}`);
       if (d.provider) lines.push(`Provider: ${d.provider}`);
       if (d.notes) lines.push(d.notes);
@@ -6576,6 +6651,20 @@ if (document.documentElement.hasAttribute('data-locked') && !loadLock()) {
   document.documentElement.removeAttribute('data-locked');
 }
 if (loadLock()) lockNow(); // a locked app opens locked (the lock screen is already showing)
+
+// Every "Add ..." dropdown tucks its form away after a successful add. A refused add (for example a blank
+// title) leaves the first text box filled or flagged, so the form stays open. This listener is registered after
+// each form's own submit handler, so it runs once that handler has cleared the boxes.
+document.querySelectorAll('details.add-dropdown').forEach((details) => {
+  const form = details.querySelector('form');
+  form.addEventListener('submit', () => {
+    const firstBox = form.querySelector('input[type="text"], input[type="number"], textarea');
+    if (firstBox && !firstBox.value) {
+      details.open = false;
+      details.querySelector('summary').focus(); // keep keyboard focus somewhere visible
+    }
+  });
+});
 
 // ---- Init ----
 // First draw of every screen (Home is drawn by setActiveTab), then the sync controls and the service worker.

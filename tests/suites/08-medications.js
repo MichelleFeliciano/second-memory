@@ -1,38 +1,64 @@
-// Medication "Taken today" check-off: ticking, streaks, undo, and bad data.
+// Medications (no daily "Taken today" button any more) and the refill / weigh-in reminders.
 const tNow = new Date().toISOString();
 medications.length = 0;
 addMedication({ name: 'Zinc', dosage: '10mg', frequency: 'daily', prescribingDoctor: '', startDate: '', refillDate: '', notes: '' });
 const zinc = () => medications.find((m) => m.name === 'Zinc');
-check('a new medication starts with nothing taken', Array.isArray(zinc().takenDates) && zinc().takenDates.length === 0);
 
 nav('medications');
-const takenBtn = () => document.querySelector('#medications-list .med-taken-btn');
-const takenNote = () => document.querySelector('#medications-list .med-taken-note').textContent;
-check('the card has a Taken today button that is not pressed', takenBtn().getAttribute('aria-pressed') === 'false');
-takenBtn().click(); await sleep(30);
-check('tapping marks today as taken', zinc().takenDates.includes(todayKey()) && takenBtn().getAttribute('aria-pressed') === 'true');
-check('the button shows a tick', /✓/.test(takenBtn().textContent));
-takenBtn().click(); await sleep(30);
-check('tapping again takes it back', zinc().takenDates.length === 0 && takenBtn().getAttribute('aria-pressed') === 'false');
-$('undo-btn').click(); await sleep(30);
-check('undo restores the tick', zinc().takenDates.includes(todayKey()));
+check('a medication card has no Taken today button', !document.querySelector('#medications-list .med-taken-btn') && !/Taken today/.test($('medications-list').textContent));
+check('a new medication no longer carries a taken list', zinc().takenDates === undefined);
 
-// streaks
-zinc().takenDates = [dk(-3), dk(-2), dk(-1), dk(0)]; saveCollection(MEDICATIONS_KEY, medications); renderMedications();
-check('four days in a row', medicationTakenSummary(zinc()).streak === 4 && /4 days in a row/.test(takenNote()), takenNote());
-zinc().takenDates = [dk(-2), dk(-1)]; renderMedications();
-check('a streak still counts if today is not ticked yet', medicationTakenSummary(zinc()).streak === 2 && !medicationTakenSummary(zinc()).takenToday);
-zinc().takenDates = [dk(-5)]; renderMedications();
-check('a gap ends the streak and says when it was last taken', medicationTakenSummary(zinc()).streak === 0 && /Last taken 5 days ago/.test(takenNote()), takenNote());
-zinc().takenDates = [dk(-1), dk(-3), dk(0), dk(-4)];
-check('the last-7-days count', medicationTakenSummary(zinc()).last7 === 4);
-zinc().takenDates = ['nonsense', dk(0), dk(0), null, '2026-02-31'];
-check('damaged taken dates are ignored and de-duplicated', takenDatesOf(zinc()).length === 1 && medicationTakenSummary(zinc()).takenToday);
-zinc().takenDates = 'oops';
-check('a damaged taken list never breaks the card', takenDatesOf(zinc()).length === 0 && (() => { renderMedications(); return true; })());
-
-// editing keeps the ticks
-zinc().takenDates = [dk(0)];
+// editing and old data
 updateMedication(zinc().id, { name: 'Zinc', dosage: '20mg', frequency: 'daily', prescribingDoctor: '', notes: '' });
-check('editing a medication keeps its taken days', zinc().takenDates.length === 1 && zinc().dosage === '20mg');
-check('import accepts a list of taken days and refuses a non-list', isValidImportRecord('medications', { id: 'x', name: 'm', takenDates: [] }) && !isValidImportRecord('medications', { id: 'x', name: 'm', takenDates: 'no' }));
+check('editing a medication still works', zinc().dosage === '20mg');
+zinc().takenDates = [dk(0)]; renderMedications();
+check('an older medication that still has taken days draws fine', !!document.querySelector('#medications-list .med-card'));
+check('import still accepts a list of old taken days and refuses a non-list', isValidImportRecord('medications', { id: 'x', name: 'm', takenDates: [] }) && !isValidImportRecord('medications', { id: 'x', name: 'm', takenDates: 'no' }));
+
+// ---- reminders: which medications count ----
+medications.length = 0;
+const mrec = (id, refillDate, extra = {}) => ({ id, name: id, dosage: '', frequency: '', prescribingDoctor: '', startDate: null, endDate: null, refillDate, notes: '', dateAdded: tNow, updatedAt: tNow, deviceId: 'test', deleted: false, version: 0, ...extra });
+medications.push(mrec('far', dk(10)), mrec('soon', dk(2)), mrec('today', dk(0)), mrec('late', dk(-3)), mrec('ancient', dk(-30)), mrec('gone', dk(1), { deleted: true }), mrec('none', null), mrec('junk', 'not a date'));
+check('refill notices cover due soon, today and up to a week overdue', medicationsNeedingRefillNotice().map((m) => m.id).join(',') === 'late,today,soon', medicationsNeedingRefillNotice().map((m) => m.id).join(','));
+
+// ---- reminders: weigh-in ----
+weights.length = 0;
+check('weigh-in is not due before 9:00', weighInDue(new Date(2026, 0, 5, 8, 59)) === false);
+check('weigh-in is due after 9:00 when today has no weight', weighInDue(new Date(2026, 0, 5, 9, 0)) === true);
+weights.push({ id: 'w1', date: todayKey(), weight: 150, note: '', dateAdded: tNow, updatedAt: tNow, deviceId: 'test', deleted: false, version: 0 });
+check('weigh-in is not due once today has a weight', weighInDue(new Date(2026, 0, 5, 12, 0)) === false);
+weights[0].deleted = true;
+check('a deleted weight does not count', weighInDue(new Date(2026, 0, 5, 12, 0)) === true);
+weights.length = 0;
+
+// ---- reminders: saved state ----
+localStorage.setItem(REMINDERS_KEY, '{oops');
+check('a damaged reminder setting becomes the defaults', loadReminderState().enabled === false && Object.keys(loadReminderState().refills).length === 0);
+localStorage.setItem(REMINDERS_KEY, JSON.stringify({ enabled: 'yes', refills: [], weighIn: 5 }));
+check('wrong types in the reminder setting are ignored', loadReminderState().enabled === false && loadReminderState().weighIn === '' && !Array.isArray(loadReminderState().refills));
+
+// ---- reminders: sending (a fake Notification records what would be shown) ----
+const RealNotification = window.Notification;
+const shown = [];
+window.Notification = function (title, options) { shown.push({ title, options }); };
+window.Notification.permission = 'granted';
+saveReminderState({ enabled: true, refills: {}, weighIn: '' });
+await checkReminders();
+const refillNote = shown.find((n) => /refill/i.test(n.title));
+check('an overdue refill sends one notice that names no medication', shown.filter((n) => /refill/i.test(n.title)).length === 1 && /overdue/i.test(refillNote.title) && !/late|today|soon/.test(refillNote.options.body), JSON.stringify(shown));
+check('the notice says how many refills need attention', /3 refills/.test(refillNote.options.body), refillNote.options.body);
+const weighHour = new Date().getHours() >= WEIGH_IN_HOUR;
+check('the weigh-in nudge is sent only after 9:00', shown.filter((n) => /weigh/i.test(n.title)).length === (weighHour ? 1 : 0));
+const before = shown.length;
+await checkReminders();
+check('checking again the same day sends nothing new', shown.length === before);
+saveReminderState({ enabled: false, refills: {}, weighIn: '' });
+await checkReminders();
+check('nothing is sent while reminders are off', shown.length === before);
+window.Notification.permission = 'denied';
+saveReminderState({ enabled: true, refills: {}, weighIn: '' });
+await checkReminders();
+check('nothing is sent without permission', shown.length === before);
+window.Notification = RealNotification;
+localStorage.removeItem(REMINDERS_KEY);
+medications.length = 0; renderMedications();

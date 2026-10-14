@@ -18,7 +18,7 @@ devices, described below.
 ## What else is in the app
 
 - **Home:** needs-attention panels, search across every list, quick add (to-do, shopping item or note), and a printable **Health summary** (medications, diagnoses, weight; never the journal).
-- **Medications:** a daily **Taken today** tick with a streak. **Weight:** chart, goal line and 30-day change. **Books:** a yearly reading goal. (Bills, income and the pay period now live in the separate **Budget** app: export from here and import there.) **Recipes:** scale amounts and **Cook mode** (big steps, screen stays on). **Journal:** a prompt of the day and "this day last year".
+- **Medications:** refill dates with Home reminders. **Reminders** (Menu): device notifications for upcoming refills and a daily weigh-in nudge, shown while the app is open or in the background (no server involved; a fully closed app cannot send them). **Diagnoses:** one simple list, no status columns. **Recipes:** a row of cards you scroll sideways with arrows; every Add form is a dropdown. **Weight:** chart, goal line and 30-day change. **Books:** a yearly reading goal. (Bills, income and the pay period now live in the separate **Budget** app: export from here and import there.) **Recipes:** scale amounts and **Cook mode** (big steps, screen stays on). **Journal:** a prompt of the day and "this day last year".
 - **Menu:** Theme (Auto, Light, Dark), **App lock** (a PIN; it hides the app but does not encrypt the data, and if you forget it the only way back in is to erase that device), and the app version.
 
 ## Syncing between devices (optional)

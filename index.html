@@ -203,7 +203,9 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         <button type="button" id="theme-btn" class="data-io-btn">Theme: Auto</button>
         <button type="button" id="lock-btn" class="data-io-btn">App lock: Off</button>
         <button type="button" id="lock-now-btn" class="data-io-btn" hidden>Lock now</button>
+        <button type="button" id="reminders-btn" class="data-io-btn">Reminders: Off</button>
       </div>
+      <p class="sync-status-text data-io-status" id="reminders-status" role="status" hidden></p>
       <p class="app-version" id="app-version"></p>
     </div>
   </nav>
@@ -287,6 +289,8 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         <p class="form-error" id="reading-goal-error" hidden></p>
       </div>
 
+      <details class="add-dropdown">
+      <summary>Add a book</summary>
       <form id="books-add-form" class="add-form">
         <input type="text" id="books-title-input" placeholder="Title" required aria-label="Book title">
         <input type="text" id="books-author-input" placeholder="Author" aria-label="Book author">
@@ -302,6 +306,7 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         </select>
         <button type="submit">Add book</button>
       </form>
+      </details>
 
       <div class="columns book-columns">
         <div class="column" data-status="want_to_buy">
@@ -341,7 +346,7 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
       <p class="empty-state" id="books-empty-state" hidden>No books yet — add your first one above.</p>
     </section>
 
-    <!-- Recipes tab: add form, category chips and a flat list. Cards come from recipes-card-template via renderRecipes. -->
+    <!-- Recipes tab: an "Add a recipe" dropdown, category chips and a row of recipe cards you scroll sideways (arrows or swipe). Cards come from recipes-card-template via renderRecipes. -->
     <section class="collection" id="recipes-collection" hidden>
       <div class="collection-toolbar toolbar-leaf">
         <h2>Recipes</h2>
@@ -353,6 +358,8 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         </select>
       </div>
 
+      <details class="add-dropdown" id="recipes-add-details">
+      <summary>Add a recipe</summary>
       <form id="recipes-add-form" class="add-form add-form-stacked">
         <input type="text" id="recipes-title-input" placeholder="Title" required aria-label="Recipe title">
         <input type="text" id="recipes-category-input" placeholder="Category (optional)" aria-label="Recipe category">
@@ -361,10 +368,15 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         <textarea id="recipes-notes-input" placeholder="Notes (optional)" aria-label="Recipe notes" rows="2"></textarea>
         <button type="submit">Add recipe</button>
       </form>
+      </details>
 
       <div class="chip-row" id="recipes-category-filters"></div>
 
-      <ul class="card-list flat-list" id="recipes-list"></ul>
+      <div class="carousel">
+        <button type="button" class="carousel-arrow" id="recipes-prev" aria-label="Previous recipes">&#8249;</button>
+        <ul class="card-list carousel-track" id="recipes-list" tabindex="0" aria-label="Recipes, scroll sideways"></ul>
+        <button type="button" class="carousel-arrow" id="recipes-next" aria-label="Next recipes">&#8250;</button>
+      </div>
 
       <p class="empty-state" id="recipes-empty-state" hidden>No recipes yet — add your first one above.</p>
     </section>
@@ -381,6 +393,8 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         </select>
       </div>
 
+      <details class="add-dropdown">
+      <summary>Add a medication</summary>
       <form id="medications-add-form" class="add-form add-form-stacked">
         <input type="text" id="medications-name-input" placeholder="Name" required aria-label="Medication name">
         <input type="text" id="medications-dosage-input" placeholder="Dosage (e.g. 10mg)" aria-label="Medication dosage">
@@ -396,6 +410,7 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         <p class="form-error" id="medications-form-error" hidden></p>
         <button type="submit">Add medication</button>
       </form>
+      </details>
 
       <ul class="card-list flat-list" id="medications-list"></ul>
 
@@ -527,6 +542,8 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         <p class="form-error" id="weight-goal-error" hidden></p>
       </div>
 
+      <details class="add-dropdown">
+      <summary>Add a weight</summary>
       <form id="weight-add-form" class="add-form add-form-stacked">
         <label class="date-field">Date
           <input type="date" id="weight-date-input" required aria-label="Date weighed">
@@ -536,13 +553,14 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         <p class="form-error" id="weight-form-error" hidden></p>
         <button type="submit">Add weight</button>
       </form>
+      </details>
 
       <h3 class="subsection-heading">History</h3>
       <ul class="card-list flat-list" id="weight-list"></ul>
       <p class="empty-state" id="weight-empty-state" hidden>No weights yet &mdash; add your first one above.</p>
     </section>
 
-    <!-- Diagnoses tab: add form and Active / Monitoring / Resolved columns. Cards come from diagnoses-card-template via renderDiagnoses. -->
+    <!-- Diagnoses tab: add form and one list of diagnoses. Cards come from diagnoses-card-template via renderDiagnoses. -->
     <section class="collection" id="diagnoses-collection" hidden>
       <div class="collection-toolbar">
         <h2>Diagnoses</h2>
@@ -554,6 +572,8 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         </select>
       </div>
 
+      <details class="add-dropdown">
+      <summary>Add a diagnosis</summary>
       <form id="diagnoses-add-form" class="add-form add-form-stacked">
         <input type="text" id="diagnoses-condition-input" placeholder="Condition" required aria-label="Condition name">
         <label class="date-field">Date diagnosed
@@ -563,21 +583,9 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         <textarea id="diagnoses-notes-input" placeholder="Notes (optional)" aria-label="Diagnosis notes" rows="2"></textarea>
         <button type="submit">Add diagnosis</button>
       </form>
+      </details>
 
-      <div class="columns">
-        <div class="column" data-status="active">
-          <h3>Active <span class="count" data-diagnosis-count="active">0</span></h3>
-          <ul class="card-list" data-diagnosis-list="active"></ul>
-        </div>
-        <div class="column" data-status="monitoring">
-          <h3>Monitoring <span class="count" data-diagnosis-count="monitoring">0</span></h3>
-          <ul class="card-list" data-diagnosis-list="monitoring"></ul>
-        </div>
-        <div class="column" data-status="resolved">
-          <h3>Resolved <span class="count" data-diagnosis-count="resolved">0</span></h3>
-          <ul class="card-list" data-diagnosis-list="resolved"></ul>
-        </div>
-      </div>
+      <ul class="card-list flat-list" id="diagnoses-list"></ul>
 
       <p class="empty-state" id="diagnoses-empty-state" hidden>No diagnoses yet — add your first one above.</p>
     </section>
@@ -657,12 +665,15 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         </select>
       </div>
 
+      <details class="add-dropdown">
+      <summary>Add a note</summary>
       <form id="notes-add-form" class="add-form add-form-stacked">
         <input type="text" id="notes-title-input" placeholder="Title (optional)" aria-label="Note title">
         <textarea id="notes-body-input" placeholder="Write a note…" aria-label="Note body" rows="4"></textarea>
         <p class="form-error" id="notes-form-error" hidden></p>
         <button type="submit">Add note</button>
       </form>
+      </details>
 
       <ul class="card-list flat-list" id="notes-list"></ul>
 
@@ -809,11 +820,6 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         <span class="med-field med-frequency-field" hidden><span class="field-label">Frequency:</span> <span class="med-frequency"></span></span>
         <span class="med-field med-doctor-field" hidden><span class="field-label">Prescriber:</span> <span class="med-doctor"></span></span>
       </div>
-      <!-- Daily check-off: tap once a day when the medication has been taken; shows the streak. -->
-      <div class="med-taken">
-        <button type="button" class="med-taken-btn" aria-pressed="false">Taken today</button>
-        <span class="med-taken-note"></span>
-      </div>
       <div class="med-dates">
         <label class="date-field">Start date
           <input type="date" class="med-start-date" min="1990-01-01" max="2100-12-31" aria-label="Start date">
@@ -884,11 +890,6 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
       </div>
       <p class="diagnosis-notes" hidden></p>
       <div class="diagnosis-actions">
-        <select class="move-select" aria-label="Move to status">
-          <option value="active">Move: Active</option>
-          <option value="monitoring">Move: Monitoring</option>
-          <option value="resolved">Move: Resolved</option>
-        </select>
         <button type="button" class="edit-btn">Edit</button>
         <button type="button" class="delete-btn" aria-label="Delete diagnosis">Delete</button>
       </div>

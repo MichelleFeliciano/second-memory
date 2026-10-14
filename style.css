@@ -788,6 +788,49 @@ body::before {
   gap: 16px;
 }
 
+/* A collapsible "Add ..." panel that holds an add form (Recipes). */
+.add-dropdown { margin-bottom: 16px; }
+.add-dropdown > summary {
+  display: inline-block;
+  padding: 8px 16px;
+  border: 1px solid var(--accent);
+  border-radius: 13px;
+  color: var(--accent);
+  cursor: pointer;
+  font-weight: 600;
+}
+.add-dropdown[open] > summary { margin-bottom: 12px; }
+
+/* A row of cards you scroll sideways: arrow buttons on both sides, or swipe / arrow keys. */
+.carousel { display: flex; align-items: center; gap: 8px; }
+.carousel-track {
+  flex: 1;
+  min-width: 0;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 16px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  padding: 4px 0 12px;
+}
+.carousel-track > li { flex: 0 0 min(380px, 88%); scroll-snap-align: start; }
+.carousel-arrow {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 1.5rem;
+  line-height: 1;
+}
+.carousel-arrow:hover { border-color: var(--accent); }
+.carousel-arrow:disabled { opacity: 0.35; cursor: default; }
+@media (max-width: 600px) { .carousel-arrow { width: 32px; height: 32px; font-size: 1.2rem; } }
+
 /* Shared look for every kind of card: same border, radius, padding and shadow. */
 .book-card,
 .recipe-card,
@@ -1144,23 +1187,6 @@ body::before {
 .refill-hint { font-weight: 600; }
 .refill-hint.overdue { color: var(--accent-2); }
 .refill-hint.soon { color: var(--accent-rose); }
-
-.med-taken { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 6px 0; }
-
-.med-taken-btn {
-  padding: 6px 14px;
-  border: 1px solid var(--accent);
-  border-radius: 13px;
-  background: transparent;
-  color: var(--accent);
-  cursor: pointer;
-  font-weight: 600;
-  font-size: 0.85rem;
-}
-
-.med-taken-btn[aria-pressed="true"] { background: var(--accent); color: var(--accent-contrast); }
-
-.med-taken-note { font-size: 0.85rem; color: var(--muted); }
 
 /* ===== 12. Diagnoses ===== */
 

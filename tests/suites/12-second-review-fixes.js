@@ -17,11 +17,11 @@ check('un-ticking keeps an edited next task and re-ticking does not add another'
 check('a bare email address becomes a mail link', hrefFor('me@site.com') === 'mailto:me@site.com');
 check('web addresses and script-looking text are still safe', hrefFor('example.com') === 'https://example.com' && hrefFor('javascript:alert(1)') === 'https://javascript:alert(1)' && hrefFor('https://a.b/c') === 'https://a.b/c');
 
-// ---- diagnosis with no status: the Move menu shows Active ----
+// ---- diagnosis with no status draws as a plain card ----
 diagnoses.length = 0;
 diagnoses.push({ ...r2, id: 'dgx', condition: 'No status', dateDiagnosed: null, provider: '', notes: '' });
 nav('diagnoses'); renderDiagnoses();
-check('the Move menu of a status-less diagnosis shows Active', document.querySelector('[data-diagnosis-list="active"] .diagnosis-card .move-select').value === 'active');
+check('a status-less diagnosis draws as a plain card', document.querySelectorAll('#diagnoses-list .diagnosis-card').length === 1);
 diagnoses.length = 0; renderDiagnoses();
 
 // ---- edit forms for records with missing fields ----
@@ -124,3 +124,22 @@ shoppingItems.push({ ...r2, id: 'shB', item: 'Bbb open', quantity: '', category:
 nav('shopping'); selectedShoppingChecked = 'all'; selectedShoppingCategory = 'all'; renderShoppingList();
 check('checked shopping items list after open ones', [...document.querySelectorAll('#shopping-list .shopping-item-name')].map((e) => e.textContent).join('|') === 'Bbb open|Aaa checked');
 todos.length = 0; shoppingItems.length = 0; renderTodos(); renderShoppingList();
+
+// ---- recipes: the add form is a dropdown and the cards scroll sideways with arrows ----
+recipes.length = 0;
+for (let i = 0; i < 6; i++) recipes.push({ ...r2, id: 'rc' + i, title: 'Recipe ' + i, category: '', ingredients: [], steps: [], notes: '' });
+nav('recipes'); renderRecipes(); await sleep(50);
+const addBox = $('recipes-add-details');
+check('the recipe form sits in a dropdown that starts closed', addBox.tagName === 'DETAILS' && !addBox.open && addBox.contains($('recipes-add-form')));
+const track = $('recipes-list');
+check('recipes sit in one row that scrolls sideways', getComputedStyle(track).overflowX === 'auto' && track.scrollWidth > track.clientWidth);
+check('the back arrow starts dimmed and the forward arrow is ready', $('recipes-prev').disabled && !$('recipes-next').disabled, [track.scrollLeft, track.clientWidth, track.scrollWidth, $('recipes-prev').disabled, $('recipes-next').disabled].join(','));
+track.style.scrollBehavior = 'auto'; track.scrollLeft = 300; await sleep(400);
+const scrolledTo = track.scrollLeft; // the row snaps to a card edge
+track.dispatchEvent(new Event('scroll')); // a hidden test page may not fire scroll events by itself
+check('after scrolling, the back arrow is ready', scrolledTo > 0 && !$('recipes-prev').disabled, scrolledTo + ',' + $('recipes-prev').disabled);
+renderRecipes();
+check('redrawing keeps the scroll position', track.scrollLeft === scrolledTo, track.scrollLeft + ' vs ' + scrolledTo);
+set('recipes-title-input', 'Brand new'); addBox.open = true; $('recipes-add-form').requestSubmit(); await sleep(50);
+check('adding a recipe closes the dropdown again', !addBox.open && recipes.some((r) => r.title === 'Brand new'));
+recipes.length = 0; renderRecipes();

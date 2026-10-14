@@ -4,19 +4,19 @@
 // Sample records: two medications (one stopped, one deleted), two diagnoses and two weights.
 const base0 = { dateAdded: new Date().toISOString(), updatedAt: new Date().toISOString(), deviceId: 'test', deleted: false, version: 0 };
 medications.length = 0; diagnoses.length = 0; weights.length = 0;
-medications.push({ ...base0, id: 'hm1', name: 'Zyrtec', dosage: '10mg', frequency: 'daily', prescribingDoctor: 'Dr. Lee', startDate: dk(-90), endDate: null, refillDate: dk(10), notes: 'with food', takenDates: [dk(0), dk(-1)] });
+medications.push({ ...base0, id: 'hm1', name: 'Zyrtec', dosage: '10mg', frequency: 'daily', prescribingDoctor: 'Dr. Lee', startDate: dk(-90), endDate: null, refillDate: dk(10), notes: 'with food' });
 medications.push({ ...base0, id: 'hm2', name: 'Old pill', dosage: '', frequency: '', prescribingDoctor: '', startDate: null, endDate: dk(-5), refillDate: null, notes: '' });
 medications.push({ ...base0, id: 'hm3', name: 'Deleted pill', dosage: '', frequency: '', prescribingDoctor: '', startDate: null, endDate: null, refillDate: null, notes: '', deleted: true });
-diagnoses.push({ ...base0, id: 'hd1', condition: 'Asthma', dateDiagnosed: dk(-400), provider: 'Dr. Kim', status: 'resolved', notes: '' });
-diagnoses.push({ ...base0, id: 'hd2', condition: 'Migraine', dateDiagnosed: null, provider: '', status: 'active', notes: 'weekly' });
+diagnoses.push({ ...base0, id: 'hd1', condition: 'Asthma', dateDiagnosed: dk(-400), provider: 'Dr. Kim', notes: '' });
+diagnoses.push({ ...base0, id: 'hd2', condition: 'Migraine', dateDiagnosed: null, provider: '', notes: 'weekly' });
 weights.push({ ...base0, id: 'hw1', date: dk(-40), weight: 190, note: '' }, { ...base0, id: 'hw2', date: dk(0), weight: 184, note: '' });
 nav('home');
 $('health-summary-btn').click(); await sleep(30);
 const sheet = $('health-summary-body').textContent;
 check('the sheet opens', !$('health-summary').hidden && document.body.classList.contains('summary-open'));
-check('it lists the medication you take, with doctor, refill and the last-7-days count', /Zyrtec/.test(sheet) && /Prescribed by Dr\. Lee/.test(sheet) && /Next refill/.test(sheet) && /Taken on 2 of the last 7 days/.test(sheet), sheet);
+check('it lists the medication you take, with doctor and refill', /Zyrtec/.test(sheet) && /Prescribed by Dr\. Lee/.test(sheet) && /Next refill/.test(sheet), sheet);
 check('it leaves out stopped and deleted medications', !/Old pill/.test(sheet) && !/Deleted pill/.test(sheet));
-check('active diagnoses come before resolved ones', sheet.indexOf('Migraine') > -1 && sheet.indexOf('Migraine') < sheet.indexOf('Asthma'));
+check('diagnoses are listed alphabetically', sheet.indexOf('Asthma') > -1 && sheet.indexOf('Asthma') < sheet.indexOf('Migraine'));
 check('it shows the weight figures and the 30-day change', /Most recent: 184\.0 lb/.test(sheet) && /Oldest: 190\.0 lb/.test(sheet) && /Change over the last 30 days/.test(sheet), sheet);
 check('the journal is never in it', !/journal/i.test(sheet));
 const text = buildHealthSummaryText(buildHealthSummaryData());
