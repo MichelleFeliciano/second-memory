@@ -249,3 +249,115 @@ $('contrast-btn').click();
 check('Contrast switches to High', document.documentElement.getAttribute('data-contrast') === 'high' && /High/.test($('contrast-btn').textContent));
 $('contrast-btn').click();
 check('and back to Normal', !document.documentElement.hasAttribute('data-contrast') && /Normal/.test($('contrast-btn').textContent));
+
+// ---- v76: wake the sync server, snooze, shopping groups and share, swipe, customise Home ----
+{
+  // wake-up poke: only when sync is set up, and only once in ten minutes
+  const pokes = [];
+  const realFetch = window.fetch;
+  window.fetch = (url, opts) => { pokes.push([String(url), opts && opts.mode]); return Promise.resolve(new Response('')); };
+  lastWakeAt = 0;
+  const hadConfig = localStorage.getItem(SYNC_CONFIG_KEY);
+  localStorage.removeItem(SYNC_CONFIG_KEY);
+  wakeSyncServer();
+  check('no wake-up request when sync is not set up', pokes.length === 0);
+  saveSyncConfig({ token: 'test-pass' });
+  wakeSyncServer();
+  check('with sync set up the server gets a plain no-cors request with no passphrase', pokes.length === 1 && /onrender\.com\/$/.test(pokes[0][0]) && pokes[0][1] === 'no-cors');
+  wakeSyncServer();
+  check('and is not poked again within ten minutes', pokes.length === 1);
+  window.fetch = realFetch;
+  if (hadConfig) localStorage.setItem(SYNC_CONFIG_KEY, hadConfig); else localStorage.removeItem(SYNC_CONFIG_KEY);
+  check('a failed sync says when the last good one was', (() => { recordBackupTime(LAST_SYNC_AT_KEY); return / Last synced today\./.test(lastSyncNote()); })());
+}
+
+// snooze
+todos.length = 0;
+todos.push({ ...r2, id: 'sn1', task: 'Late one', dueDate: dk(-2), completed: false, repeat: '' });
+todos.push({ ...r2, id: 'sn2', task: 'Future one', dueDate: dk(5), completed: false, repeat: '' });
+todos.push({ ...r2, id: 'sn3', task: 'No date', dueDate: null, completed: false, repeat: '' });
+nav('todo'); selectedTodoFilter = 'all'; renderTodos();
+const snoozeShown = (title) => [...document.querySelectorAll('#todo-list .todo-item')].find((li) => li.querySelector('.todo-task').textContent === title).querySelector('.snooze-btn').hidden === false;
+check('snooze buttons show only on overdue or due-today to-dos', snoozeShown('Late one') && !snoozeShown('Future one') && !snoozeShown('No date'));
+[...document.querySelectorAll('#todo-list .todo-item')].find((li) => li.querySelector('.todo-task').textContent === 'Late one').querySelector('.snooze-btn[data-days="1"]').click();
+check('Tomorrow moves the due date to tomorrow', todos[0].dueDate === dk(1));
+undo(); await sleep(30);
+check('undo puts the old date back', todos[0].dueDate === dk(-2));
+snoozeTodo('sn1', 7);
+check('Next week moves it seven days out', todos[0].dueDate === dk(7));
+check('snooze refuses bad input and finished to-dos', snoozeTodo('sn1', 0) === false && snoozeTodo('nope', 1) === false && (() => { todos[1].completed = true; const r = snoozeTodo('sn2', 1); todos[1].completed = false; return r === false; })());
+todos.length = 0; renderTodos();
+
+// shopping groups and share
+shoppingItems.length = 0;
+shoppingItems.push({ ...r2, id: 'g1', item: 'Milk', quantity: '2', category: 'Dairy', checked: false });
+shoppingItems.push({ ...r2, id: 'g2', item: 'Apples', quantity: '', category: 'Produce', checked: false });
+shoppingItems.push({ ...r2, id: 'g3', item: 'Soap', quantity: '', category: '', checked: false });
+shoppingItems.push({ ...r2, id: 'g4', item: 'Cheese', quantity: '', category: 'dairy', checked: true });
+nav('shopping'); selectedShoppingCategory = 'all'; selectedShoppingChecked = 'all'; renderShoppingList();
+const shopRows = () => [...document.querySelectorAll('#shopping-list > li')].map((li) => li.classList.contains('shopping-group') ? '#' + li.textContent : li.querySelector('.shopping-item-name').textContent).join('|');
+check('with several categories the list is grouped under headings, Other last, ticked items last in a group', shopRows() === '#Dairy|Milk|Cheese|#Produce|Apples|#Other|Soap', shopRows());
+shoppingItems.splice(1, 3); renderShoppingList();
+check('one category means no headings', !document.querySelector('#shopping-list .shopping-group'));
+shoppingItems.length = 0;
+shoppingItems.push({ ...r2, id: 'g1', item: 'Milk', quantity: '2', category: 'Dairy', checked: false }, { ...r2, id: 'g2', item: 'Apples', quantity: '', category: 'Produce', checked: false }, { ...r2, id: 'g4', item: 'Cheese', quantity: '', category: '', checked: true });
+check('the share text lists open items under their categories', shoppingListText() === 'Shopping list\n\nDairy:\n- Milk (2)\n\nProduce:\n- Apples', JSON.stringify(shoppingListText()));
+const realShare = navigator.share; const realClip = navigator.clipboard;
+let sharedText = null;
+Object.defineProperty(navigator, 'share', { configurable: true, value: async (data) => { sharedText = data.text; } });
+$('shopping-share-btn').click(); await sleep(30);
+check('Share uses the phone share sheet when there is one', sharedText === shoppingListText());
+Object.defineProperty(navigator, 'share', { configurable: true, value: undefined });
+let copied = null;
+Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (s) => { copied = s; } } });
+$('shopping-share-btn').click(); await sleep(30);
+check('otherwise it copies the text and says so', copied === shoppingListText() && /Copied/.test($('shopping-share-status').textContent));
+shoppingItems.length = 0; $('shopping-share-btn').click(); await sleep(30);
+check('an empty list says there is nothing to share', /Nothing to share/.test($('shopping-share-status').textContent));
+Object.defineProperty(navigator, 'share', { configurable: true, value: realShare });
+Object.defineProperty(navigator, 'clipboard', { configurable: true, value: realClip });
+renderShoppingList();
+
+// swipe
+const swipe = async (el, dx, dy = 0, type = 'touch') => {
+  const opts = (x, y) => ({ pointerType: type, clientX: x, clientY: y, bubbles: true });
+  el.dispatchEvent(new PointerEvent('pointerdown', opts(100, 100)));
+  el.dispatchEvent(new PointerEvent('pointermove', opts(100 + dx / 2, 100 + dy / 2)));
+  el.dispatchEvent(new PointerEvent('pointerup', opts(100 + dx, 100 + dy)));
+  await sleep(30);
+};
+todos.length = 0; addTodo('Swipe me', '', ''); nav('todo'); renderTodos();
+const todoName = () => document.querySelector('#todo-list .todo-task');
+await swipe(todoName(), 40);
+check('a short swipe does nothing', todos[0].completed === false);
+await swipe(todoName(), 150, 120);
+check('a mostly-vertical swipe does nothing', todos[0].completed === false);
+await swipe(todoName(), 150, 0, 'mouse');
+check('a mouse drag is not a swipe', todos[0].completed === false);
+await swipe(todoName(), 150);
+check('swiping right checks the to-do off', todos[0].completed === true);
+await swipe(document.querySelector('#todo-list .todo-task'), 150);
+check('swiping right again unchecks it', todos[0].completed === false);
+await swipe(document.querySelector('#todo-list .todo-task'), -150);
+check('swiping left deletes it and offers Undo', todos[0].deleted === true && !$('toast').hidden);
+$('toast-undo').click(); await sleep(30);
+check('Undo brings it back', todos[0].deleted === false);
+shoppingItems.length = 0; addShoppingItem('Swipe milk', '', ''); nav('shopping'); renderShoppingList();
+await swipe(document.querySelector('#shopping-list .shopping-item-name'), 150);
+check('swiping right checks a shopping item off', shoppingItems[0].checked === true);
+await swipe(document.querySelector('#shopping-list .shopping-item-name'), -150);
+check('swiping left deletes a shopping item', shoppingItems[0].deleted === true);
+todos.length = 0; shoppingItems.length = 0; renderTodos(); renderShoppingList();
+
+// customise Home
+nav('home'); weights.length = 0; renderHome();
+check('Customize Home has a checkbox for every panel, all on', document.querySelectorAll('#home-customize-list input').length === 7 && [...document.querySelectorAll('#home-customize-list input')].every((c) => c.checked));
+check('the weigh-in panel shows before it is switched off', !$('home-weigh-panel').hidden);
+const weighBox = [...document.querySelectorAll('#home-customize-list label')].find((l) => /Weigh in/.test(l.textContent)).querySelector('input');
+weighBox.click();
+check('unticking a panel hides it', $('home-weigh-panel').hidden && loadHiddenHomePanels().has('home-weigh-panel'));
+weighBox.click();
+check('ticking it again brings it back', !$('home-weigh-panel').hidden);
+localStorage.setItem(HOME_PANELS_KEY, 'garbage');
+check('a damaged Home setting switches nothing off', loadHiddenHomePanels().size === 0);
+localStorage.removeItem(HOME_PANELS_KEY); renderHome();

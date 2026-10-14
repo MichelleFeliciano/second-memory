@@ -40,10 +40,11 @@ class AppFiles(unittest.TestCase):
         self.assertEqual(re.findall(r'<link[^>]+href="https?://', HTML), [])
 
     def test_the_only_network_call_is_the_sync_server(self):
-        """The app has exactly one fetch(), and it goes to the sync server."""
+        """The app has exactly two fetch() calls (the sync itself and the wake-up poke before it), both to the sync server."""
         calls = re.findall(r"fetch\(([^,)]*)", APP)
-        self.assertEqual(len(calls), 1)
-        self.assertIn("SYNC_SERVER_URL", calls[0])
+        self.assertEqual(len(calls), 2)
+        for call in calls:
+            self.assertIn("SYNC_SERVER_URL", call)
 
     def test_every_local_file_the_page_loads_is_in_the_offline_cache(self):
         """Both directions: nothing index.html loads is missing from APP_SHELL, and nothing cached is missing on disk."""

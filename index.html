@@ -288,6 +288,12 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
           <ul class="card-list" id="home-reading-list"></ul>
         </div>
       </div>
+
+      <!-- Choose which of the panels above you want to see. Saved on this device. -->
+      <details class="home-customize">
+        <summary>Customize Home</summary>
+        <div class="home-customize-list" id="home-customize-list"></div>
+      </details>
     </section>
 
     <!-- Books tab: add form and one column per reading status. Cards come from books-card-template via renderBooks. -->
@@ -674,6 +680,11 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
       </form>
 
       <!-- Things bought before that are not on the list now; one tap puts them back (renderBuyAgain). -->
+      <p class="share-row">
+        <button type="button" class="share-btn" id="shopping-share-btn">Share list</button>
+        <span class="share-status" id="shopping-share-status" role="status"></span>
+      </p>
+
       <div class="buy-again" id="shopping-buy-again" hidden>
         <p class="buy-again-label">Buy again</p>
         <div class="chip-row" id="shopping-buy-again-chips"></div>
@@ -967,6 +978,8 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
       </label>
       <span class="todo-due" hidden></span>
       <span class="todo-repeat badge" hidden></span>
+      <button type="button" class="snooze-btn" data-days="1" aria-label="Snooze until tomorrow" hidden>Tomorrow</button>
+      <button type="button" class="snooze-btn" data-days="7" aria-label="Snooze until next week" hidden>Next week</button>
       <button type="button" class="edit-btn">Edit</button>
       <button type="button" class="delete-btn" aria-label="Delete to-do">Delete</button>
     </div>

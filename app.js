@@ -2683,6 +2683,19 @@ function toggleTodoCompleted(id, completed) {
   renderTodos();
 }
 
+// Pushes a to-do's due date to today plus `days` (Tomorrow = 1, Next week = 7). One undoable change.
+function snoozeTodo(id, days) {
+  const todo = todos.find((x) => x.id === id);
+  if (!todo || todo.completed || !Number.isInteger(days) || days < 1 || days > 365) return false;
+  const before = structuredClone(todo);
+  todo.dueDate = shiftDateKey(todayKey(), days);
+  stampSync(todo);
+  saveCollection(TODOS_KEY, todos);
+  recordUndo('todos', id, before, structuredClone(todo));
+  renderTodos();
+  return true;
+}
+
 // Soft-deletes a to-do (keeps a tombstone so syncing can tell it was deleted).
 function deleteTodo(id) {
   const todo = todos.find((t) => t.id === id);
@@ -2815,6 +2828,13 @@ function renderTodos() {
     const viewSection = node.querySelector('.todo-view');
     const editForm = node.querySelector('.todo-edit-form');
 
+    // Snooze buttons only make sense for an open to-do that is due today or already overdue.
+    const snoozeable = !todo.completed && todo.dueDate && todo.dueDate <= todayKey();
+    node.querySelectorAll('.snooze-btn').forEach((btn) => {
+      btn.hidden = !snoozeable;
+      btn.addEventListener('click', () => snoozeTodo(todo.id, Number(btn.dataset.days)));
+    });
+
     const checkbox = node.querySelector('.todo-completed-checkbox');
     checkbox.checked = todo.completed;
     checkbox.addEventListener('change', (e) => toggleTodoCompleted(todo.id, e.target.checked));
@@ -2909,6 +2929,48 @@ document.getElementById('todo-sort-input').addEventListener('change', (e) => {
 const SHOPPING_KEY = 'secondMemory.shoppingList.v1';
 
 let shoppingItems = migrateSyncFields(loadCollection(SHOPPING_KEY), SHOPPING_KEY, getDeviceId());
+
+// The open (unchecked) items as plain text for sharing: "Shopping list", then one "- item (quantity)" line each,
+// under category names when there is more than one category.
+function shoppingListText() {
+  const open = shoppingItems.filter((i) => !i.deleted && !i.checked);
+  if (open.length === 0) return '';
+  const lineOf = (i) => `- ${i.item}${i.quantity ? ` (${i.quantity})` : ''}`;
+  const groups = new Map();
+  open.forEach((i) => {
+    const label = (i.category || '').trim() || 'Other';
+    if (!groups.has(label)) groups.set(label, []);
+    groups.get(label).push(i);
+  });
+  const lines = ['Shopping list'];
+  if (groups.size < 2) return [...lines, ...open.map(lineOf)].join('\n');
+  [...groups.keys()].sort((a, b) => (a === 'Other') - (b === 'Other') || a.localeCompare(b)).forEach((label) => {
+    lines.push('', `${label}:`, ...groups.get(label).map(lineOf));
+  });
+  return lines.join('\n');
+}
+
+// Share button: the phone's share sheet where there is one, otherwise copy the text.
+document.getElementById('shopping-share-btn').addEventListener('click', async () => {
+  const status = document.getElementById('shopping-share-status');
+  const text = shoppingListText();
+  if (!text) { status.textContent = 'Nothing to share \u2014 the list is empty.'; return; }
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: 'Shopping list', text });
+      status.textContent = '';
+      return;
+    }
+  } catch (err) {
+    if (err && err.name === 'AbortError') return; // closed the share sheet on purpose
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    status.textContent = 'Copied. Paste it into a message.';
+  } catch {
+    status.textContent = 'Could not share or copy the list.';
+  }
+});
 
 // ---- Buy again ----
 // Everything bought (ticked off) or removed before, that is not on the list right now, most often first.
@@ -3117,7 +3179,26 @@ function renderShoppingList() {
 
   list.innerHTML = '';
 
+  // With two or more categories in view, the list is grouped under category headings (no category = "Other", last).
+  const categoryKey = (i) => normalizeChipKey(i.category);
+  const categoryLabel = (i) => (i.category || '').trim() || 'Other';
+  const groupKeys = [...new Set(visible.map(categoryKey))];
+  const grouped = groupKeys.length >= 2;
+  if (grouped) {
+    const labelOf = new Map(visible.map((i) => [categoryKey(i), categoryLabel(i)]));
+    const order = groupKeys.sort((a, b) => (labelOf.get(a) === 'Other') - (labelOf.get(b) === 'Other') || labelOf.get(a).localeCompare(labelOf.get(b)));
+    visible.sort((a, b) => order.indexOf(categoryKey(a)) - order.indexOf(categoryKey(b)));
+  }
+  let lastGroupKey = null;
+
   visible.forEach((item) => {
+    if (grouped && categoryKey(item) !== lastGroupKey) {
+      lastGroupKey = categoryKey(item);
+      const heading = document.createElement('li');
+      heading.className = 'shopping-group';
+      heading.textContent = categoryLabel(item);
+      list.appendChild(heading);
+    }
     const node = template.content.cloneNode(true);
     const li = node.querySelector('.shopping-item');
     li.dataset.shoppingId = item.id;
@@ -5343,6 +5424,8 @@ function renderHome() {
   } else {
     readingPanel.hidden = true;
   }
+
+  applyHomePanelChoices();
 }
 
 // Home "Weigh in" box: saves today's weight without opening the Weight tab.
@@ -5801,7 +5884,7 @@ async function runSync() {
         return;
       }
       if (boot.kind !== 'ok') {
-        setSyncStatus('Sync failed — the server may be waking up (it can take up to a minute). Tap Sync now to try again', 'failed');
+        setSyncStatus('Sync failed — the server may be waking up (it can take up to a minute). Tap Sync now to try again.' + lastSyncNote(), 'failed');
         return;
       }
       snapshot = bootstrapSyncSnapshot(boot.data);
@@ -5828,7 +5911,7 @@ async function runSync() {
       return;
     }
     if (result.kind !== 'ok') {
-      setSyncStatus('Sync failed — the server may be waking up (it can take up to a minute). Tap Sync now to try again', 'failed');
+      setSyncStatus('Sync failed — the server may be waking up (it can take up to a minute). Tap Sync now to try again.' + lastSyncNote(), 'failed');
       return;
     }
     const data = result.data;
@@ -5878,8 +5961,8 @@ async function runSync() {
     // Network failures and timeouts end up here (the finally below always unlocks the button).
     setSyncStatus(
       err && err.name === 'AbortError'
-        ? 'Sync timed out. The server did not answer — tap Sync now to try again'
-        : 'Sync failed — the server may be waking up (it can take up to a minute). Tap Sync now to try again',
+        ? 'Sync timed out. The server did not answer \u2014 tap Sync now to try again.' + lastSyncNote()
+        : 'Sync failed \u2014 the server may be waking up (it can take up to a minute). Tap Sync now to try again.' + lastSyncNote(),
       'failed'
     );
   } finally {
@@ -5888,6 +5971,25 @@ async function runSync() {
     if (syncNowBtn) syncNowBtn.disabled = false;
     updateSyncPending();
   }
+}
+
+// The free sync server goes to sleep when idle and takes up to a minute to wake. So when the app is opened
+// (or comes back to the front) and sync is set up, send it a plain request with no data and no passphrase;
+// by the time you tap Sync now it is usually awake. Skipped if it was already poked in the last 10 minutes.
+let lastWakeAt = 0;
+function wakeSyncServer() {
+  if (!loadSyncConfig() || Date.now() - lastWakeAt < 10 * 60 * 1000) return;
+  lastWakeAt = Date.now();
+  fetch(`${SYNC_SERVER_URL}/`, { mode: 'no-cors', cache: 'no-store' }).catch(() => { /* asleep or offline: nothing to do */ });
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') wakeSyncServer();
+});
+
+// "Last synced 3 days ago." for the end of a failure message (empty when there has never been a sync).
+function lastSyncNote() {
+  const days = daysSinceBackup(LAST_SYNC_AT_KEY);
+  return days === null ? '' : ` Last synced ${backupAgeText(days)}.`;
 }
 
 // Ticks the visible "Synced Xm ago" label between actual sync attempts,
@@ -6288,7 +6390,7 @@ document.addEventListener('visibilitychange', () => {
 
 // The build number shown in the Menu. Keep it equal to the number in CACHE_NAME in sw.js
 // (a test checks this), so "which version am I on?" has a one-glance answer.
-const APP_VERSION = 75;
+const APP_VERSION = 76;
 const THEME_KEY = 'secondMemory.theme.v1';
 const THEMES = ['auto', 'light', 'dark'];
 
@@ -6937,6 +7039,94 @@ document.querySelectorAll('details.add-dropdown').forEach((details) => {
     }
   });
 });
+
+// Swipe on a touch screen: right checks an item off (or back on), left deletes it (the toast offers Undo).
+// Only touch and pen count, only mostly-sideways moves of 80px or more, and never when the swipe starts on a
+// button or box. The CSS gives these rows touch-action: pan-y so the browser leaves sideways moves to us.
+const SWIPE_MIN_PX = 80;
+function enableSwipe(listId, itemSelector, idKey, onRight, onLeft) {
+  const list = document.getElementById(listId);
+  let start = null;
+  list.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse') return;
+    const row = e.target.closest(itemSelector);
+    start = row && !e.target.closest('button, input, select, textarea, a, form')
+      ? { row, id: row.dataset[idKey], x: e.clientX, y: e.clientY }
+      : null;
+  });
+  list.addEventListener('pointermove', (e) => {
+    if (!start) return;
+    const dx = e.clientX - start.x;
+    if (Math.abs(dx) > Math.abs(e.clientY - start.y)) start.row.style.transform = `translateX(${Math.max(-120, Math.min(120, dx * 0.6))}px)`;
+  });
+  const finish = (e, cancelled) => {
+    if (!start) return;
+    const { row, id, x, y } = start;
+    start = null;
+    row.style.transform = '';
+    if (cancelled) return;
+    const dx = e.clientX - x;
+    if (Math.abs(dx) < SWIPE_MIN_PX || Math.abs(dx) < Math.abs(e.clientY - y) * 2) return;
+    if (dx > 0) onRight(id); else onLeft(id);
+  };
+  list.addEventListener('pointerup', (e) => finish(e, false));
+  list.addEventListener('pointercancel', (e) => finish(e, true));
+}
+enableSwipe('todo-list', '.todo-item', 'todoId',
+  (id) => { const todo = todos.find((x) => x.id === id); if (todo) toggleTodoCompleted(id, !todo.completed); },
+  (id) => deleteTodo(id));
+enableSwipe('shopping-list', '.shopping-item', 'shoppingId',
+  (id) => { const item = shoppingItems.find((x) => x.id === id); if (item) toggleShoppingChecked(id, !item.checked); },
+  (id) => deleteShoppingItem(id));
+
+// Customize Home: which panels you want to see (the rest stay hidden even when they have something to show).
+const HOME_PANELS_KEY = 'secondMemory.homePanels.v1';
+const HOME_PANEL_CHOICES = [
+  ['home-todo-panel', 'To-Do'], ['home-refills-panel', 'Medication refills'], ['home-weigh-panel', 'Weigh in'],
+  ['home-weight-panel', 'Weight'], ['home-recipes-panel', 'Pinned recipes'], ['home-shopping-panel', 'Still to buy'],
+  ['home-reading-panel', 'Currently reading'],
+];
+
+// The ids of the panels switched off on this device (damaged data means none are off).
+function loadHiddenHomePanels() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(HOME_PANELS_KEY));
+    return new Set(Array.isArray(raw) ? raw.filter((id) => HOME_PANEL_CHOICES.some(([panelId]) => panelId === id)) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+// Hides the panels you switched off; called at the end of every Home redraw.
+function applyHomePanelChoices() {
+  const off = loadHiddenHomePanels();
+  HOME_PANEL_CHOICES.forEach(([id]) => {
+    if (off.has(id)) document.getElementById(id).hidden = true;
+  });
+}
+
+// Fills the Customize Home list with one checkbox per panel.
+function buildHomeCustomizeList() {
+  const box = document.getElementById('home-customize-list');
+  const off = loadHiddenHomePanels();
+  box.innerHTML = '';
+  HOME_PANEL_CHOICES.forEach(([id, label]) => {
+    const row = document.createElement('label');
+    const check = document.createElement('input');
+    check.type = 'checkbox';
+    check.checked = !off.has(id);
+    check.addEventListener('change', () => {
+      const next = loadHiddenHomePanels();
+      if (check.checked) next.delete(id); else next.add(id);
+      try { localStorage.setItem(HOME_PANELS_KEY, JSON.stringify([...next])); } catch { /* not saved: lasts until the page closes */ }
+      renderHome();
+    });
+    row.append(check, ` ${label}`);
+    box.appendChild(row);
+  });
+}
+buildHomeCustomizeList();
+wakeSyncServer();
 
 // Each empty screen gets an "Add one now" button that opens that screen's add form and moves the cursor into it.
 document.querySelectorAll('.empty-state').forEach((message) => {
