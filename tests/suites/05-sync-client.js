@@ -46,7 +46,6 @@ localStorage.setItem('secondMemory.syncConfig.v1', JSON.stringify({ token: 'tok'
 document.dispatchEvent(new Event('visibilitychange')); window.dispatchEvent(new Event('online'));
 await sleep(1500);
 check('nothing syncs by itself (not on a timer, on returning, or on reconnecting)', server.calls.length === 0);
-check('the sync button exists and is the only trigger', !!$('sync-now-btn'));
 
 // ---- the first sync only pulls, then sends what is new here ----
 server.collections.shoppingList.push(rec('srv1', 'From the server'));

@@ -4,9 +4,11 @@
 
 They use a throw-away data folder and a local port, never the real server or data.
 """
+import datetime
 import json
 import os
 import pathlib
+import shutil
 import sys
 import tempfile
 import threading
@@ -19,12 +21,31 @@ import urllib.request
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+# Importing the server reads these at load time, so set them first. The folder is removed again at exit.
 _DATA_DIR = tempfile.mkdtemp(prefix="second-memory-test-")
 os.environ["DATA_DIR"] = _DATA_DIR
 os.environ["SYNC_TOKEN"] = "unused-by-tests"
 os.environ["PORT"] = "0"
 
+import atexit  # noqa: E402
 import sync_server as s  # noqa: E402
+
+atexit.register(shutil.rmtree, _DATA_DIR, ignore_errors=True)
+
+# The server keeps its paths in module globals; each test class points them at its own
+# folder and puts the originals back afterwards.
+_PATH_NAMES = ("DATA_DIR", "DATA_PATH", "BACKUP_DIR")
+
+
+def use_folder(folder):
+    """Points the server module at `folder` for data and backups."""
+    s.DATA_DIR, s.DATA_PATH, s.BACKUP_DIR = folder, folder / "sync_data.json", folder / "backups"
+
+
+def remember_paths():
+    """Returns a function that restores the server's original data paths."""
+    saved = {n: getattr(s, n) for n in _PATH_NAMES}
+    return lambda: [setattr(s, n, v) for n, v in saved.items()]
 
 
 def rec(record_id, version=1, deleted=False, **extra):
@@ -37,9 +58,9 @@ def rec(record_id, version=1, deleted=False, **extra):
 
 class MergeRules(unittest.TestCase):
     """merge_collection: versioning, no-op resends, tombstones, conflict forks, bad input."""
-    def merge(self, server_items, client_items, name="shoppingList"):
+    def merge(self, server_items, client_items):
         """Runs one merge and returns (the updated server list, the conflicts)."""
-        conflicts = s.merge_collection(server_items, client_items, name)
+        conflicts = s.merge_collection(server_items, client_items)
         return server_items, conflicts
 
     def test_new_record_is_added_at_version_1(self):
@@ -129,10 +150,10 @@ class MergeRules(unittest.TestCase):
 class Storage(unittest.TestCase):
     """Loading and saving the data file: defaults, retired lists, daily backups, corruption, read errors."""
     def setUp(self):
+        self.addCleanup(remember_paths())
         self.dir = pathlib.Path(tempfile.mkdtemp(prefix="sm-store-"))
-        s.DATA_DIR = self.dir
-        s.DATA_PATH = self.dir / "sync_data.json"
-        s.BACKUP_DIR = self.dir / "backups"
+        self.addCleanup(shutil.rmtree, self.dir, ignore_errors=True)
+        use_folder(self.dir)
 
     def test_missing_file_gives_an_empty_dataset(self):
         data = s.load_dataset()
@@ -141,14 +162,12 @@ class Storage(unittest.TestCase):
 
     # -- Render Free has no disk: the whole data folder can be missing at any time --
     def test_a_missing_data_folder_loads_empty_and_lists_no_backups(self):
-        gone = self.dir / "never-created"
-        s.DATA_DIR, s.DATA_PATH, s.BACKUP_DIR = gone, gone / "sync_data.json", gone / "backups"
+        use_folder(self.dir / "never-created")
         self.assertTrue(all(v == [] for v in s.load_dataset().values()))
         self.assertEqual(s.list_backups(), [])
 
     def test_saving_recreates_a_missing_data_folder(self):
-        gone = self.dir / "wiped" / "nested"
-        s.DATA_DIR, s.DATA_PATH, s.BACKUP_DIR = gone, gone / "sync_data.json", gone / "backups"
+        use_folder(self.dir / "wiped" / "nested")
         s.save_dataset(s.empty_dataset())
         self.assertTrue(s.DATA_PATH.is_file())
         self.assertEqual(sorted(json.loads(s.DATA_PATH.read_text())), sorted(s.COLLECTION_NAMES))
@@ -164,7 +183,6 @@ class Storage(unittest.TestCase):
         s.save_dataset(d)
         s.save_dataset(d)  # second save makes today's restore point
         self.assertEqual(len(s.list_backups()), 1)
-        import shutil
         shutil.rmtree(s.BACKUP_DIR)
         self.assertEqual(s.list_backups(), [])  # no error without the folder
         s.save_dataset(d)
@@ -220,7 +238,6 @@ class Storage(unittest.TestCase):
         d = s.empty_dataset()
         s.save_dataset(d)
         s.BACKUP_DIR.mkdir(exist_ok=True)
-        import datetime
         for i in range(40):
             (s.BACKUP_DIR / f"sync_data-{(datetime.date(2026, 1, 1) + datetime.timedelta(i)).isoformat()}.json").write_text("{}")
         (s.BACKUP_DIR / "notes.txt").write_text("keep me")
@@ -261,10 +278,9 @@ class Http(unittest.TestCase):
     """The real server on a local port: auth, bad requests, round trips, CORS, and /api/backup."""
     @classmethod
     def setUpClass(cls):
+        cls.restore_paths = remember_paths()
         cls.dir = pathlib.Path(tempfile.mkdtemp(prefix="sm-http-"))
-        s.DATA_DIR = cls.dir
-        s.DATA_PATH = cls.dir / "sync_data.json"
-        s.BACKUP_DIR = cls.dir / "backups"
+        use_folder(cls.dir)
         cls.server = s.ThreadingHTTPServer(("127.0.0.1", 0), s.SyncHandler)
         cls.server.sync_token = "test-secret"
         cls.port = cls.server.server_address[1]
@@ -274,6 +290,9 @@ class Http(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.server.shutdown()
+        cls.server.server_close()
+        cls.restore_paths()
+        shutil.rmtree(cls.dir, ignore_errors=True)
 
     def call(self, body, token="test-secret", path="/api/sync", raw=None, origin=None):
         """POSTs to the test server and returns (status, parsed JSON or None, response headers)."""
@@ -363,7 +382,6 @@ class Http(unittest.TestCase):
 
     def test_requests_work_when_the_data_folder_has_been_wiped(self):
         """Free-plan reality: the temp folder can vanish while the server runs. Sync and backup must still answer."""
-        import shutil
         shutil.rmtree(self.dir)
         status, body, _ = self.call({}, path="/api/backup")
         self.assertEqual((status, body), (200, {"backups": []}))
@@ -398,28 +416,34 @@ class Startup(unittest.TestCase):
             def serve_forever(self):
                 raise KeyboardInterrupt
 
-        real = (s.ThreadingHTTPServer, s.DATA_DIR, s.DATA_PATH, s.BACKUP_DIR, os.environ.get("SYNC_TOKEN"))
+        real_server, real_token = s.ThreadingHTTPServer, os.environ.get("SYNC_TOKEN")
+        restore_paths = remember_paths()
         s.ThreadingHTTPServer = FakeServer
-        s.DATA_DIR, s.DATA_PATH, s.BACKUP_DIR = data_dir, data_dir / "sync_data.json", data_dir / "backups"
+        use_folder(data_dir)
         os.environ["SYNC_TOKEN"] = self.SECRET
         out, err = io.StringIO(), io.StringIO()
         try:
             with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
                 s.main()
         finally:
-            s.ThreadingHTTPServer, s.DATA_DIR, s.DATA_PATH, s.BACKUP_DIR = real[:4]
-            os.environ["SYNC_TOKEN"] = real[4]
+            s.ThreadingHTTPServer = real_server
+            restore_paths()
+            os.environ["SYNC_TOKEN"] = real_token
         return out.getvalue(), err.getvalue()
 
     def test_a_missing_data_folder_is_created_and_the_log_hides_the_passphrase(self):
-        folder = pathlib.Path(tempfile.mkdtemp(prefix="sm-start-")) / "not" / "there" / "yet"
+        root = pathlib.Path(tempfile.mkdtemp(prefix="sm-start-"))
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        folder = root / "not" / "there" / "yet"
         out, err = self.run_main(folder)
         self.assertTrue((folder / "sync_data.json").is_file())
         self.assertIn(str(folder), out)
         self.assertNotIn(self.SECRET, out + err)
 
     def test_an_unwritable_data_folder_exits_with_a_plain_message(self):
-        blocker = pathlib.Path(tempfile.mkdtemp(prefix="sm-start-")) / "a-file"
+        root = pathlib.Path(tempfile.mkdtemp(prefix="sm-start-"))
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        blocker = root / "a-file"
         blocker.write_text("not a folder")  # a folder cannot be created underneath a file
         with self.assertRaises(SystemExit) as ctx:
             self.run_main(blocker / "data")

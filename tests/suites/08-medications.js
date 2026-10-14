@@ -1,4 +1,4 @@
-// Medications (no daily "Taken today" button any more) and the refill / weigh-in reminders.
+// Medications (no daily "Taken today" button any more) and the refill / weigh-in reminders (device notifications).
 const tNow = new Date().toISOString();
 medications.length = 0;
 addMedication({ name: 'Zinc', dosage: '10mg', frequency: 'daily', prescribingDoctor: '', startDate: '', refillDate: '', notes: '' });
@@ -80,3 +80,15 @@ if (nowMin < 22 * 60) {
 window.Notification = RealNotification;
 localStorage.removeItem(REMINDERS_KEY);
 medications.length = 0; renderMedications();
+
+// third review: a delete right after typing a date records the date step as it was, not as already deleted
+{
+  medications.length = 0; undoStack.length = 0;
+  addMedication({ name: 'Pending', dosage: '', frequency: '', prescribingDoctor: '', startDate: '', refillDate: '', notes: '' });
+  const pid = medications[0].id;
+  updateMedicationDate(pid, 'refillDate', dk(5));
+  deleteMedication(pid);
+  const dateStep = undoStack[undoStack.length - 2];
+  check('typing a date then deleting gives two undo steps in order', undoStack.length === 3 && dateStep && dateStep.after.refillDate === dk(5) && dateStep.after.deleted === false, JSON.stringify(dateStep));
+  medications.length = 0; undoStack.length = 0; redoStack.length = 0; renderMedications();
+}

@@ -248,7 +248,7 @@ def _replace_record(server_items, by_id, record_id, replacement):
             return
 
 
-def merge_collection(server_items, client_items, collection_name):
+def merge_collection(server_items, client_items):
     """Applies one collection's client-submitted records onto the server's
     stored records, per the server-owned-version optimistic-concurrency
     algorithm. Mutates `server_items` and returns the list of genuine
@@ -522,7 +522,7 @@ class SyncHandler(BaseHTTPRequestHandler):
             for name in COLLECTION_NAMES:
                 incoming = client_collections.get(name)
                 if isinstance(incoming, list):
-                    for conflict in merge_collection(dataset[name], incoming, name):
+                    for conflict in merge_collection(dataset[name], incoming):
                         all_conflicts.append({"collection": name, **conflict})
             save_dataset(dataset)
             response_collections = {name: dataset[name] for name in COLLECTION_NAMES}

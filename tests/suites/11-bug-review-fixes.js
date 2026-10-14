@@ -45,7 +45,7 @@ check('a recipe with no ingredient or step lists does not break search or the sc
 recipes.length = 0; renderRecipes();
 
 // ---- repeating to-dos ----
-check('a monthly task due on the 31st goes to the 28th and then back to the 31st (with the anchor kept)', nextRepeatDate('2999-01-31', 'monthly', 31) === '2999-02-28' && nextRepeatDate('2999-02-28', 'monthly', 31) === '2999-03-31');
+check('a monthly task due on the 31st goes to the 28th and then back to the 31st (with the anchor kept)', nextRepeatDate('2099-01-31', 'monthly', 31) === '2099-02-28' && nextRepeatDate('2099-02-28', 'monthly', 31) === '2099-03-31');
 check('the 31st anchor is remembered from one task to the next', (() => {
   todos.length = 0;
   addTodo('Rent', '2026-01-31', 'monthly');

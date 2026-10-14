@@ -88,7 +88,7 @@ todos.push({ ...b2, id: 't1', task: 'Plant garlic', completed: true, dueDate: nu
 notes.push({ ...b2, id: 'n1', title: 'Ideas', body: 'Remember to buy garlic and basil at the market for the weekend', dateModified: now });
 notes.push({ ...b2, id: 'n2', title: 'Gone', body: 'garlic (deleted)', deleted: true, dateModified: now });
 medications.push({ ...b2, id: 'm1', name: 'Zyrtec', dosage: '10mg', frequency: 'daily', prescribingDoctor: 'Dr. Garlic', endDate: null, notes: '' });
-diagnoses.push({ ...b2, id: 'd1', condition: 'Garlic allergy', dateDiagnosed: null, provider: '', status: 'active', notes: '' });
+diagnoses.push({ ...b2, id: 'd1', condition: 'Garlic allergy', dateDiagnosed: null, provider: '', notes: '' });
 links.push({ ...b2, id: 'l1', label: 'Garlic farm', url: 'https://garlic.example', notes: '' });
 journalEntries.push({ id: 'j1', type: 'daily', date: dk(-1), answers: { on_mind: 'A hard talk with dad about garlic' }, dateAdded: now, updatedAt: now }); saveJournalEntries();
 renderHome(); nav('home'); await sleep(60);
@@ -128,7 +128,7 @@ check('Escape clears the search and brings Home back', $('global-search-input').
   const sizes = [notes.length, links.length, diagnoses.length, shoppingItems.length];
   notes.push({ ...stamp, id: 'mf-note', title: 'Title only', dateModified: stamp.updatedAt });
   links.push({ ...stamp, id: 'mf-link', label: 'Bare link', url: 'example.com' });
-  diagnoses.push({ ...stamp, id: 'mf-dx', condition: 'Bare condition', status: 'active' });
+  diagnoses.push({ ...stamp, id: 'mf-dx', condition: 'Bare condition' });
   shoppingItems.push({ ...stamp, id: 'mf-shop', item: 'Bare item', checked: false });
   ['notes-search-input', 'resume-search-input', 'diagnoses-search-input', 'shopping-search-input'].forEach((id) => { $(id).value = ''; }); // earlier checks left filters set
   let threw = false;
@@ -142,4 +142,16 @@ check('Escape clears the search and brings Home back', $('global-search-input').
   check('their edit boxes start empty, never the word "undefined"', boxes.every((el) => el && el.value === ''));
   notes.length = sizes[0]; links.length = sizes[1]; diagnoses.length = sizes[2]; shoppingItems.length = sizes[3];
   renderNotes(); renderLinks(); renderDiagnoses(); renderShoppingList();
+}
+
+// third review: a to-do missing its "completed" field (imported or synced) draws as open, and a typo-year due date repeats from today
+{
+  todos.length = 0;
+  const tr = new Date().toISOString();
+  todos.push({ id: 'nc1', task: 'No completed field', dueDate: null, dateAdded: tr, updatedAt: tr, deviceId: 'test', deleted: false, version: 0 });
+  nav('todo'); renderTodos();
+  check('a to-do with no completed field is not drawn as done', !document.querySelector('#todo-list .todo-item').classList.contains('completed'));
+  const farFuture = nextRepeatDate('0200-01-05', 'monthly', 5);
+  check('a typo-year due date repeats from today, not from year 200', farFuture > todayKey() && farFuture.slice(0, 2) === todayKey().slice(0, 2), farFuture);
+  todos.length = 0; renderTodos();
 }

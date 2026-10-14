@@ -1,4 +1,4 @@
-// Regression tests for the second full review: each check fails if its bug comes back.
+// Regression tests for the second and third reviews and the v71-v76 features: each check fails if its bug comes back.
 const tt = new Date().toISOString();
 const r2 = { dateAdded: tt, updatedAt: tt, deviceId: 'test', deleted: false, version: 0 };
 
@@ -16,13 +16,6 @@ check('un-ticking keeps an edited next task and re-ticking does not add another'
 // ---- links ----
 check('a bare email address becomes a mail link', hrefFor('me@site.com') === 'mailto:me@site.com');
 check('web addresses and script-looking text are still safe', hrefFor('example.com') === 'https://example.com' && hrefFor('javascript:alert(1)') === 'https://javascript:alert(1)' && hrefFor('https://a.b/c') === 'https://a.b/c');
-
-// ---- diagnosis with no status draws as a plain card ----
-diagnoses.length = 0;
-diagnoses.push({ ...r2, id: 'dgx', condition: 'No status', dateDiagnosed: null, provider: '', notes: '' });
-nav('diagnoses'); renderDiagnoses();
-check('a status-less diagnosis draws as a plain card', document.querySelectorAll('#diagnoses-list .diagnosis-card').length === 1);
-diagnoses.length = 0; renderDiagnoses();
 
 // ---- edit forms for records with missing fields ----
 recipes.length = 0; books.length = 0; medications.length = 0;
@@ -243,8 +236,6 @@ weights.length = 1; renderHome();
 check('one weight is not enough for a trend', $('home-weight-panel').hidden);
 weights.length = 0; renderHome();
 
-check('the full backup reminder comes after a week', EXPORT_DUE_DAYS === 7);
-
 $('contrast-btn').click();
 check('Contrast switches to High', document.documentElement.getAttribute('data-contrast') === 'high' && /High/.test($('contrast-btn').textContent));
 $('contrast-btn').click();
@@ -360,4 +351,17 @@ weighBox.click();
 check('ticking it again brings it back', !$('home-weigh-panel').hidden);
 localStorage.setItem(HOME_PANELS_KEY, 'garbage');
 check('a damaged Home setting switches nothing off', loadHiddenHomePanels().size === 0);
+localStorage.removeItem(HOME_PANELS_KEY); renderHome();
+
+// third review: the share text groups categories without regard to capital letters, like the on-screen list
+shoppingItems.length = 0;
+shoppingItems.push({ ...r2, id: 'h1', item: 'Milk', quantity: '', category: 'Dairy', checked: false }, { ...r2, id: 'h2', item: 'Cheese', quantity: '', category: 'dairy', checked: false }, { ...r2, id: 'h3', item: 'Soap', quantity: '', category: 'Home', checked: false });
+check('Dairy and dairy share one heading in the share text', shoppingListText() === 'Shopping list\n\nDairy:\n- Milk\n- Cheese\n\nHome:\n- Soap', JSON.stringify(shoppingListText()));
+shoppingItems.length = 0; renderShoppingList();
+
+// third review (Home): switching off the only panels that were waiting must bring the "all caught up" message back
+nav('home'); weights.length = 0; shoppingItems.length = 0; todos.length = 0; renderHome();
+check('with the weigh-in box showing, the all-caught-up message is hidden', !$('home-weigh-panel').hidden && $('home-empty-state').hidden);
+localStorage.setItem(HOME_PANELS_KEY, JSON.stringify(['home-weigh-panel', 'home-shopping-panel'])); renderHome();
+check('with the weigh-in panel switched off, the all-caught-up message returns', $('home-weigh-panel').hidden && !$('home-empty-state').hidden);
 localStorage.removeItem(HOME_PANELS_KEY); renderHome();

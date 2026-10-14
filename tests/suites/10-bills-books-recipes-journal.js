@@ -1,4 +1,5 @@
 // The yearly reading goal, recipe scaling and cook mode, and the journal prompt.
+// (The file keeps its old "bills" name on purpose, from before Budget moved to its own app; it has no bills checks now.)
 const tn = new Date().toISOString();
 const b0 = { dateAdded: tn, updatedAt: tn, deviceId: 'test', deleted: false, version: 0 };
 const year = new Date().getFullYear();
@@ -93,6 +94,20 @@ check('Tab on the last control wraps to the first', document.activeElement === $
 $('cook-close').click();
 check('closing cook mode gives focus back to the button that opened it', $('cook-mode').hidden && document.activeElement === cookOpenBtn);
 check('"2% milk" is a fat content, not an amount to scale', scaleIngredientLine('2% milk', 2) === '2% milk' && scaleIngredientLine('2 cups 2% milk', 2) === '4 cups 2% milk');
+
+// ---- keyboard focus survives a recipe card changing its own text (third review) ----
+// Scale buttons rewrite the amounts and Pin rewrites its own label; focus used to fall to the first
+// control of whichever card was at that position.
+nav('recipes');
+recipes.push({ ...recipes[0], id: 'rs-focus', title: 'Second dish', ingredients: ['1 cup rice'], steps: [], pinned: false, dateAdded: new Date(Date.now() + 1000).toISOString() });
+renderRecipes();
+const secondScale = document.querySelector('#recipes-list [data-recipe-id="rs-focus"] .recipe-scale [data-scale="3"]');
+secondScale.focus(); secondScale.click();
+check('after pressing a scale button by keyboard, focus stays on that same button', document.activeElement.dataset.scale === '3' && document.activeElement.closest('.recipe-card').dataset.recipeId === 'rs-focus', document.activeElement.outerHTML.slice(0, 80));
+const secondPin = document.querySelector('#recipes-list [data-recipe-id="rs-focus"] .pin-btn');
+secondPin.focus(); secondPin.click();
+check('after pinning by keyboard, focus stays on that recipe\'s Pin button even though it moved first', document.activeElement.classList.contains('pin-btn') && document.activeElement.closest('.recipe-card').dataset.recipeId === 'rs-focus');
+recipes.pop(); recipeScales.delete('rs-focus'); renderRecipes();
 
 // ================= journal prompt and look-back =================
 const todayPrompt = journalPromptForDate(todayKey());

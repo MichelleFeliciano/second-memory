@@ -7,7 +7,8 @@
 //   Medications, Weight, Diagnoses, To-Do, Shopping List, Notes, Resume &
 //   Portfolio, shared date helpers,
 //   Journal (plus trends, therapy summary, backup reminders), Search everything, Home,
-//   Device Sync, undo/redo application, data export/import, day rollover, and Init.
+//   Device Sync, undo/redo application, data export/import, day rollover, theme/text size,
+//   Reminders (device notifications), Health summary, App lock, and Init.
 //
 // Every list is an array of plain records kept in memory and saved whole to its own
 // localStorage key. A record looks like:
@@ -17,8 +18,8 @@
 //   can tell "deleted here" apart from "never existed here". Screens skip deleted records.
 // - version is the server's counter for the record; 0 means the server hasn't confirmed it yet.
 //
-// Syncing between devices is manual only (the user presses "Sync now"); nothing runs in
-// the background. The journal is the exception to all of the above: it is local-only,
+// Syncing between devices is manual only (the user presses "Sync now"); nothing is sent in
+// the background except one data-free wake-up request when the app opens. The journal is the exception to all of the above: it is local-only,
 // has no sync fields, and is never synced (it can only be backed up and restored by file).
 
 // ---- Shared helpers ----
@@ -177,13 +178,19 @@ function focusText(node) {
   return (node.textContent || '').replace(/\s+/g, ' ').trim();
 }
 
-// A fingerprint of what kind of control this is (tag, classes, label, input type).
+// A fingerprint of what kind of control this is (tag, classes, label, input type). The
+// "selected" class is left out: pressing a chip switches it on, which must not make it a different kind.
 function focusKind(node) {
-  return [node.tagName, [...node.classList].sort().join('.'), node.getAttribute('aria-label') || '', node.type || ''].join('|');
+  const classes = [...node.classList].filter((c) => c !== 'chip-active').sort().join('.');
+  return [node.tagName, classes, node.getAttribute('aria-label') || '', node.type || ''].join('|');
 }
 
-// Identifies one card/row by its date (calendar cells) and the start of its text.
+// Identifies one card/row by its date (calendar cells) and the start of its text. Recipe and book
+// cards are matched by id instead, because their text changes while the control is used (the
+// scale buttons rewrite the amounts, Pin rewrites its own label) and the card would not be found.
 function focusUnitSignature(unit) {
+  const stableId = unit.dataset.recipeId || unit.dataset.bookId;
+  if (stableId) return 'id:' + stableId;
   return (unit.dataset.dateKey || '') + '|' + focusText(unit).slice(0, 160);
 }
 
@@ -504,9 +511,6 @@ const BOOKS_KEY = 'secondMemory.books.v1';
 const READ_STATUSES = ['owned_read', 'jons_bookshelf_read'];
 // Every shelf a book can be on; stored in each book's status field (also the order of the columns).
 const BOOK_STATUSES = ['want_to_buy', 'owned_unread', 'currently_reading', 'owned_read', 'textbook', 'textbook_read', 'jons_bookshelf', 'jons_bookshelf_read'];
-
-// The only address the app ever talks to, and only when the user presses "Sync now".
-const SYNC_SERVER_URL = 'https://second-memory-mwm3.onrender.com';
 
 let books = migrateSyncFields(loadCollection(BOOKS_KEY), BOOKS_KEY, getDeviceId());
 
@@ -1440,7 +1444,6 @@ function renderRecipes() {
   renderHome(); // pinned recipes show on Home
 }
 
-// Add recipe: clears every box only if it was saved (a blank title keeps what was typed).
 // Carousel arrows: scroll the recipe row by about one card; an arrow is dimmed at its end.
 function scrollRecipes(direction) {
   const track = document.getElementById('recipes-list');
@@ -1463,6 +1466,7 @@ document.getElementById('recipes-next').addEventListener('click', () => scrollRe
 document.getElementById('recipes-list').addEventListener('scroll', updateRecipeArrows);
 window.addEventListener('resize', updateRecipeArrows);
 
+// Add recipe: clears every box only if it was saved (a blank title keeps what was typed).
 document.getElementById('recipes-add-form').addEventListener('submit', (e) => {
   e.preventDefault();
   const titleInput = document.getElementById('recipes-title-input');
@@ -1603,6 +1607,7 @@ function updateMedHints(med, refillHint, unknownHint) {
 function deleteMedication(id) {
   const med = medications.find((m) => m.id === id);
   if (!med) return;
+  flushMedDateUndo(); // close any date typing first, so its undo step doesn't capture this delete
   const before = structuredClone(med);
   med.deleted = true;
   stampSync(med);
@@ -1615,6 +1620,7 @@ function deleteMedication(id) {
 function restoreMedication(id) {
   const med = medications.find((m) => m.id === id);
   if (!med || !med.deleted) return;
+  flushMedDateUndo();
   const before = structuredClone(med);
   med.deleted = false;
   stampSync(med);
@@ -1629,6 +1635,7 @@ function updateMedication(id, fields) {
   if (!med) return { ok: false, error: 'Medication not found.' };
   const trimmedName = fields.name.trim();
   if (!trimmedName) return { ok: false, error: 'Name is required.' };
+  flushMedDateUndo(); // Safari doesn't blur a date box when a button is tapped, so close the typing burst here too
   const before = structuredClone(med);
   med.name = trimmedName;
   med.dosage = fields.dosage.trim();
@@ -2119,6 +2126,7 @@ function renderWeights() {
   renderHome(); // Home's "Weigh in" box depends on whether today has a weight
 }
 
+// Add weight: shows the error under the form if refused; otherwise clears the value and note and resets the date to today.
 document.getElementById('weight-add-form').addEventListener('submit', (e) => {
   e.preventDefault();
   const dateInput = document.getElementById('weight-date-input');
@@ -2420,6 +2428,7 @@ function matchesDiagnosisSearch(diagnosis, term) {
 // Alphabetical by condition is the default order.
 let selectedDiagnosesSort = 'condition_asc';
 
+// Sort options by the value of the Diagnoses sort dropdown (a missing date sorts last either way).
 const DIAGNOSIS_SORTS = {
   condition_asc: compareByField((d) => d.condition, 1),
   date_diagnosed_desc: compareByField((d) => d.dateDiagnosed, -1, { text: false }),
@@ -2527,6 +2536,7 @@ function renderDiagnoses() {
   document.getElementById('diagnoses-empty-state').hidden = diagnoses.filter((d) => !d.deleted).length !== 0;
 }
 
+// Add diagnosis: a blank condition is refused with a message; the form clears and keeps focus for the next one.
 document.getElementById('diagnoses-add-form').addEventListener('submit', (e) => {
   e.preventDefault();
   const conditionInput = document.getElementById('diagnoses-condition-input');
@@ -2542,8 +2552,10 @@ document.getElementById('diagnoses-add-form').addEventListener('submit', (e) => 
   conditionInput.focus();
 });
 
+// Search box: filters the cards as you type.
 document.getElementById('diagnoses-search-input').addEventListener('input', renderDiagnoses);
 
+// Sort dropdown: remembers the choice and redraws.
 document.getElementById('diagnoses-sort-input').addEventListener('change', (e) => {
   selectedDiagnosesSort = e.target.value;
   renderDiagnoses();
@@ -2583,7 +2595,8 @@ function stepRepeatDate(dateKey, repeat, anchorDay) {
 // 31st goes Feb 28, then back to Mar 31, rather than staying on the 28th for good.
 function nextRepeatDate(dueDate, repeat, anchorDay) {
   const today = todayKey();
-  const base = isRealDateKey(dueDate) ? dueDate : today; // an unreadable imported date must not produce "NaN-NaN-NaN"
+  // An unreadable imported date must not produce "NaN-NaN-NaN", and a typo year (0200) would crawl the monthly loop.
+  const base = isRealDateKey(dueDate) && isReasonableDateKey(dueDate) ? dueDate : today;
   const anchor = anchorDay || parseDateKey(base).d;
   if (repeat === 'daily' || repeat === 'weekly') {
     // Jump straight past today in whole steps (no loop, so a chore years overdue is still fine).
@@ -2824,7 +2837,7 @@ function renderTodos() {
     const node = template.content.cloneNode(true);
     const li = node.querySelector('.todo-item');
     li.dataset.todoId = todo.id;
-    li.classList.toggle('completed', todo.completed);
+    li.classList.toggle('completed', !!todo.completed); // !! because an imported to-do may lack the field, and toggle(x, undefined) flips instead of clearing
     const viewSection = node.querySelector('.todo-view');
     const editForm = node.querySelector('.todo-edit-form');
 
@@ -2904,6 +2917,7 @@ function renderTodos() {
   renderHome(); // Home aggregates books/todos/medications — keep this in sync
 }
 
+// Add to-do: a blank task is refused with a message; the form clears and keeps focus for the next one.
 document.getElementById('todo-add-form').addEventListener('submit', (e) => {
   e.preventDefault();
   const taskInput = document.getElementById('todo-task-input');
@@ -2917,8 +2931,10 @@ document.getElementById('todo-add-form').addEventListener('submit', (e) => {
   taskInput.focus();
 });
 
+// Search box: filters the rows as you type.
 document.getElementById('todo-search-input').addEventListener('input', renderTodos);
 
+// Sort dropdown: remembers the choice and redraws.
 document.getElementById('todo-sort-input').addEventListener('change', (e) => {
   selectedTodoSort = e.target.value;
   renderTodos();
@@ -2936,16 +2952,17 @@ function shoppingListText() {
   const open = shoppingItems.filter((i) => !i.deleted && !i.checked);
   if (open.length === 0) return '';
   const lineOf = (i) => `- ${i.item}${i.quantity ? ` (${i.quantity})` : ''}`;
+  // Grouped by the same case-insensitive key the on-screen list uses, so "Dairy" and "dairy" are one heading.
   const groups = new Map();
   open.forEach((i) => {
-    const label = (i.category || '').trim() || 'Other';
-    if (!groups.has(label)) groups.set(label, []);
-    groups.get(label).push(i);
+    const key = normalizeChipKey(i.category);
+    if (!groups.has(key)) groups.set(key, { label: (i.category || '').trim() || 'Other', items: [] });
+    groups.get(key).items.push(i);
   });
   const lines = ['Shopping list'];
   if (groups.size < 2) return [...lines, ...open.map(lineOf)].join('\n');
-  [...groups.keys()].sort((a, b) => (a === 'Other') - (b === 'Other') || a.localeCompare(b)).forEach((label) => {
-    lines.push('', `${label}:`, ...groups.get(label).map(lineOf));
+  [...groups.values()].sort((a, b) => (a.label === 'Other') - (b.label === 'Other') || a.label.localeCompare(b.label)).forEach((group) => {
+    lines.push('', `${group.label}:`, ...group.items.map(lineOf));
   });
   return lines.join('\n');
 }
@@ -3531,7 +3548,7 @@ const LINKS_KEY = 'secondMemory.links.v1';
 let links = migrateSyncFields(loadCollection(LINKS_KEY), LINKS_KEY, getDeviceId());
 
 // Adds a saved link (label, address, notes); both the label and the address are required.
-function addLink(label, url, notes) {
+function addLink(label, url, noteText) {
   const trimmedLabel = label.trim();
   const trimmedUrl = url.trim();
   if (!trimmedLabel) return { ok: false, error: 'Label is required.' };
@@ -3541,7 +3558,7 @@ function addLink(label, url, notes) {
     id: makeId(),
     label: trimmedLabel,
     url: trimmedUrl,
-    notes: notes.trim(),
+    notes: noteText.trim(),
     dateAdded: now,
     updatedAt: now,
     deviceId: getDeviceId(),
@@ -3754,14 +3771,6 @@ document.getElementById('resume-sort-input').addEventListener('change', (e) => {
   renderLinks();
 });
 
-// A real calendar date in YYYY-MM-DD form (rejects 2026-13-45 and 2026-02-30).
-function isRealDateKey(value) {
-  if (typeof value !== 'string' || !DATE_KEY_RE.test(value)) return false;
-  const { y, m, d } = parseDateKey(value);
-  const date = new Date(y, m, d);
-  return date.getFullYear() === y && date.getMonth() === m && date.getDate() === d;
-}
-
 // ---- Date helpers ----
 // Shared by books, weights, the journal, medications, to-dos and the date checks on forms.
 // All date-key values are local-date-derived 'YYYY-MM-DD' strings, never
@@ -3791,6 +3800,14 @@ function todayKey() {
 function parseDateKey(key) {
   const [y, m, d] = key.split('-').map(Number);
   return { y, m: m - 1, d }; // m is 0-indexed to match Date's convention
+}
+
+// A real calendar date in YYYY-MM-DD form (rejects 2026-13-45 and 2026-02-30).
+function isRealDateKey(value) {
+  if (typeof value !== 'string' || !DATE_KEY_RE.test(value)) return false;
+  const { y, m, d } = parseDateKey(value);
+  const date = new Date(y, m, d); // rolls an impossible day over into the next month, which the checks below catch
+  return date.getFullYear() === y && date.getMonth() === m && date.getDate() === d;
 }
 
 // How many days a month has (handles leap years); monthIndex is 0-based.
@@ -4334,6 +4351,7 @@ function matchesJournalSearch(entry, term) {
   return haystack.includes(needle);
 }
 
+// Typing in the Journal search box filters the cards and jumps to the newest match.
 document.getElementById('journal-search-input').addEventListener('input', (e) => {
   journalSearchTerm = e.target.value;
   journalScrollMode = 'end';
@@ -4489,6 +4507,7 @@ function renderJournalTrends() {
   feelingsEl.textContent = top.length ? `Feelings you chose most: ${top.map(([name, n]) => `${name} \u00d7${n}`).join(', ')}.` : '';
 }
 
+// Redraw the Trends panel each time it is opened or closed so it always shows current entries.
 document.getElementById('journal-trends').addEventListener('toggle', renderJournalTrends);
 
 // Short label for an entry's date chip, e.g. "Mar 4" (with the year only if it isn't this year).
@@ -4586,10 +4605,12 @@ function scrollJournalByPage(direction) {
 
 document.getElementById('journal-scroll-prev').addEventListener('click', () => scrollJournalByPage(-1));
 document.getElementById('journal-scroll-next').addEventListener('click', () => scrollJournalByPage(1));
-['wheel', 'touchstart', 'pointerdown', 'keydown'].forEach((evt) => {
+// Once the reader scrolls or touches the row themselves, stop forcing the tapped date chip to stay highlighted.
+['wheel','touchstart', 'pointerdown', 'keydown'].forEach((evt) => {
   journalListEl.addEventListener(evt, () => { journalActiveOverride = null; }, { passive: true });
 });
 
+// The three "New ..." buttons start a wizard of that type (asking first if one is already in progress).
 document.querySelectorAll('.journal-start-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
     if (journalDraft && !window.confirm('Discard the entry you are writing?')) return;
@@ -4597,6 +4618,7 @@ document.querySelectorAll('.journal-start-btn').forEach((btn) => {
   });
 });
 
+// Next / Enter: keep what was typed, then go to the next question, or save after the last one.
 document.getElementById('journal-wizard').addEventListener('submit', (e) => {
   e.preventDefault();
   if (!journalDraft) return;
@@ -4610,6 +4632,7 @@ document.getElementById('journal-wizard').addEventListener('submit', (e) => {
   }
 });
 
+// Back: keep what was typed, then return to the previous step.
 document.getElementById('journal-back-btn').addEventListener('click', () => {
   if (!journalDraft || journalDraft.step === 0) return;
   captureJournalAnswer();
@@ -4617,6 +4640,7 @@ document.getElementById('journal-back-btn').addEventListener('click', () => {
   renderJournalStep();
 });
 
+// Skip: move to the next question without requiring an answer.
 document.getElementById('journal-skip-btn').addEventListener('click', () => {
   if (!journalDraft) return;
   // Skip moves on without requiring an answer, but anything already typed is kept.
@@ -4681,13 +4705,15 @@ function downloadJournalBackup() {
 
 document.getElementById('journal-export-btn').addEventListener('click', downloadJournalBackup);
 
+// "Restore" opens the hidden file picker.
 document.getElementById('journal-import-btn').addEventListener('click', () => {
   document.getElementById('journal-import-file').click();
 });
 
+// Reads the chosen journal backup and merges in the entries this device does not have.
 document.getElementById('journal-import-file').addEventListener('change', (e) => {
   const file = e.target.files[0];
-  e.target.value = '';
+  e.target.value = ''; // so choosing the same file again still fires "change"
   if (!file) return;
   const reader = new FileReader();
   reader.onload = () => {
@@ -4904,6 +4930,7 @@ function closeTherapySummary() {
   if (summaryReturnFocus && document.contains(summaryReturnFocus)) summaryReturnFocus.focus();
 }
 
+// Summary sheet controls: open, close, change how many sessions, print, and copy as text.
 document.getElementById('therapy-summary-btn').addEventListener('click', openTherapySummary);
 document.getElementById('therapy-summary-close').addEventListener('click', closeTherapySummary);
 document.getElementById('therapy-summary-count').addEventListener('change', renderTherapySummary);
@@ -4980,7 +5007,7 @@ function backupAgeText(days) {
 let backupNotesDismissed = false;
 
 // Updates the "last journal backup" line and shows Home reminders when the journal or the
-// full export is overdue for a backup.
+// full export is overdue for a backup, or when a set-up sync has not run for a while.
 function renderBackupNotes() {
   const lastEl = document.getElementById('journal-backup-last');
   if (lastEl) lastEl.textContent = `Last journal backup: ${backupAgeText(daysSinceBackup(JOURNAL_BACKUP_AT_KEY))}`;
@@ -5195,6 +5222,7 @@ function renderGlobalSearch() {
 document.querySelector('.nav-item[data-tab="home"]').addEventListener('click', renderGlobalSearch);
 document.getElementById('global-search-input').addEventListener('input', renderGlobalSearch);
 document.getElementById('global-search-journal').addEventListener('change', renderGlobalSearch);
+// Esc clears the search box and brings the normal Home panels back.
 document.getElementById('global-search-input').addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     e.target.value = '';
@@ -5203,9 +5231,10 @@ document.getElementById('global-search-input').addEventListener('keydown', (e) =
 });
 
 // ---- Home ----
-// Pure, render-only aggregation over the live books/todos/medications arrays: no own
-// storage key, nothing to sync/export/undo. Called at the end of the books, to-dos and
-// medications renderers rather than at every mutation.
+// Pure, render-only aggregation over the live lists: no own storage key, nothing to
+// sync/export/undo. Called at the end of the books, recipes, medications, weight, to-do and
+// shopping renderers (the lists Home reads) rather than at every mutation. Only the Customize
+// Home choices (applyHomePanelChoices) are stored, on this device.
 
 // How many days ahead Home looks for things that are "due soon".
 const HOME_DUE_SOON_DAYS = 7;
@@ -5261,8 +5290,8 @@ function computeCurrentlyReading(nonDeletedBooks) {
   return nonDeletedBooks.filter((b) => b.status === 'currently_reading').sort(BOOK_SORTS.author_asc);
 }
 
-// Redraws the Home dashboard: what needs attention this week (to-dos, refills)
-// and the books being read.
+// Redraws the whole Home dashboard: backup nudges, search results, this week's to-dos and
+// refills, weigh-in, shopping, weight trend, pinned recipes and the books being read.
 function renderHome() {
   // Gather what to show.
   renderBackupNotes();
@@ -5404,8 +5433,12 @@ function renderHome() {
     }));
   });
 
-  // The "all caught up" message only makes sense when nothing at all is waiting on Home.
-  if (!weighPanel.hidden || !shoppingPanel.hidden) emptyEl.hidden = true;
+  // The "all caught up" message only makes sense when nothing at all is waiting on Home. A panel the
+  // user switched off in Customize doesn't count (it is hidden by applyHomePanelChoices at the end).
+  const switchedOff = loadHiddenHomePanels();
+  const weighShows = !weighPanel.hidden && !switchedOff.has('home-weigh-panel');
+  const shoppingShows = !shoppingPanel.hidden && !switchedOff.has('home-shopping-panel');
+  if (weighShows || shoppingShows) emptyEl.hidden = true;
 
   // Books currently being read.
   if (currentlyReading.length > 0) {
@@ -5448,6 +5481,10 @@ document.getElementById('home-weigh-form').addEventListener('submit', (e) => {
 // Optional: the app is fully functional offline with no sync configured, and
 // keeps working from local data if the server is ever unreachable — sync only
 // happens when the user presses "Sync now", and is never a requirement for any UI action.
+
+// The only address the app ever talks to: "Sync now" sends data there, and opening the app sends it
+// one plain request with no data so a sleeping free-plan server wakes up in time.
+const SYNC_SERVER_URL = 'https://second-memory-mwm3.onrender.com';
 
 const SYNC_CONFIG_KEY = 'secondMemory.syncConfig.v1';
 
@@ -5530,13 +5567,13 @@ function applyEntrySnapshot(entry, which) {
   const snapshot = structuredClone(target);
   const other = entry[which === 'before' ? 'after' : 'before'];
   const BOOKKEEPING = ['id', 'dateAdded', 'version', 'updatedAt', 'deviceId', 'deleted'];
+  // Apply the field-by-field difference, then stamp, save and redraw this one collection.
   // Only fields this history entry actually changed are applied, so undo can
-  // never revert fields changed elsewhere since (e.g. paid dates that arrived
+  // never revert fields changed elsewhere since (e.g. taken dates that arrived
   // from another device). A field the snapshot lacks (set on a record that
   // predates it) is removed again. Bookkeeping fields are never replayed:
   // version is server-assigned, updatedAt/deviceId are freshly stamped below
   // because this undo IS a new local mutation, `deleted` is handled above.
-  // Apply the field-by-field difference, then stamp, save and redraw this one collection.
   new Set([...Object.keys(snapshot), ...Object.keys(other || {})]).forEach((key) => {
     if (BOOKKEEPING.includes(key)) return;
     if (other && JSON.stringify(snapshot[key]) === JSON.stringify(other[key])) return;
@@ -5925,16 +5962,16 @@ async function runSync() {
         return;
       }
       const before = JSON.stringify(c.get());
-      const { result, known } = reconcileServerReply(c, incoming, preFlight[c.name]);
+      const { result: merged, known } = reconcileServerReply(c, incoming, preFlight[c.name]);
       nextSnapshot[c.name] = known;
-      if (JSON.stringify(result) !== before) {
-        c.set(result);
-        saveCollection(c.key, result);
+      if (JSON.stringify(merged) !== before) {
+        c.set(merged);
+        saveCollection(c.key, merged);
         safeRender(() => c.render());
       }
       // Anything still different from what the server confirmed (an in-flight
       // change, or a record the server was missing) goes out on a quick retry.
-      if (result.some((item) => known[item.id] !== JSON.stringify(item))) resyncSoon = true;
+      if (merged.some((item) => known[item.id] !== JSON.stringify(item))) resyncSoon = true;
     });
     saveSyncSnapshot(nextSnapshot);
 
@@ -6054,7 +6091,8 @@ function buildExportPayload() {
   const local = { journal: journalEntries.slice() };
   const goal = loadWeightGoal();
   if (goal !== null) local.weightGoal = goal;
-  if (Object.keys(loadReadingGoals()).length > 0) local.readingGoals = loadReadingGoals();
+  const readingGoals = loadReadingGoals();
+  if (Object.keys(readingGoals).length > 0) local.readingGoals = readingGoals;
   return { collections, local };
 }
 
@@ -6373,7 +6411,7 @@ function refreshForNewDay() {
   if (now === lastRenderedDayKey) return;
   lastRenderedDayKey = now;
   [
-    renderTodos, renderMedications, renderHome,
+    renderTodos, renderMedications, // both also redraw Home, so it is not listed again here
     // The reading goal is for "this year", so it must roll over on 1 January too.
     () => renderReadingGoal(books.filter((b) => !b.deleted)),
   ].forEach(safeRender);
@@ -6390,7 +6428,7 @@ document.addEventListener('visibilitychange', () => {
 
 // The build number shown in the Menu. Keep it equal to the number in CACHE_NAME in sw.js
 // (a test checks this), so "which version am I on?" has a one-glance answer.
-const APP_VERSION = 76;
+const APP_VERSION = 77;
 const THEME_KEY = 'secondMemory.theme.v1';
 const THEMES = ['auto', 'light', 'dark'];
 
@@ -6567,9 +6605,9 @@ function updateReminderButton() {
     btn.disabled = true;
     return;
   }
-  const on = loadReminderState().enabled && Notification.permission === 'granted';
-  document.getElementById('reminder-times').hidden = !on;
   const saved = loadReminderState();
+  const on = saved.enabled && Notification.permission === 'granted';
+  document.getElementById('reminder-times').hidden = !on;
   document.getElementById('weigh-time-input').value = saved.weighInTime;
   document.getElementById('refill-time-input').value = saved.refillTime;
   btn.textContent = Notification.permission === 'denied' ? 'Reminders: blocked' : `Reminders: ${on ? 'On' : 'Off'}`;
@@ -6614,6 +6652,8 @@ document.getElementById('reminders-btn').addEventListener('click', async () => {
   });
 });
 
+// Check once at startup, every 15 minutes while open, and whenever the app comes back to the front
+// (timers are paused in the background, so the return is what catches a phone waking up).
 updateReminderButton();
 checkReminders();
 setInterval(checkReminders, REMINDER_CHECK_MS);
@@ -7080,6 +7120,8 @@ enableSwipe('shopping-list', '.shopping-item', 'shoppingId',
   (id) => deleteShoppingItem(id));
 
 // Customize Home: which panels you want to see (the rest stay hidden even when they have something to show).
+// HOME_PANEL_CHOICES is read by renderHome (through applyHomePanelChoices), so no Home redraw may run
+// before this line; the first one is in the Init block below.
 const HOME_PANELS_KEY = 'secondMemory.homePanels.v1';
 const HOME_PANEL_CHOICES = [
   ['home-todo-panel', 'To-Do'], ['home-refills-panel', 'Medication refills'], ['home-weigh-panel', 'Weigh in'],
@@ -7181,7 +7223,10 @@ document.getElementById('text-size-btn').addEventListener('click', () => {
 applyTextSize(TEXT_SIZES.includes(document.documentElement.getAttribute('data-text')) ? document.documentElement.getAttribute('data-text') : 'normal');
 
 // ---- Init ----
-// First draw of every screen (Home is drawn by setActiveTab), then the sync controls and the service worker.
+// First draw of every screen, then the sync controls and the service worker. Home is not drawn here
+// directly: renderBooks, renderTodos, renderWeights and others each end by calling renderHome.
+// This block goes last on purpose: it needs every const and let above, and using one before its
+// line has run would throw.
 
 [
   renderBooks, renderRecipes, renderMedications, renderDiagnoses, renderWeights, renderJournal,
@@ -7195,9 +7240,11 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js').then((registration) => {
       // Check for a newer version now and each time the app comes back to the front.
-      registration.update();
+      // update() fails when offline; that is expected, so the failure is swallowed.
+      const checkForUpdate = () => registration.update().catch(() => {});
+      checkForUpdate();
       document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') registration.update();
+        if (document.visibilityState === 'visible') checkForUpdate();
       });
     }).catch(() => {
       // Offline install is optional (e.g. private browsing); the app still works without it.

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Second Memory</title>
-<!-- Applies a Light/Dark theme chosen in the Menu before the page paints, so it does not flash. -->
+<!-- Applies the Menu choices (theme, text size, contrast) and the lock state before the page paints, so nothing flashes. -->
 <script>
 try { var t = localStorage.getItem('secondMemory.theme.v1'); if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); } catch (e) { /* storage unavailable: follow the device */ }
 try { var z = localStorage.getItem('secondMemory.textSize.v1'); if (z === 'large' || z === 'larger') document.documentElement.setAttribute('data-text', z); } catch (e) { /* storage unavailable: normal size */ }
@@ -199,7 +199,7 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
       <p class="sync-status-text data-io-status" id="data-io-status" role="status" hidden></p>
     </div>
 
-    <!-- Menu footer: Theme button (Auto / Light / Dark) and the app version, filled by app.js. -->
+    <!-- Menu footer: Theme, App lock, Reminders, Text size and Contrast buttons (labels filled by app.js) and the app version. -->
     <div class="data-io">
       <div class="data-io-buttons">
         <button type="button" id="theme-btn" class="data-io-btn">Theme: Auto</button>
@@ -221,7 +221,7 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
 
   <!-- Main content: the reminder banner, then one <section> per tab. Only the active one is visible. -->
   <main class="content">
-    <!-- Home tab: search-everything box, plus "needs attention" panels (to-dos, refills, reading). Filled by renderHome. -->
+    <!-- Home tab: search-everything box, quick add, then today panels (to-dos, refills, weigh-in, weight, pinned recipes, still to buy, reading). Filled by renderHome; the Customize list hides panels. -->
     <section class="collection" id="home-collection" hidden>
       <div class="collection-toolbar">
         <h2>Home</h2>
@@ -469,7 +469,7 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         <button type="button" class="journal-summary-btn" id="therapy-summary-btn">Therapy summary</button>
 
         <!-- A reflective prompt that changes each day; "Write about this" starts a journal entry with it filled in. -->
-        <div class="journal-extra journal-prompt" id="journal-prompt">
+        <div class="journal-extra journal-prompt">
           <p class="journal-extra-label">Prompt of the day</p>
           <p class="journal-prompt-text" id="journal-prompt-text"></p>
           <button type="button" class="journal-secondary-btn" id="journal-prompt-btn">Write about this</button>
@@ -596,7 +596,7 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
       <p class="empty-state" id="weight-empty-state" hidden>No weights yet &mdash; add your first one above.</p>
     </section>
 
-    <!-- Diagnoses tab: add form and one list of diagnoses. Cards come from diagnoses-card-template via renderDiagnoses. -->
+    <!-- Diagnoses tab: add form and one flat list of diagnoses. Cards come from diagnoses-card-template via renderDiagnoses. -->
     <section class="collection" id="diagnoses-collection" hidden>
       <div class="collection-toolbar">
         <h2>Diagnoses</h2>
@@ -679,12 +679,13 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         <button type="submit">Add item</button>
       </form>
 
-      <!-- Things bought before that are not on the list now; one tap puts them back (renderBuyAgain). -->
+      <!-- Share the list as text (share sheet, else copied to the clipboard). -->
       <p class="share-row">
         <button type="button" class="share-btn" id="shopping-share-btn">Share list</button>
         <span class="share-status" id="shopping-share-status" role="status"></span>
       </p>
 
+      <!-- Things bought before that are not on the list now; one tap puts them back (renderBuyAgain). -->
       <div class="buy-again" id="shopping-buy-again" hidden>
         <p class="buy-again-label">Buy again</p>
         <div class="chip-row" id="shopping-buy-again-chips"></div>
@@ -938,7 +939,7 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
   </li>
 </template>
 
-<!-- One diagnosis in a status column on the Diagnoses tab (renderDiagnoses). -->
+<!-- One diagnosis in the Diagnoses list (renderDiagnoses). -->
 <template id="diagnoses-card-template">
   <li class="diagnosis-card">
     <div class="diagnosis-view">
@@ -1109,7 +1110,6 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
   </div>
 </div>
 
-<!-- App lock screen: shown (by the data-locked attribute on <html>) until the right PIN is typed. -->
 <!-- Phone-only bar along the bottom with the four most-used screens and the Menu. -->
 <nav class="bottom-bar" id="bottom-bar" aria-label="Quick tabs">
   <button type="button" data-quick-tab="home">Home</button>
@@ -1125,6 +1125,7 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
   <button type="button" id="toast-undo">Undo</button>
 </div>
 
+<!-- App lock screen: shown (by the data-locked attribute on <html>) until the right PIN is typed. -->
 <div class="lock-screen" id="lock-screen" role="dialog" aria-modal="true" aria-labelledby="lock-screen-title">
   <form class="lock-card" id="lock-form">
     <h2 id="lock-screen-title">Second Memory is locked</h2>
@@ -1145,7 +1146,7 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
     <input type="password" id="lock-setup-confirm" inputmode="numeric" autocomplete="off" placeholder="Type it again" aria-label="Confirm new PIN">
     <p class="form-error" id="lock-setup-error" role="alert" hidden></p>
     <div class="lock-buttons">
-      <button type="submit" id="lock-setup-save">Save</button>
+      <button type="submit">Save</button>
       <button type="button" id="lock-setup-cancel">Cancel</button>
     </div>
   </form>

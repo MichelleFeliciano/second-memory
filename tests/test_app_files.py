@@ -39,7 +39,7 @@ class AppFiles(unittest.TestCase):
         self.assertEqual(re.findall(r'<script[^>]+src="https?://', HTML), [])
         self.assertEqual(re.findall(r'<link[^>]+href="https?://', HTML), [])
 
-    def test_the_only_network_call_is_the_sync_server(self):
+    def test_network_calls_go_only_to_the_sync_server(self):
         """The app has exactly two fetch() calls (the sync itself and the wake-up poke before it), both to the sync server."""
         calls = re.findall(r"fetch\(([^,)]*)", APP)
         self.assertEqual(len(calls), 2)
@@ -48,9 +48,9 @@ class AppFiles(unittest.TestCase):
 
     def test_every_local_file_the_page_loads_is_in_the_offline_cache(self):
         """Both directions: nothing index.html loads is missing from APP_SHELL, and nothing cached is missing on disk."""
-        shell =set(re.findall(r"'\./([^']*)'", SW[SW.index("const APP_SHELL"):SW.index("];", SW.index("const APP_SHELL"))]))
+        shell = set(re.findall(r"'\./([^']*)'", SW[SW.index("const APP_SHELL"):SW.index("];", SW.index("const APP_SHELL"))]))
         loaded = set(re.findall(r'(?:src|href)="(?!https?:|#|data:|mailto:)([^"]+)"', HTML))
-        loaded = {x.lstrip("./") for x in loaded}
+        loaded = {x[2:] if x.startswith("./") else x for x in loaded}  # drop only a leading "./"
         for name in loaded:
             self.assertIn(name, shell, f"{name} is loaded by index.html but not in APP_SHELL")
         for name in shell:

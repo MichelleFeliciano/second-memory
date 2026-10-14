@@ -24,11 +24,16 @@
      22. Recipe cook mode
      23. App lock
      24. Storage warning
-     25. Phone polish and final overrides
+     25. Phone polish and overrides for sections 1-24
+     26. Friendlier extras: undo toast, phone bottom bar, text size, Home weigh-in
+     27. Buy again, pinned recipes, refill pickup, Home weight, high contrast
+     28. Snooze, share, shopping groups, swipe, customise Home
    Notes for editing:
    - Every dark-mode block appears twice, once for the device setting (@media prefers-color-scheme)
      and once for the Menu's hand-picked Dark theme (data-theme="dark"). Change both together.
-   - Rules in section 25 come last on purpose: they override equal-strength rules above them. */
+   - Section 25 overrides equal-strength rules in sections 1-24. Sections 26-28 were added later and
+     only add new classes (plus the high-contrast colour variables in 27, which must stay after the
+     section 1 palettes so they win). */
 
 /* ===== 1. Theme and variables (light and dark colours) ===== */
 /* Light palette by default; the dark block below swaps the same names. Use these
@@ -640,7 +645,7 @@ body::before {
 }
 
 /* ===== 7. Columns, phone breakpoint, column panels, corner leaves ===== */
-/* Side-by-side panels (Books statuses, Diagnoses statuses, Home widgets). */
+/* Side-by-side panels (Books statuses, Home widgets). */
 .columns {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -987,8 +992,7 @@ body::before {
   align-items: center;
 }
 
-.book-actions select,
-.diagnosis-actions select {
+.book-actions select {
   /* A <select>'s closed-state width is intrinsic to its widest <option> text
      ("Move: Currently Reading", "Move: Jon's Bookshelf") — without a cap it
      overflows a card at Books' narrower 5-column width. flex-wrap alone
@@ -1938,7 +1942,7 @@ body::before {
 }
 
 /* Home rows: put the name and its detail (amount, due date) on separate lines, like the
-   bill and to-do cards, instead of running them together in a narrow column. */
+   to-do cards, instead of running them together in a narrow column. */
 .home-item-link .bill-due,
 .home-item-link .todo-task,
 .home-item-link .todo-due {
@@ -2305,7 +2309,7 @@ html[data-locked] .lock-backdrop { visibility: hidden; }
   cursor: pointer;
 }
 
-/* ===== 25. Phone polish and final overrides ===== */
+/* ===== 25. Phone polish and overrides for sections 1-24 ===== */
 
 /* Date inputs.
    iPhone Safari gives date inputs their own minimum width and centres the date text, so
@@ -2351,9 +2355,7 @@ select[id$="-sort-input"],
   textarea {
     font-size: 16px !important;
   }
-}
 
-@media (max-width: 700px) {
   /* Finger-sized tap targets for the small buttons. */
   .chip,
   .sync-change-btn,
