@@ -2693,6 +2693,12 @@ function matchesTodoSearch(todo, term) {
   return todo.task.toLowerCase().includes(term.toLowerCase());
 }
 
+// Comparator that moves checked-off rows below open ones. Sorting is stable, so running it
+// after the chosen sort keeps that order inside each group.
+function doneLast(isDone) {
+  return (a, b) => Number(!!isDone(a)) - Number(!!isDone(b));
+}
+
 // A to-do is overdue when it's not done and its due date is before today.
 function isTodoOverdue(todo) {
   if (todo.completed || !todo.dueDate) return false;
@@ -2747,7 +2753,8 @@ function renderTodos() {
     .filter((t) => !t.deleted)
     .filter((t) => matchesTodoSearch(t, searchTerm))
     .filter((t) => matchesTodoFilter(t, selectedTodoFilter))
-    .sort(comparator);
+    .sort(comparator)
+    .sort(doneLast((t) => t.completed));
   const list = document.getElementById('todo-list');
   const template = document.getElementById('todo-card-template');
 
@@ -3016,7 +3023,8 @@ function renderShoppingList() {
     .filter((i) => matchesShoppingSearch(i, searchTerm))
     .filter((i) => matchesShoppingCategory(i, selectedShoppingCategory))
     .filter((i) => matchesShoppingChecked(i, selectedShoppingChecked))
-    .sort(comparator);
+    .sort(comparator)
+    .sort(doneLast((i) => i.checked));
   const list = document.getElementById('shopping-list');
   const template = document.getElementById('shopping-card-template');
 
@@ -6110,7 +6118,7 @@ document.addEventListener('visibilitychange', () => {
 
 // The build number shown in the Menu. Keep it equal to the number in CACHE_NAME in sw.js
 // (a test checks this), so "which version am I on?" has a one-glance answer.
-const APP_VERSION = 70;
+const APP_VERSION = 71;
 const THEME_KEY = 'secondMemory.theme.v1';
 const THEMES = ['auto', 'light', 'dark'];
 

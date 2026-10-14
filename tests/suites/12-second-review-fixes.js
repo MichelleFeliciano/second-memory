@@ -112,3 +112,15 @@ books[0].deleted = true; renderHome();
 check('Home search results drop an item deleted meanwhile', hadHit && !/Zebrafinch/.test($('global-search-results').textContent));
 set('global-search-input', ''); $('global-search-input').dispatchEvent(new Event('input', { bubbles: true }));
 books.length = 0; renderBooks();
+
+// ---- checked-off to-dos and shopping items sink to the bottom ----
+todos.length = 0; shoppingItems.length = 0;
+todos.push({ ...r2, id: 'tdA', task: 'A done', dueDate: dk(1), completed: true });
+todos.push({ ...r2, id: 'tdB', task: 'B open', dueDate: dk(5), completed: false });
+nav('todo'); selectedTodoFilter = 'all'; renderTodos();
+check('done to-dos list after open ones', [...document.querySelectorAll('#todo-list .todo-task')].map((e) => e.textContent).join('|') === 'B open|A done');
+shoppingItems.push({ ...r2, id: 'shA', item: 'Aaa checked', quantity: '', category: 'x', checked: true });
+shoppingItems.push({ ...r2, id: 'shB', item: 'Bbb open', quantity: '', category: 'x', checked: false });
+nav('shopping'); selectedShoppingChecked = 'all'; selectedShoppingCategory = 'all'; renderShoppingList();
+check('checked shopping items list after open ones', [...document.querySelectorAll('#shopping-list .shopping-item-name')].map((e) => e.textContent).join('|') === 'Bbb open|Aaa checked');
+todos.length = 0; shoppingItems.length = 0; renderTodos(); renderShoppingList();
