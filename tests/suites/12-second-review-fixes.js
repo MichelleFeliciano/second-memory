@@ -557,3 +557,254 @@ localStorage.removeItem(HOME_PANELS_KEY); renderHome();
   todos.length = 0; medications.length = 0; weights.length = 0; journalEntries.length = 0;
   nav('home');
 }
+
+// ---- v80: automatic sync ----
+{
+  const realRunSync = window.runSync;
+  let runs = 0;
+  let tone = 'ok';
+  window.runSync = async () => { runs += 1; lastSyncTone = tone; };
+  const reset = () => { runs = 0; lastAutoSyncAt = 0; autoSyncBackoffUntil = 0; clearTimeout(autoSyncTimer); tone = 'ok'; };
+  const hadConfig = localStorage.getItem(SYNC_CONFIG_KEY);
+
+  check('test pages start with Auto-sync off', autoSyncOn() === false);
+  localStorage.removeItem(AUTO_SYNC_KEY);
+  check('with no setting it is on', autoSyncOn() === true);
+
+  localStorage.removeItem(SYNC_CONFIG_KEY); reset();
+  scheduleAutoSync(10); await sleep(60);
+  check('nothing runs when sync is not set up', runs === 0);
+
+  saveSyncConfig({ token: 'x' }); updateAutoSyncButton();
+  check('the Menu button shows On once sync is set up', !$('autosync-btn').disabled && /On/.test($('autosync-btn').textContent), $('autosync-btn').textContent);
+  localStorage.setItem(SYNC_SNAPSHOT_KEY, JSON.stringify({}));
+
+  // 'open' syncs even with nothing to send; 'change' does not
+  books.length = 0; todos.length = 0; recipes.length = 0; medications.length = 0; weights.length = 0; diagnoses.length = 0; shoppingItems.length = 0; notes.length = 0; links.length = 0;
+  localStorage.setItem(SYNC_SNAPSHOT_KEY, JSON.stringify({}));
+  reset(); scheduleAutoSync(10, 'change'); await sleep(60);
+  check('a change-triggered sync is skipped when there is nothing to send', runs === 0);
+  reset(); scheduleAutoSync(10, 'open'); await sleep(60);
+  check('an open-triggered sync runs even with nothing to send', runs === 1);
+
+  // spacing and back-off
+  scheduleAutoSync(10, 'open'); await sleep(60);
+  check('a second try within 30 seconds is skipped', runs === 1);
+  reset(); tone = 'failed'; scheduleAutoSync(10, 'open'); await sleep(60);
+  check('a failed sync starts a back-off', runs === 1 && autoSyncBackoffUntil > Date.now() + 4 * 60000);
+  lastAutoSyncAt = 0; scheduleAutoSync(10, 'open'); await sleep(60);
+  check('during the back-off nothing else runs', runs === 1);
+
+  // switching off, a sync already running, a hidden page
+  reset(); localStorage.setItem(AUTO_SYNC_KEY, 'off'); scheduleAutoSync(10, 'open'); await sleep(60);
+  check('switched off, nothing is planned', runs === 0);
+  localStorage.removeItem(AUTO_SYNC_KEY);
+  reset(); syncInFlight = true; await autoSyncNow('open'); syncInFlight = false;
+  check('it never starts while a sync is already running', runs === 0);
+  reset();
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+  await autoSyncNow('open');
+  check('it never runs while the app is in the background', runs === 0);
+  delete document.visibilityState;
+
+  // the Menu switch
+  reset(); $('autosync-btn').click();
+  check('the button turns Auto-sync off and says so', autoSyncOn() === false && /Off/.test($('autosync-btn').textContent) && localStorage.getItem(AUTO_SYNC_KEY) === 'off');
+  $('autosync-btn').click();
+  check('and back on', autoSyncOn() === true && /On/.test($('autosync-btn').textContent));
+  clearTimeout(autoSyncTimer);
+  localStorage.removeItem(SYNC_CONFIG_KEY); updateAutoSyncButton();
+  check('without sync set up the button is disabled', $('autosync-btn').disabled && /set up sync first/.test($('autosync-btn').textContent));
+
+  // clean up
+  if (hadConfig) localStorage.setItem(SYNC_CONFIG_KEY, hadConfig); else localStorage.removeItem(SYNC_CONFIG_KEY);
+  localStorage.removeItem(SYNC_SNAPSHOT_KEY);
+  localStorage.setItem(AUTO_SYNC_KEY, 'off');
+  window.runSync = realRunSync;
+  updateAutoSyncButton();
+}
+
+// ---- v80: dates in plain words, and the to-do reminder ----
+{
+  const nextWeekday = (index) => { for (let i = 1; i <= 7; i++) { const d = new Date(); d.setDate(d.getDate() + i); if (d.getDay() === index) return dk(i); } };
+  const monthDay = (m, d) => { const y = new Date().getFullYear(); const k = y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0'); return k < dk(0) ? (y + 1) + k.slice(4) : k; };
+  const same = (input, text, due) => { const r = parseDateWords(input); return !!r && r.text === text && r.dueDate === due; };
+  const none = (input) => parseDateWords(input) === null;
+
+  check('"tomorrow", "today" and "tonight" at the end', same('pay rent tomorrow', 'pay rent', dk(1)) && same('call mom today', 'call mom', dk(0)) && same('call mom tonight', 'call mom', dk(0)));
+  check('"next week" and "in N days / weeks"', same('plan trip next week', 'plan trip', dk(7)) && same('renew in 3 days', 'renew', dk(3)) && same('renew in 2 weeks', 'renew', dk(14)));
+  check('weekday names, in full or short, mean the next one coming', same('buy cake friday', 'buy cake', nextWeekday(5)) && same('buy cake fri', 'buy cake', nextWeekday(5)) && same('buy cake next monday', 'buy cake', nextWeekday(1)));
+  check('"by", "on", "due" and "for" before the date are dropped too', same('pay rent by friday', 'pay rent', nextWeekday(5)) && same('dentist on friday', 'dentist', nextWeekday(5)) && same('taxes due friday', 'taxes', nextWeekday(5)));
+  check('the date words can come first', same('tomorrow call mom', 'call mom', dk(1)) && same('friday dentist', 'dentist', nextWeekday(5)));
+  check('month and day, in words or as 3/15', same('dentist oct 20', 'dentist', monthDay(10, 20)) && same('dentist October 20th', 'dentist', monthDay(10, 20)) && same('3/15 file taxes', 'file taxes', monthDay(3, 15)) && same('file taxes 3/15', 'file taxes', monthDay(3, 15)));
+  check('a date that has passed this year means next year', (() => { const r = parseDateWords('party ' + new Date(Date.now() - 86400000 * 3).toLocaleString('en-US', { month: 'short', day: 'numeric' })); return !!r && r.dueDate > dk(0); })());
+  check('impossible dates and plain text are left alone', none('x feb 30') && none('buy milk') && none('13/45 something') && none('meeting sat in the park'));
+  check('date words with no task left over are left alone', none('tomorrow') && none('friday') && none('  '));
+  check('a weekday is a week away when it is that day today', (() => { const today = new Date().getDay(); const names = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']; const r = parseDateWords('x ' + names[today]); return !!r && r.dueDate === dk(7); })());
+
+  // Quick add and the To-Do form use it
+  todos.length = 0;
+  set('quick-add-type', 'todo'); set('quick-add-input', 'water plants tomorrow'); $('quick-add-form').requestSubmit();
+  check('Quick add turns "water plants tomorrow" into a to-do due tomorrow and says so', todos.length === 1 && todos[0].task === 'water plants' && todos[0].dueDate === dk(1) && /due/.test($('quick-add-status').textContent), $('quick-add-status').textContent);
+  set('quick-add-input', 'buy milk'); $('quick-add-form').requestSubmit();
+  check('without date words Quick add changes nothing', todos[1].task === 'buy milk' && todos[1].dueDate === null);
+  todos.length = 0;
+  nav('todo');
+  set('todo-task-input', 'file taxes friday'); set('todo-due-input', ''); $('todo-add-form').requestSubmit();
+  check('the To-Do form fills the due date from the words', todos[0].task === 'file taxes' && todos[0].dueDate === nextWeekday(5));
+  set('todo-task-input', 'call bank tomorrow'); set('todo-due-input', dk(30)); $('todo-add-form').requestSubmit();
+  check('a date picked in the box wins and the words stay in the task', todos[1].task === 'call bank tomorrow' && todos[1].dueDate === dk(30));
+  todos.length = 0; renderTodos();
+
+  // The to-do reminder
+  const RealNotification2 = window.Notification;
+  const shown2 = [];
+  window.Notification = function (title, options) { shown2.push({ title, options }); };
+  window.Notification.permission = 'granted';
+  todos.push({ ...r2, id: 'rt1', task: 'Secret errand', dueDate: dk(0), completed: false, repeat: '' });
+  todos.push({ ...r2, id: 'rt2', task: 'Old thing', dueDate: dk(-3), completed: false, repeat: '' });
+  todos.push({ ...r2, id: 'rt3', task: 'Finished', dueDate: dk(-1), completed: true, repeat: '' });
+  todos.push({ ...r2, id: 'rt4', task: 'Later', dueDate: dk(4), completed: false, repeat: '' });
+  saveReminderState({ enabled: true, refills: {}, weighIn: '', weighInTime: '23:59', refillTime: '23:59', todoTime: '00:00', todosTold: '' });
+  await checkReminders();
+  const todoNotes = shown2.filter((n) => /To-dos/.test(n.title));
+  check('one notice counts the to-dos due today or overdue, without naming them', todoNotes.length === 1 && /2 to-dos/.test(todoNotes[0].options.body) && !/Secret|Old thing/.test(todoNotes[0].options.body), JSON.stringify(shown2));
+  await checkReminders();
+  check('it is sent once a day', shown2.filter((n) => /To-dos/.test(n.title)).length === 1);
+  const nowMin2 = new Date().getHours() * 60 + new Date().getMinutes();
+  if (nowMin2 < 22 * 60) {
+    const later2 = String(Math.floor(nowMin2 / 60) + 1).padStart(2, '0') + ':59';
+    saveReminderState({ enabled: true, refills: {}, weighIn: '', weighInTime: '23:59', refillTime: '23:59', todoTime: later2, todosTold: '' });
+    const before2 = shown2.length;
+    await checkReminders();
+    check('it waits for the chosen time', shown2.length === before2);
+  }
+  todos.length = 0;
+  saveReminderState({ enabled: true, refills: {}, weighIn: '', weighInTime: '23:59', refillTime: '23:59', todoTime: '00:00', todosTold: '' });
+  const before3 = shown2.length;
+  await checkReminders();
+  check('nothing is sent when no to-do is due', shown2.length === before3);
+  saveReminderState({ enabled: true, refills: {}, weighIn: '', weighInTime: '23:59', refillTime: '23:59', todoTime: '00:00', todosTold: todayKey() });
+  $('todo-time-input').value = '10:30'; $('todo-time-input').dispatchEvent(new Event('change'));
+  check('changing the to-do time saves it and lets the notice go out again', loadReminderState().todoTime === '10:30' && loadReminderState().todosTold === '');
+  check('a damaged to-do time falls back to 9:00', (() => { localStorage.setItem(REMINDERS_KEY, JSON.stringify({ enabled: true, todoTime: '99:99', todosTold: 5 })); const s = loadReminderState(); return s.todoTime === '09:00' && s.todosTold === ''; })());
+  window.Notification = RealNotification2;
+  localStorage.removeItem(REMINDERS_KEY);
+}
+
+// ---- v80: share and print a recipe, Help and the welcome card ----
+{
+  const soup = { ...r2, id: 'sh1', title: 'Soup', category: 'Dinner', ingredients: ['2 cups stock', 'salt'], steps: ['Heat', 'Serve'], notes: 'Good cold' };
+  check('a recipe as plain text', recipeText(soup) === 'Soup\nDinner\n\nIngredients:\n- 2 cups stock\n- salt\n\nSteps:\n1. Heat\n2. Serve\n\nNotes:\nGood cold', JSON.stringify(recipeText(soup)));
+  check('at double scale the amounts double', /- 4 cups stock/.test(recipeText(soup, 2)));
+  check('a bare recipe is just its title', recipeText({ title: 'Plain' }) === 'Plain');
+
+  recipes.length = 0; recipes.push(soup); recipeScales.clear();
+  nav('recipes'); renderRecipes();
+  const realShare = navigator.share; const realClip = navigator.clipboard;
+  let sharedWith = null;
+  Object.defineProperty(navigator, 'share', { configurable: true, value: async (data) => { sharedWith = data; } });
+  document.querySelector('#recipes-list .share-recipe-btn').click(); await sleep(30);
+  check('Share sends the recipe text with its title through the share sheet', sharedWith && sharedWith.title === 'Soup' && sharedWith.text === recipeText(soup), JSON.stringify(sharedWith));
+  Object.defineProperty(navigator, 'share', { configurable: true, value: undefined });
+  let copied = null;
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (s) => { copied = s; } } });
+  document.querySelector('#recipes-list .share-recipe-btn').click(); await sleep(30);
+  check('without a share sheet it copies and the toast says so', copied === recipeText(soup) && !$('toast').hidden && /Recipe copied/.test($('toast-text').textContent), $('toast-text').textContent);
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('no'); } } });
+  document.querySelector('#recipes-list .share-recipe-btn').click(); await sleep(30);
+  check('if copying fails the toast says that', /Could not/.test($('toast-text').textContent));
+  Object.defineProperty(navigator, 'share', { configurable: true, value: realShare });
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: realClip });
+  hideToast();
+
+  // print: the print area holds the recipe while print() runs, and is emptied afterwards
+  const realPrint = window.print;
+  let printed = null;
+  window.print = () => { printed = { text: $('print-recipe').textContent, on: document.body.classList.contains('printing-recipe'), steps: $('print-recipe').querySelectorAll('ol li').length }; };
+  recipeScales.set('sh1', 2);
+  document.querySelector('#recipes-list .print-recipe-btn').click();
+  check('Print puts a clean copy at the chosen scale in the print area', printed && printed.on && /Soup/.test(printed.text) && /4 cups stock/.test(printed.text) && printed.steps === 2, JSON.stringify(printed));
+  check('and clears it afterwards', !document.body.classList.contains('printing-recipe') && $('print-recipe').innerHTML === '');
+  window.print = realPrint; recipeScales.clear(); recipes.length = 0; renderRecipes();
+
+  // Help and the welcome card
+  localStorage.removeItem(WELCOME_SEEN_KEY); updateWelcomeCard();
+  check('the welcome card shows on first run', $('welcome-card').hidden === false);
+  check('Help in the Menu lists every tip and the welcome card the first few', document.querySelectorAll('#help-list li').length === HELP_TIPS.length && document.querySelectorAll('#welcome-list li').length === WELCOME_TIPS_SHOWN && HELP_TIPS.length >= 8);
+  $('welcome-dismiss').click();
+  check('Got it hides the card and remembers', $('welcome-card').hidden === true && localStorage.getItem(WELCOME_SEEN_KEY) === '1');
+  updateWelcomeCard();
+  check('it stays hidden next time', $('welcome-card').hidden === true);
+  localStorage.removeItem(WELCOME_SEEN_KEY);
+}
+
+// ---- v80: recent searches, edit in place, History ----
+{
+  // recent searches
+  localStorage.removeItem(RECENT_SEARCHES_KEY); $('global-search-journal').checked = false;
+  nav('home'); $('global-search-input').value = ''; renderRecentSearches();
+  check('with no searches yet there are no chips', $('global-search-recent').hidden);
+  for (const term of ['garlic', 'soup', 'Garlic', 'x', 'milk', 'bread', 'eggs', 'tea']) saveRecentSearch(term);
+  check('terms are remembered newest first, without repeats, and one-letter terms are ignored', loadRecentSearches().join(',') === 'tea,eggs,bread,milk,Garlic', loadRecentSearches().join(','));
+  check('the chips show while the box is empty, with a Clear chip', !$('global-search-recent').hidden && document.querySelectorAll('#global-search-recent .chip').length === 6);
+  [...document.querySelectorAll('#global-search-recent .chip')].find((c) => c.textContent === 'milk').click();
+  check('tapping a chip fills the box and runs the search', $('global-search-input').value === 'milk' && !$('global-search-results').hidden);
+  check('the chips hide once there is text', $('global-search-recent').hidden === true);
+  $('global-search-input').value = ''; $('global-search-input').dispatchEvent(new Event('input'));
+  check('and come back when the box is emptied', !$('global-search-recent').hidden);
+  $('global-search-journal').checked = true; saveRecentSearch('private thing'); $('global-search-journal').checked = false;
+  check('a search that includes the journal is never remembered', !loadRecentSearches().includes('private thing'));
+  [...document.querySelectorAll('#global-search-recent .chip')].find((c) => c.textContent === 'Clear').click();
+  check('Clear forgets them all', loadRecentSearches().length === 0 && $('global-search-recent').hidden);
+  localStorage.setItem(RECENT_SEARCHES_KEY, '{bad'); check('damaged saved searches count as none', loadRecentSearches().length === 0);
+  localStorage.removeItem(RECENT_SEARCHES_KEY);
+
+  // edit in place: to-do
+  todos.length = 0; shoppingItems.length = 0;
+  todos.push({ ...r2, id: 'ie1', task: 'Old name', dueDate: dk(3), completed: false, repeat: 'weekly' });
+  nav('todo'); selectedTodoSort = 'due_date_asc'; renderTodos();
+  const task = () => document.querySelector('#todo-list .todo-task');
+  task().click();
+  check('clicking a to-do\'s text turns it into a text box and does not tick it', !!document.querySelector('#todo-list input.inline-edit') && todos[0].completed === false && document.querySelector('#todo-list input.inline-edit').value === 'Old name');
+  const box = document.querySelector('#todo-list input.inline-edit');
+  box.value = 'New name'; box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  check('Enter saves the new text and keeps the date and repeat', todos[0].task === 'New name' && todos[0].dueDate === dk(3) && todos[0].repeat === 'weekly' && !document.querySelector('#todo-list input.inline-edit'));
+  undo(); await sleep(30);
+  check('the change can be undone', todos[0].task === 'Old name');
+  task().click();
+  const box2 = document.querySelector('#todo-list input.inline-edit');
+  box2.value = 'Thrown away'; box2.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  check('Escape cancels and puts the old text back', todos[0].task === 'Old name' && task().textContent === 'Old name' && !document.querySelector('#todo-list input.inline-edit'));
+  task().click();
+  const box3 = document.querySelector('#todo-list input.inline-edit');
+  box3.value = '   '; box3.dispatchEvent(new Event('blur'));
+  check('a blank text changes nothing', todos[0].task === 'Old name' && task().textContent === 'Old name');
+  task().click();
+  const box4 = document.querySelector('#todo-list input.inline-edit');
+  box4.value = 'Saved on leaving'; box4.dispatchEvent(new Event('blur'));
+  check('leaving the box saves it', todos[0].task === 'Saved on leaving');
+
+  // edit in place: shopping
+  shoppingItems.push({ ...r2, id: 'ie2', item: 'Milk', quantity: '2', category: 'Dairy', checked: false });
+  nav('shopping'); renderShoppingList();
+  document.querySelector('#shopping-list .shopping-item-name').click();
+  const sbox = document.querySelector('#shopping-list input.inline-edit');
+  sbox.value = 'Oat milk'; sbox.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  check('a shopping item can be renamed in place, keeping quantity and category', shoppingItems[0].item === 'Oat milk' && shoppingItems[0].quantity === '2' && shoppingItems[0].category === 'Dairy' && shoppingItems[0].checked === false);
+  todos.length = 0; shoppingItems.length = 0; renderTodos(); renderShoppingList();
+
+  // History
+  undoStack.length = 0; redoStack.length = 0; updateUndoRedoButtons();
+  $('history-box').open = true; renderHistory();
+  check('History starts empty', /No changes yet/.test($('history-list').textContent));
+  addTodo('First', '', ''); addTodo('Second', '', ''); addTodo('Third', '', '');
+  const rows = () => [...document.querySelectorAll('#history-list li')];
+  check('History lists the changes newest first, capitalised', rows().length === 3 && /Added 'Third'/.test(rows()[0].textContent) && /Added 'First'/.test(rows()[2].textContent), rows().map((r) => r.textContent).join(' | '));
+  check('the top one says Undo and the others say how many newer ones go too', rows()[0].querySelector('button').textContent === 'Undo' && rows()[2].querySelector('button').textContent === 'Undo this and 2 newer');
+  rows()[1].querySelector('button').click(); await sleep(30);
+  check('Undo this and 1 newer takes back two changes', todos.filter((x) => !x.deleted).map((x) => x.task).join(',') === 'First');
+  check('an open History list refreshes itself', rows().length === 1 && /Added 'First'/.test(rows()[0].textContent));
+  check('undoSteps never goes past the start', (undoSteps(10), todos.filter((x) => !x.deleted).length === 0));
+  $('history-box').open = false; todos.length = 0; renderTodos(); undoStack.length = 0; updateUndoRedoButtons();
+}

@@ -182,7 +182,8 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
     </ul>
 
     <!-- Sync area: status line with Sync now / Change buttons, an unsynced-changes note, and the
-         passphrase form shown until sync is set up. Sync only runs when the user asks. -->
+         passphrase form shown until sync is set up. Sync runs when the user taps Sync now, and automatically on open and
+         shortly after a change (the Auto-sync button in the Menu footer turns that off). -->
     <div class="sync-panel">
       <div class="sync-status" id="sync-status" hidden>
         <span class="sync-status-text" id="sync-status-text" role="status">Sync not set up</span>
@@ -217,13 +218,25 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         <button type="button" id="reminders-btn" class="data-io-btn">Reminders: Off</button>
         <button type="button" id="text-size-btn" class="data-io-btn">Text size: Normal</button>
         <button type="button" id="contrast-btn" class="data-io-btn">Contrast: Normal</button>
+        <button type="button" id="autosync-btn" class="data-io-btn">Auto-sync: On</button>
       </div>
       <p class="sync-status-text data-io-status" id="reminders-status" role="status" hidden></p>
       <!-- When the reminders go out each day; shown while Reminders is on. -->
       <div class="reminder-times" id="reminder-times" hidden>
         <label>Weigh-in reminder <input type="time" id="weigh-time-input" value="09:00" aria-label="Weigh-in reminder time"></label>
         <label>Refill reminder <input type="time" id="refill-time-input" value="09:00" aria-label="Refill reminder time"></label>
+        <label>To-do reminder <input type="time" id="todo-time-input" value="09:00" aria-label="To-do reminder time"></label>
       </div>
+      <!-- The last changes made in this visit, each with an Undo that also undoes the newer ones. -->
+      <details class="settings-check" id="history-box">
+        <summary>History</summary>
+        <ul class="settings-check-list" id="history-list"></ul>
+      </details>
+      <!-- The same short tour as the Home welcome card, for any time. -->
+      <details class="settings-check" id="help-guide">
+        <summary>Help</summary>
+        <ul class="tip-list" id="help-list"></ul>
+      </details>
       <!-- A short checklist of what is set up (sync, backups, reminders, lock, offline); built by renderSettingsCheck when opened. -->
       <details class="settings-check" id="settings-check">
         <summary>Settings check</summary>
@@ -243,8 +256,17 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         <h2>Home</h2>
       </div>
 
+      <!-- First-run tour: shown on Home until dismissed (the same tips are always in Menu, Help). -->
+      <section class="welcome-card" id="welcome-card" aria-labelledby="welcome-title" hidden>
+        <h3 id="welcome-title">Welcome to Second Memory</h3>
+        <ul class="tip-list" id="welcome-list"></ul>
+        <p class="tip-more">More tips any time in Menu, then Help.</p>
+        <button type="button" id="welcome-dismiss">Got it</button>
+      </section>
+
       <div class="global-search">
         <input type="search" id="global-search-input" placeholder="Search everything…" aria-label="Search everything">
+        <div class="chip-row" id="global-search-recent" aria-label="Recent searches" hidden></div>
         <label class="global-search-journal"><input type="checkbox" id="global-search-journal" autocomplete="off"> Include my journal</label>
         <div id="global-search-results" role="region" aria-label="Search results" aria-live="polite" hidden></div>
       </div>
@@ -889,6 +911,8 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         <button type="button" class="move-btn move-later-btn" aria-label="Move recipe later" hidden>&#9654;</button>
         <button type="button" class="pin-btn" aria-pressed="false">Pin</button>
         <button type="button" class="cook-mode-btn" hidden>Cook mode</button>
+        <button type="button" class="share-recipe-btn">Share</button>
+        <button type="button" class="print-recipe-btn">Print</button>
         <button type="button" class="add-to-shopping-btn" hidden>Add to shopping list</button>
         <button type="button" class="edit-btn">Edit</button>
         <button type="button" class="delete-btn" aria-label="Delete recipe">Delete</button>
@@ -1164,6 +1188,9 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
     <div id="health-summary-body" class="summary-body"></div>
   </div>
 </div>
+
+<!-- Filled by printRecipe and shown only while printing a recipe. -->
+<div id="print-recipe" aria-hidden="true"></div>
 
 <!-- Phone-only bar along the bottom with the four most-used screens and the Menu. -->
 <nav class="bottom-bar" id="bottom-bar" aria-label="Quick tabs">

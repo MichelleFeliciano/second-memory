@@ -60,7 +60,7 @@ const SUITES = [
 // "failWrites" lets a suite simulate a full disk.
 const MEMORY_SHIM = `<script>
 (function () {
-  var store = new Map();
+  var store = new Map([['secondMemory.autoSync.v1', 'off']]); // test pages never sync on their own
   var mem = {
     failWrites: false,
     getItem: function (k) { return store.has(k) ? store.get(k) : null; },

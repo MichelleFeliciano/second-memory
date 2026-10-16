@@ -2696,3 +2696,63 @@ html[data-text="larger"] { font-size: 125%; }
   cursor: pointer;
   font-size: 0.85rem;
 }
+
+/* ===== 32. Recipe print view, welcome card and tips ===== */
+
+/* The printable copy of a recipe is invisible on screen. */
+#print-recipe { display: none; }
+@media print {
+  body.printing-recipe > *:not(#print-recipe) { display: none !important; }
+  body.printing-recipe #print-recipe { display: block; padding: 16px; color: #000; background: #fff; }
+  #print-recipe h1 { margin: 0 0 4px; font-size: 1.6rem; }
+  #print-recipe h2 { margin: 16px 0 4px; font-size: 1.15rem; }
+  #print-recipe p { margin: 0 0 6px; }
+  #print-recipe li { margin-bottom: 4px; }
+}
+
+.share-recipe-btn, .print-recipe-btn {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.welcome-card {
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--accent);
+  border-radius: 18px;
+  background: var(--surface);
+}
+.welcome-card[hidden] { display: none; }
+.welcome-card h3 { margin: 0 0 8px; }
+.welcome-card button {
+  padding: 6px 16px;
+  border: 1px solid var(--accent);
+  border-radius: 13px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  cursor: pointer;
+  font-weight: 600;
+}
+.tip-more { margin: 0 0 10px; font-size: 0.85rem; color: var(--muted); }
+.tip-list { margin: 0 0 10px; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 0.9rem; }
+
+/* ===== 33. Edit in place and History ===== */
+
+/* The text box that replaces a to-do or shopping item's name while you edit it in place. */
+.inline-edit {
+  flex: 1;
+  min-width: 140px;
+  padding: 4px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+.todo-task, .shopping-item-name { cursor: text; }
+
+.history-when { color: var(--muted); font-size: 0.75rem; }

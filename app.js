@@ -18,8 +18,9 @@
 //   can tell "deleted here" apart from "never existed here". Screens skip deleted records.
 // - version is the server's counter for the record; 0 means the server hasn't confirmed it yet.
 //
-// Syncing between devices is manual only (the user presses "Sync now"); nothing is sent in
-// the background except one data-free wake-up request when the app opens. The journal is the exception to all of the above: it is local-only,
+// Syncing between devices happens when the user presses "Sync now", and (unless switched off in the Menu) on its
+// own: once when the app opens and a few seconds after something changes. A data-free wake-up request also goes to
+// the server when the app opens. The journal is the exception to all of the above: it is local-only,
 // has no sync fields, and is never synced (it can only be backed up and restored by file).
 
 // ---- Shared helpers ----
@@ -1000,6 +1001,44 @@ function scaledIngredients(recipe, factor) {
   return (recipe.ingredients || []).map((line) => scaleIngredientLine(line, factor));
 }
 
+// A recipe as plain text (title, category, ingredients at the chosen scale, numbered steps, notes) for sharing.
+function recipeText(recipe, factor = 1) {
+  const lines = [recipe.title];
+  if (recipe.category) lines.push(recipe.category);
+  const ingredients = scaledIngredients(recipe, factor);
+  if (ingredients.length) lines.push('', 'Ingredients:', ...ingredients.map((line) => `- ${line}`));
+  const steps = recipe.steps || [];
+  if (steps.length) lines.push('', 'Steps:', ...steps.map((step, i) => `${i + 1}. ${step}`));
+  if (recipe.notes) lines.push('', 'Notes:', recipe.notes);
+  return lines.join('\n');
+}
+
+// Share button on a recipe card: the toast says what happened.
+async function shareRecipe(recipe) {
+  const outcome = await shareOrCopy(recipe.title, recipeText(recipe, recipeScales.get(recipe.id) || 1));
+  const said = { copied: 'Recipe copied. Paste it into a message.', failed: 'Could not share or copy the recipe.' }[outcome];
+  if (said) showToast(said, false);
+}
+
+// Print button: fills the hidden print area with a clean copy of the recipe, prints, then clears it.
+function printRecipe(recipe) {
+  const area = document.getElementById('print-recipe');
+  area.innerHTML = '';
+  const add = (tag, text) => { const el = document.createElement(tag); el.textContent = text; area.appendChild(el); return el; };
+  const addList = (tag, items) => { const list = document.createElement(tag); items.forEach((text) => { const li = document.createElement('li'); li.textContent = text; list.appendChild(li); }); area.appendChild(list); };
+  add('h1', recipe.title);
+  if (recipe.category) add('p', recipe.category);
+  const ingredients = scaledIngredients(recipe, recipeScales.get(recipe.id) || 1);
+  if (ingredients.length) { add('h2', 'Ingredients'); addList('ul', ingredients); }
+  if ((recipe.steps || []).length) { add('h2', 'Steps'); addList('ol', recipe.steps); }
+  if (recipe.notes) { add('h2', 'Notes'); add('p', recipe.notes); }
+  document.body.classList.add('printing-recipe');
+  const cleanUp = () => { document.body.classList.remove('printing-recipe'); area.innerHTML = ''; };
+  window.addEventListener('afterprint', cleanUp, { once: true });
+  window.print();
+  cleanUp(); // some browsers never fire afterprint; print() has returned by now either way
+}
+
 // ---- Cook mode ----
 // A full-screen, one-step-at-a-time view with big text. While it is open the screen is asked to
 // stay awake (where the browser supports it), so the phone does not lock with flour on your hands.
@@ -1339,6 +1378,9 @@ function renderRecipes() {
     node.querySelector('.move-later-btn').hidden = selectedRecipesSort !== MANUAL_SORT;
     node.querySelector('.move-earlier-btn').addEventListener('click', () => moveByStep('recipes', recipe.id, -1, list, '.recipe-card', 'data-recipe-id', '.move-earlier-btn'));
     node.querySelector('.move-later-btn').addEventListener('click', () => moveByStep('recipes', recipe.id, 1, list, '.recipe-card', 'data-recipe-id', '.move-later-btn'));
+
+    node.querySelector('.share-recipe-btn').addEventListener('click', () => shareRecipe(recipe));
+    node.querySelector('.print-recipe-btn').addEventListener('click', () => printRecipe(recipe));
 
     const pinBtn = node.querySelector('.pin-btn');
     pinBtn.setAttribute('aria-pressed', String(!!recipe.pinned));
@@ -2628,6 +2670,72 @@ function repeatAnchorDay(todo) {
 }
 
 // Adds a to-do; a blank task is ignored.
+// ---- Dates in plain words ----
+// "pay rent friday", "call mom tomorrow", "dentist on oct 20", "renew in 2 weeks" and "3/15 file taxes" all become a
+// task plus a due date. The date words must be at the very start or very end of the text, so a task like
+// "Monday meeting notes" is only changed when "Monday" really comes last or first.
+
+const WEEKDAYS = [
+  ['sunday', 'sun'], ['monday', 'mon'], ['tuesday', 'tues', 'tue'], ['wednesday', 'wed'],
+  ['thursday', 'thurs', 'thur', 'thu'], ['friday', 'fri'], ['saturday', 'sat'],
+];
+const MONTH_WORDS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+// One date phrase (no anchors): today, tomorrow, next week, in N days/weeks, a weekday, "oct 20", or "3/15".
+const DATE_PHRASE = [
+  'today', 'tonight', 'tomorrow', 'tmrw', 'next\\s+week',
+  'in\\s+\\d{1,3}\\s+(?:days?|weeks?)',
+  `(?:next\\s+)?(?:${WEEKDAYS.flat().sort((a, b) => b.length - a.length).join('|')})`,
+  `(?:${MONTH_WORDS.join('|')})[a-z]*\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?`,
+  '\\d{1,2}/\\d{1,2}',
+].join('|');
+const DATE_WORDS_END = new RegExp(`^(.*?\\S)\\s+(?:(?:on|by|due|for)\\s+)?(${DATE_PHRASE})$`, 'i');
+const DATE_WORDS_START = new RegExp(`^(?:(?:on|by|due)\\s+)?(${DATE_PHRASE})\\s+(.*\\S)$`, 'i');
+
+// Turns one matched phrase into a date key (null if it is not a real date).
+function dateFromPhrase(phrase) {
+  const words = phrase.toLowerCase().replace(/\s+/g, ' ').trim();
+  const today = todayKey();
+  if (words === 'today' || words === 'tonight') return today;
+  if (words === 'tomorrow' || words === 'tmrw') return shiftDateKey(today, 1);
+  if (words === 'next week') return shiftDateKey(today, 7);
+  let match = words.match(/^in (\d+) (day|days|week|weeks)$/);
+  if (match) return shiftDateKey(today, Number(match[1]) * (match[2].startsWith('week') ? 7 : 1));
+
+  // A weekday means the next one coming: a week from today if today is that day.
+  const dayWord = words.replace(/^next /, '');
+  const weekday = WEEKDAYS.findIndex((names) => names.includes(dayWord));
+  if (weekday >= 0) {
+    const todayIndex = new Date(`${today}T00:00:00`).getDay();
+    return shiftDateKey(today, ((weekday - todayIndex + 6) % 7) + 1);
+  }
+
+  // "oct 20" or "3/15": this year, or next year if that day has already gone by.
+  let month = null;
+  let day = null;
+  match = words.match(/^([a-z]+)\.? (\d{1,2})(?:st|nd|rd|th)?$/);
+  if (match) { month = MONTH_WORDS.indexOf(match[1].slice(0, 3)); day = Number(match[2]); }
+  match = words.match(/^(\d{1,2})\/(\d{1,2})$/);
+  if (match) { month = Number(match[1]) - 1; day = Number(match[2]); }
+  if (month === null || month < 0) return null;
+  const year = parseDateKey(today).y;
+  const thisYear = dateKeyFromParts(year, month, day);
+  if (!isRealDateKey(thisYear)) return null;
+  return thisYear < today ? dateKeyFromParts(year + 1, month, day) : thisYear;
+}
+
+// Splits "task + date words" into { text, dueDate }; null when there are no date words or nothing is left of the task.
+function parseDateWords(input) {
+  const trimmed = String(input || '').trim();
+  const end = trimmed.match(DATE_WORDS_END);
+  const start = end ? null : trimmed.match(DATE_WORDS_START);
+  const text = end ? end[1] : start ? start[2] : null;
+  const phrase = end ? end[2] : start ? start[1] : null;
+  if (!text || !phrase) return null;
+  const dueDate = dateFromPhrase(phrase);
+  return dueDate && isReasonableDateKey(dueDate) ? { text: text.trim(), dueDate } : null;
+}
+
 function addTodo(task, dueDate, repeat) {
   const trimmedTask = task.trim();
   if (!trimmedTask) return;
@@ -2865,6 +2973,7 @@ function renderTodos() {
     checkbox.addEventListener('change', (e) => toggleTodoCompleted(todo.id, e.target.checked));
 
     node.querySelector('.todo-task').textContent = todo.task;
+    makeInlineEditable(node.querySelector('.todo-task'), todo.task, (text) => updateTodo(todo.id, { task: text, dueDate: todo.dueDate, repeat: todo.repeat }));
 
     const dueEl = node.querySelector('.todo-due');
     if (todo.dueDate) {
@@ -2936,7 +3045,9 @@ document.getElementById('todo-add-form').addEventListener('submit', (e) => {
   const dueInput = document.getElementById('todo-due-input');
   if (rejectBlank(taskInput, 'Enter a task.')) return;
   const repeatInput = document.getElementById('todo-repeat-input');
-  addTodo(taskInput.value, dueInput.value, repeatInput.value);
+  // Date words in the task ("pay rent friday") fill the due date, unless one was already picked.
+  const parsed = dueInput.value ? null : parseDateWords(taskInput.value);
+  addTodo(parsed ? parsed.text : taskInput.value, parsed ? parsed.dueDate : dueInput.value, repeatInput.value);
   taskInput.value = '';
   dueInput.value = '';
   repeatInput.value = '';
@@ -2979,26 +3090,32 @@ function shoppingListText() {
   return lines.join('\n');
 }
 
-// Share button: the phone's share sheet where there is one, otherwise copy the text.
+// Shares text through the phone's share sheet where there is one, otherwise copies it to the clipboard.
+// Resolves to 'shared', 'cancelled' (the share sheet was closed on purpose), 'copied' or 'failed'.
+async function shareOrCopy(title, text) {
+  try {
+    if (navigator.share) {
+      await navigator.share({ title, text });
+      return 'shared';
+    }
+  } catch (err) {
+    if (err && err.name === 'AbortError') return 'cancelled';
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    return 'copied';
+  } catch {
+    return 'failed';
+  }
+}
+
+// Share button on the shopping list.
 document.getElementById('shopping-share-btn').addEventListener('click', async () => {
   const status = document.getElementById('shopping-share-status');
   const text = shoppingListText();
   if (!text) { status.textContent = 'Nothing to share \u2014 the list is empty.'; return; }
-  try {
-    if (navigator.share) {
-      await navigator.share({ title: 'Shopping list', text });
-      status.textContent = '';
-      return;
-    }
-  } catch (err) {
-    if (err && err.name === 'AbortError') return; // closed the share sheet on purpose
-  }
-  try {
-    await navigator.clipboard.writeText(text);
-    status.textContent = 'Copied. Paste it into a message.';
-  } catch {
-    status.textContent = 'Could not share or copy the list.';
-  }
+  const outcome = await shareOrCopy('Shopping list', text);
+  status.textContent = { shared: '', cancelled: '', copied: 'Copied. Paste it into a message.', failed: 'Could not share or copy the list.' }[outcome];
 });
 
 // ---- Buy again ----
@@ -3243,6 +3360,7 @@ function renderShoppingList() {
     checkbox.addEventListener('change', (e) => toggleShoppingChecked(item.id, e.target.checked));
 
     node.querySelector('.shopping-item-name').textContent = item.item;
+    makeInlineEditable(node.querySelector('.shopping-item-name'), item.item, (text) => updateShoppingItem(item.id, { item: text, quantity: item.quantity || '', category: item.category || '' }));
 
     const quantityEl = node.querySelector('.shopping-quantity');
     if (item.quantity) {
@@ -3995,6 +4113,44 @@ document.getElementById('calendar-today').addEventListener('click', () => {
   calendarSelected = todayKey();
   renderCalendar();
 });
+
+// ---- Edit in place ----
+// Tap a to-do's or shopping item's text to change it right there: the text becomes a box; Enter or leaving the box
+// saves, Escape cancels. (The checkbox, not the text, ticks an item off.)
+
+// Swaps `span` for a text box holding `current`; `save(newText)` is called only if the text really changed.
+function startInlineEdit(span, current, save) {
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'inline-edit';
+  input.value = current;
+  input.setAttribute('aria-label', 'Edit text');
+  let finished = false;
+  const finish = (apply) => {
+    if (finished) return;
+    finished = true;
+    const value = input.value.trim();
+    if (apply && value && value !== current) save(value); // saving redraws the list, which replaces this box
+    else input.replaceWith(span);
+  };
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+    else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+  });
+  input.addEventListener('blur', () => finish(true));
+  span.replaceWith(input);
+  input.focus();
+  input.select();
+}
+
+// Makes a name span clickable for in-place editing (the click must not tick the checkbox in its label).
+function makeInlineEditable(span, current, save) {
+  span.title = 'Tap to edit';
+  span.addEventListener('click', (e) => {
+    e.preventDefault();
+    startInlineEdit(span, current, save);
+  });
+}
 
 // ---- Manual order ("Sort: My order") ----
 // To-dos, shopping items and recipes can be put in your own order. Each record gets a `sortOrder` number
@@ -5323,7 +5479,7 @@ function renderBackupNotes() {
       action: exportData,
     });
   }
-  // Syncing is manual, so nudge when it has been a while (only on devices where sync is set up).
+  // Nudge when it has been a while since a sync (only on devices where sync is set up; auto-sync normally prevents this).
   if (loadSyncConfig()) {
     const syncDays = daysSinceBackup(LAST_SYNC_AT_KEY);
     if (syncDays === null) {
@@ -5512,11 +5668,73 @@ function renderGlobalSearch() {
 document.querySelector('.nav-item[data-tab="home"]').addEventListener('click', renderGlobalSearch);
 document.getElementById('global-search-input').addEventListener('input', renderGlobalSearch);
 document.getElementById('global-search-journal').addEventListener('change', renderGlobalSearch);
+// Recent searches: the last few terms, as chips under the box while it is empty. Kept on this device only, and
+// never when the search includes the private journal (those terms could reveal what you wrote about).
+const RECENT_SEARCHES_KEY = 'secondMemory.recentSearches.v1';
+const RECENT_SEARCHES_KEPT = 5;
+
+// The saved terms (damaged data becomes an empty list).
+function loadRecentSearches() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(RECENT_SEARCHES_KEY));
+    return Array.isArray(raw) ? raw.filter((s) => typeof s === 'string' && s.trim()).slice(0, RECENT_SEARCHES_KEPT) : [];
+  } catch {
+    return [];
+  }
+}
+
+// Remembers a term (newest first, no repeats ignoring case).
+function saveRecentSearch(term) {
+  const clean = String(term || '').trim();
+  if (clean.length < SEARCH_MIN_LENGTH || document.getElementById('global-search-journal').checked) return;
+  const next = [clean, ...loadRecentSearches().filter((s) => s.toLowerCase() !== clean.toLowerCase())].slice(0, RECENT_SEARCHES_KEPT);
+  try { localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(next)); } catch { /* not saved: nothing breaks */ }
+  renderRecentSearches();
+}
+
+// Draws the chips; they show only while the search box is empty.
+function renderRecentSearches() {
+  const box = document.getElementById('global-search-recent');
+  const input = document.getElementById('global-search-input');
+  const terms = loadRecentSearches();
+  box.innerHTML = '';
+  box.hidden = terms.length === 0 || input.value.trim() !== '';
+  terms.forEach((term) => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'chip';
+    chip.textContent = term;
+    chip.addEventListener('click', () => {
+      input.value = term;
+      renderGlobalSearch();
+      renderRecentSearches();
+      input.focus();
+    });
+    box.appendChild(chip);
+  });
+  if (terms.length > 0) {
+    const clear = document.createElement('button');
+    clear.type = 'button';
+    clear.className = 'chip';
+    clear.textContent = 'Clear';
+    clear.addEventListener('click', () => {
+      try { localStorage.removeItem(RECENT_SEARCHES_KEY); } catch { /* nothing to remove it from */ }
+      renderRecentSearches();
+    });
+    box.appendChild(clear);
+  }
+}
+
+document.getElementById('global-search-input').addEventListener('input', renderRecentSearches);
+document.getElementById('global-search-input').addEventListener('change', (e) => saveRecentSearch(e.target.value)); // Enter or leaving the box
+renderRecentSearches();
+
 // Esc clears the search box and brings the normal Home panels back.
 document.getElementById('global-search-input').addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     e.target.value = '';
     renderGlobalSearch();
+    renderRecentSearches();
   }
 });
 
@@ -5979,8 +6197,48 @@ function updateUndoRedoButtons() {
   redoBtn.disabled = redoStack.length === 0;
   undoBtn.title = topUndo ? `Undo: ${describeEntry(topUndo)}` : 'Undo';
   redoBtn.title = topRedo ? `Redo: ${describeEntry(topRedo)}` : 'Redo';
+  const historyBox = document.getElementById('history-box');
+  if (historyBox && historyBox.open) renderHistory(); // keep an open History list current
 }
 
+// Undoes the newest `steps` changes (the History list's "undo back to here" button).
+function undoSteps(steps) {
+  for (let i = 0; i < steps && undoStack.length > 0; i++) undo();
+}
+
+// Rebuilds the Menu History list: the last changes of this visit, newest first, each with an Undo that also
+// takes back everything newer. (The undo list lives in memory only, so it starts empty each time the app opens.)
+function renderHistory() {
+  const list = document.getElementById('history-list');
+  list.innerHTML = '';
+  if (undoStack.length === 0) {
+    const none = document.createElement('li');
+    none.textContent = 'No changes yet in this visit.';
+    list.appendChild(none);
+    return;
+  }
+  const newestFirst = undoStack.slice().reverse().slice(0, HISTORY_SHOWN);
+  newestFirst.forEach((entry, index) => {
+    const row = document.createElement('li');
+    const said = describeEntry(entry);
+    const text = document.createElement('span');
+    text.textContent = said.charAt(0).toUpperCase() + said.slice(1);
+    const when = document.createElement('span');
+    when.className = 'history-when';
+    const time = new Date(entry.timestamp);
+    when.textContent = Number.isNaN(time.getTime()) ? '' : time.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'check-action';
+    btn.textContent = index === 0 ? 'Undo' : `Undo this and ${index} newer`;
+    btn.addEventListener('click', () => undoSteps(index + 1));
+    row.append(text, when, btn);
+    list.appendChild(row);
+  });
+}
+const HISTORY_SHOWN = 15;
+
+document.getElementById('history-box').addEventListener('toggle', (e) => { if (e.target.open) renderHistory(); });
 document.getElementById('undo-btn').addEventListener('click', undo);
 document.getElementById('redo-btn').addEventListener('click', redo);
 
@@ -6003,7 +6261,7 @@ function setSyncStatus(text, tone) {
 }
 
 // ---- Unsynced-changes indicator ----
-// Sync is manual, so the sidebar says how many records differ from what the
+// The sidebar says how many records differ from what the
 // server last confirmed (the same comparison runSync uses to decide what to
 // send) and the Sync now button highlights itself while there is work to send.
 
@@ -6035,7 +6293,7 @@ var syncPendingTimer = null; // var, not let: saveCollection runs before this li
 // Refreshes the unsynced-changes indicator shortly after a save (a burst of saves refreshes it once).
 function scheduleSyncPending() {
   clearTimeout(syncPendingTimer);
-  syncPendingTimer = setTimeout(() => safeRender(updateSyncPending), 250);
+  syncPendingTimer = setTimeout(() => { safeRender(updateSyncPending); scheduleAutoSync(); }, 250);
 }
 
 // Per-device record of what the server last told us, so each sync can send
@@ -6220,7 +6478,7 @@ function reconcileServerReply(c, incoming, preFlightMap) {
   return { result, known };
 }
 
-// Runs one manual sync: send only what changed on this device, merge the server's reply
+// Runs one sync (from the button or from auto-sync): send only what changed on this device, merge the server's reply
 // into the local lists without losing local work, then report the outcome in the sidebar.
 async function runSync() {
   // Step 1: do nothing if sync isn't set up or one is already running; lock the button and show progress.
@@ -6389,6 +6647,7 @@ function initSyncUI() {
     tokenInput.value = '';
     setupSection.hidden = true;
     statusSection.hidden = false;
+    updateAutoSyncButton();
     runSync();
   });
 
@@ -6398,8 +6657,7 @@ function initSyncUI() {
     statusSection.hidden = true;
   });
 
-  // Sync is manual only: nothing runs in the background, on a timer, on
-  // opening the app, or when the connection returns. Press Sync now.
+  // Press Sync now any time; auto-sync (see the Auto-sync section) also runs it on open and after changes.
   document.getElementById('sync-now-btn').addEventListener('click', runSync);
   if (config) setSyncStatus('Not synced yet — tap Sync now', null);
   updateSyncPending();
@@ -6757,7 +7015,7 @@ document.addEventListener('visibilitychange', () => {
 
 // The build number shown in the Menu. Keep it equal to the number in CACHE_NAME in sw.js
 // (a test checks this), so "which version am I on?" has a one-glance answer.
-const APP_VERSION = 79;
+const APP_VERSION = 80;
 const THEME_KEY = 'secondMemory.theme.v1';
 const THEMES = ['auto', 'light', 'dark'];
 
@@ -6799,7 +7057,11 @@ document.getElementById('quick-add-form').addEventListener('submit', (e) => {
   const text = input.value.trim();
   if (!text) return;
   let label;
-  if (type === 'todo') { addTodo(text, '', ''); label = 'your to-dos'; }
+  if (type === 'todo') {
+    const parsed = parseDateWords(text);
+    addTodo(parsed ? parsed.text : text, parsed ? parsed.dueDate : '', '');
+    label = parsed ? `your to-dos, due ${formatDateKeyLong(parsed.dueDate)}` : 'your to-dos';
+  }
   else if (type === 'shopping') { addShoppingItem(text, '', ''); label = 'your shopping list'; }
   else { addNote('', text); label = 'your notes'; }
   input.value = '';
@@ -6828,10 +7090,10 @@ function minutesOf(time) {
   return h * 60 + m;
 }
 
-// Reads { enabled, refills: { medId: lastDayTold }, weighIn: lastDayTold, weighInTime, refillTime };
+// Reads { enabled, refills: { medId: lastDayTold }, weighIn: lastDayTold, todosTold: lastDayTold, weighInTime, refillTime, todoTime };
 // damaged data becomes the defaults.
 function loadReminderState() {
-  const blank = { enabled: false, refills: {}, weighIn: '', weighInTime: DEFAULT_REMINDER_TIME, refillTime: DEFAULT_REMINDER_TIME };
+  const blank = { enabled: false, refills: {}, weighIn: '', weighInTime: DEFAULT_REMINDER_TIME, refillTime: DEFAULT_REMINDER_TIME, todoTime: DEFAULT_REMINDER_TIME, todosTold: '' };
   try {
     const raw = JSON.parse(localStorage.getItem(REMINDERS_KEY));
     if (!raw || typeof raw !== 'object') return blank;
@@ -6841,6 +7103,8 @@ function loadReminderState() {
       weighIn: typeof raw.weighIn === 'string' ? raw.weighIn : '',
       weighInTime: TIME_RE.test(raw.weighInTime) ? raw.weighInTime : DEFAULT_REMINDER_TIME,
       refillTime: TIME_RE.test(raw.refillTime) ? raw.refillTime : DEFAULT_REMINDER_TIME,
+      todoTime: TIME_RE.test(raw.todoTime) ? raw.todoTime : DEFAULT_REMINDER_TIME,
+      todosTold: typeof raw.todosTold === 'string' ? raw.todosTold : '',
     };
   } catch {
     return blank;
@@ -6911,6 +7175,18 @@ async function checkReminders() {
     changed = true;
   }
 
+  // One to-do nudge per day, once the chosen time has passed and something is due today or overdue.
+  const dueTodos = todos.filter((x) => !x.deleted && !x.completed && isRealDateKey(x.dueDate) && x.dueDate <= today);
+  if (state.todosTold !== today && dueTodos.length > 0 && nowDate.getHours() * 60 + nowDate.getMinutes() >= minutesOf(state.todoTime)) {
+    await showReminder(
+      'To-dos need attention',
+      dueTodos.length === 1 ? 'You have a to-do due today or overdue.' : `You have ${dueTodos.length} to-dos due today or overdue.`,
+      'todos'
+    );
+    state.todosTold = today;
+    changed = true;
+  }
+
   // One weigh-in nudge per day, and none once today's weight is in.
   if (state.weighIn !== today && weighInDue(nowDate, state.weighInTime)) {
     await showReminder('Time to weigh in', 'Add today’s weight in Second Memory.', 'weigh-in');
@@ -6939,6 +7215,7 @@ function updateReminderButton() {
   document.getElementById('reminder-times').hidden = !on;
   document.getElementById('weigh-time-input').value = saved.weighInTime;
   document.getElementById('refill-time-input').value = saved.refillTime;
+  document.getElementById('todo-time-input').value = saved.todoTime;
   btn.textContent = Notification.permission === 'denied' ? 'Reminders: blocked' : `Reminders: ${on ? 'On' : 'Off'}`;
 }
 
@@ -6968,13 +7245,14 @@ document.getElementById('reminders-btn').addEventListener('click', async () => {
 });
 
 // Changing a time saves it on this device (a cleared box is ignored) and re-checks straight away.
-[['weigh-time-input', 'weighInTime'], ['refill-time-input', 'refillTime']].forEach(([id, field]) => {
+[['weigh-time-input', 'weighInTime'], ['refill-time-input', 'refillTime'], ['todo-time-input', 'todoTime']].forEach(([id, field]) => {
   document.getElementById(id).addEventListener('change', (e) => {
     if (!TIME_RE.test(e.target.value)) { e.target.value = loadReminderState()[field]; return; }
     const state = loadReminderState();
     state[field] = e.target.value;
     // A new time starts the day over, so the reminder can still go out today if it is now later than the new time.
     if (field === 'weighInTime') state.weighIn = '';
+    else if (field === 'todoTime') state.todosTold = '';
     else state.refills = {};
     saveReminderState(state);
     checkReminders();
@@ -7568,6 +7846,120 @@ updateUndoRedoButtons();
 setActiveTab(loadUiState().activeTab || 'home');
 initSyncUI();
 
+// ---- Help and welcome ----
+// One short tour, shown in two places: a card on Home until you dismiss it (first run), and Menu > Help any time.
+
+const HELP_TIPS = [
+  'Quick add: type on Home to add a to-do, shopping item or note. Put a date in words for a to-do, like "pay rent friday" or "call mom tomorrow".',
+  'The bar at the bottom jumps to Home, To-Do, Shopping and Notes; Menu has everything else, including Undo.',
+  'On To-Do and Shopping, swipe a row right to check it off and left to delete it. A bar then offers Undo.',
+  'Choose "Sort: My order" to put to-dos, shopping and recipes in your own order: drag the handle, or use the arrow keys on it.',
+  'Calendar shows to-do due dates, refills and weigh-ins by month. Home shows this week at a glance, and you can hide panels with Customize Home.',
+  'Menu > Reminders sends notices for refills, your daily weigh-in and to-dos due, while the app is open or in the background.',
+  'Sync: enter the same passphrase on each device (Menu) and your lists stay up to date on their own. The server may need up to a minute to wake.',
+  'Back up now and then (Menu > Export data). The journal is private and lives only on this device, so back it up separately.',
+  'Menu > Settings check shows what is set up and what needs a look. Menu > Update now loads the newest version.',
+];
+const WELCOME_SEEN_KEY = 'secondMemory.welcomeSeen.v1';
+const WELCOME_TIPS_SHOWN = 4;
+
+// Fills a <ul> with the first `limit` tips (all of them by default).
+function fillTipList(list, limit = HELP_TIPS.length) {
+  list.innerHTML = '';
+  HELP_TIPS.slice(0, limit).forEach((tip) => {
+    const item = document.createElement('li');
+    item.textContent = tip;
+    list.appendChild(item);
+  });
+}
+
+// Shows the Home welcome card unless it was dismissed before.
+function updateWelcomeCard() {
+  let seen = false;
+  try { seen = localStorage.getItem(WELCOME_SEEN_KEY) === '1'; } catch { /* treated as not seen */ }
+  document.getElementById('welcome-card').hidden = seen;
+}
+
+document.getElementById('welcome-dismiss').addEventListener('click', () => {
+  try { localStorage.setItem(WELCOME_SEEN_KEY, '1'); } catch { /* not saved: it will show again next visit */ }
+  updateWelcomeCard();
+});
+fillTipList(document.getElementById('welcome-list'), WELCOME_TIPS_SHOWN); // the card is short; Menu > Help has the rest
+fillTipList(document.getElementById('help-list'));
+updateWelcomeCard();
+
+// ---- Auto-sync ----
+// With sync set up (and Auto-sync On in the Menu), the app syncs by itself: shortly after the app opens or comes
+// back to the front, and about 8 seconds after you change something (a burst of changes syncs once). It stays
+// quiet when the app is in the background, waits at least 30 seconds between tries, and after a failed or
+// unfinished sync backs off for 5 minutes so a sleeping server or a bad connection is not hammered.
+
+const AUTO_SYNC_KEY = 'secondMemory.autoSync.v1'; // set to 'off' when switched off; absent means on
+const AUTO_SYNC_DELAY_MS = 8000; // quiet time after a change before syncing
+const AUTO_SYNC_MIN_GAP_MS = 30000; // never two automatic tries closer than this
+const AUTO_SYNC_BACKOFF_MS = 5 * 60000; // pause after a sync that failed or did not finish
+const AUTO_SYNC_OPEN_GAP_MS = 5 * 60000; // coming back to the front only syncs if the last one is older than this
+
+let autoSyncTimer = null;
+let lastAutoSyncAt = 0;
+let autoSyncBackoffUntil = 0;
+
+// True unless the user switched Auto-sync off.
+function autoSyncOn() {
+  try { return localStorage.getItem(AUTO_SYNC_KEY) !== 'off'; } catch { return true; }
+}
+
+// Plans an automatic sync after `delay` milliseconds (replacing any earlier plan). `reason` is 'change' (only syncs
+// if something differs from the server) or 'open' (syncs even if nothing changed here, to pick up other devices' edits).
+function scheduleAutoSync(delay = AUTO_SYNC_DELAY_MS, reason = 'change') {
+  if (!loadSyncConfig() || !autoSyncOn()) return;
+  clearTimeout(autoSyncTimer);
+  autoSyncTimer = setTimeout(() => autoSyncNow(reason), delay);
+}
+
+// Runs the planned sync if every condition still holds.
+async function autoSyncNow(reason) {
+  if (!loadSyncConfig() || !autoSyncOn() || syncInFlight) return;
+  if (document.visibilityState !== 'visible') return; // only while the app is in front
+  const now = Date.now();
+  if (now < autoSyncBackoffUntil || now - lastAutoSyncAt < AUTO_SYNC_MIN_GAP_MS) return;
+  const pending = countUnsyncedChanges(); // null = never synced on this device
+  if (reason === 'change' && pending === 0) return; // nothing to send
+  lastAutoSyncAt = now;
+  await runSync();
+  // 'ok' means a clean sync; anything else (failure, conflicts, an unfinished reply) pauses further automatic tries.
+  autoSyncBackoffUntil = lastSyncTone === 'ok' ? 0 : Date.now() + AUTO_SYNC_BACKOFF_MS;
+}
+
+// Brings the app to date when it opens or returns to the front, if the last sync is old enough.
+function autoSyncOnReturn() {
+  if (document.visibilityState !== 'visible') return;
+  const days = daysSinceBackup(LAST_SYNC_AT_KEY);
+  const recent = days === 0 && lastSyncedAt && Date.now() - lastSyncedAt.getTime() < AUTO_SYNC_OPEN_GAP_MS;
+  if (!recent) scheduleAutoSync(1500, 'open');
+}
+
+// The Menu button's label: On / Off, or a hint when sync is not set up.
+function updateAutoSyncButton() {
+  const btn = document.getElementById('autosync-btn');
+  const hasSync = !!loadSyncConfig();
+  btn.disabled = !hasSync;
+  btn.textContent = hasSync ? `Auto-sync: ${autoSyncOn() ? 'On' : 'Off'}` : 'Auto-sync: set up sync first';
+}
+
+document.getElementById('autosync-btn').addEventListener('click', () => {
+  const turnOn = !autoSyncOn();
+  try {
+    if (turnOn) localStorage.removeItem(AUTO_SYNC_KEY); else localStorage.setItem(AUTO_SYNC_KEY, 'off');
+  } catch { /* not saved: lasts until the page closes */ }
+  updateAutoSyncButton();
+  if (turnOn) scheduleAutoSync(1500, 'open'); else clearTimeout(autoSyncTimer);
+});
+
+document.addEventListener('visibilitychange', autoSyncOnReturn);
+updateAutoSyncButton();
+autoSyncOnReturn(); // the app has just opened
+
 // ---- Settings check ----
 // A short checklist in the Menu: what is set up and what needs a look. Built each time the list is opened,
 // so it always shows the current state. Each row is "OK", "Check" (needs attention) or "Info", with an
@@ -7608,7 +8000,11 @@ async function renderSettingsCheck() {
   const state = loadReminderState();
 
   if (!loadSyncConfig()) addCheckRow(rows, 'info', 'Sync', 'not set up, so your data stays on this device only');
-  else addAgeRow(rows, 'Last sync', daysSinceBackup(LAST_SYNC_AT_KEY), SYNC_STALE_DAYS, 'Sync now', runSync);
+  else {
+    addAgeRow(rows, 'Last sync', daysSinceBackup(LAST_SYNC_AT_KEY), SYNC_STALE_DAYS, 'Sync now', runSync);
+    if (autoSyncOn()) addCheckRow(rows, 'ok', 'Auto-sync', 'on, it syncs when the app opens and after changes');
+    else addCheckRow(rows, 'info', 'Auto-sync', 'off, so you have to tap Sync now yourself', 'Turn on', () => document.getElementById('autosync-btn').click());
+  }
 
   const hasAnyData = SYNC_COLLECTIONS.some((c) => c.get().some((r) => !r.deleted));
   if (hasAnyData) addAgeRow(rows, 'Backup file', daysSinceBackup(EXPORT_AT_KEY), EXPORT_DUE_DAYS, 'Back up now', exportData);
@@ -7617,7 +8013,7 @@ async function renderSettingsCheck() {
 
   if (!remindersSupported()) addCheckRow(rows, 'info', 'Reminders', 'not supported in this browser');
   else if (Notification.permission === 'denied') addCheckRow(rows, 'warn', 'Reminders', 'blocked in your browser settings');
-  else if (state.enabled && Notification.permission === 'granted') addCheckRow(rows, 'ok', 'Reminders', `on (weigh-in ${state.weighInTime}, refills ${state.refillTime})`);
+  else if (state.enabled && Notification.permission === 'granted') addCheckRow(rows, 'ok', 'Reminders', `on (weigh-in ${state.weighInTime}, refills ${state.refillTime}, to-dos ${state.todoTime})`);
   else addCheckRow(rows, 'info', 'Reminders', 'off', 'Turn on', () => document.getElementById('reminders-btn').click());
 
   if (loadLock()) addCheckRow(rows, 'ok', 'App lock', 'on');

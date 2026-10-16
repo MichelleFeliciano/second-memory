@@ -18,11 +18,11 @@ empty "wake up" request, with no data and no passphrase).
 
 ## What else is in the app
 
-- **Home:** needs-attention panels, search across every list, quick add (to-do, shopping item or note), and a printable **Health summary** (medications, diagnoses, weight; never the journal).
-- **Medications:** refill dates with Home reminders, and a "Picked up" button that sets the next refill. **Reminders** (Menu): device notifications for upcoming refills and a daily weigh-in nudge, shown while the app is open or in the background (no server involved; a fully closed app cannot send them). **Diagnoses:** one simple list, no status columns. **Recipes:** a row of cards you scroll sideways with arrows, pinning, scaled amounts and **Cook mode** (big steps, screen stays on); every Add form is a dropdown. **Weight:** chart, goal line and 30-day change. **Books:** a yearly reading goal. **To-do and Shopping:** repeating and snoozable to-dos, a shopping list grouped by category with Buy again chips and a Share button, and swipe on a phone (right ticks, left deletes). **Journal:** a prompt of the day and "this day last year".
+- **Home:** needs-attention panels, search across every list, quick add (to-do, shopping item or note), and a printable **Health summary** (medications, diagnoses, weight; never the journal), recent searches, and a first-run welcome card.
+- **Medications:** refill dates with Home reminders, and a "Picked up" button that sets the next refill. **Reminders** (Menu): device notifications for upcoming refills, a daily weigh-in nudge and to-dos due, each at a time you choose, shown while the app is open or in the background (no server involved; a fully closed app cannot send them). **Diagnoses:** one simple list, no status columns. **Recipes:** a row of cards you scroll sideways with arrows, pinning, scaled amounts and **Cook mode** (big steps, screen stays on); every Add form is a dropdown. **Weight:** chart, goal line and 30-day change. **Books:** a yearly reading goal. **To-do and Shopping:** repeating and snoozable to-dos, a shopping list grouped by category with Buy again chips and a Share button, swipe on a phone (right ticks, left deletes), tap a name to edit it in place, and dates in plain words ("pay rent friday", "call mom tomorrow", "renew in 2 weeks", "oct 20"). **Recipes** also have Share and Print. **Journal:** a prompt of the day and "this day last year".
 - **Undo:** deleting shows an Undo bar for a few seconds; the Undo and Redo buttons also work for other changes.
 - **Calendar:** one month at a time with dots for to-do due dates, refill dates and weigh-ins; tap a day to see what is on it. **Home** also has a "This week" summary. **Sort: My order** (to-dos, shopping, recipes): drag the handle, or use the arrow keys on it; recipes use move buttons.
-- **Menu:** Theme (Auto, Light, Dark), Text size, High contrast, Reminders, a **Settings check** (what is set up and what needs a look), **Update now** (reloads onto the newest version), **App lock** (a PIN; it hides the app but does not encrypt the data, and if you forget it the only way back in is to erase that device), and the app version. These settings stay on the device.
+- **Menu:** Theme (Auto, Light, Dark), Text size, High contrast, Reminders, a **Settings check** (what is set up and what needs a look), **History** (recent changes with Undo), **Help** (a short tour), **Auto-sync**, **Update now** (reloads onto the newest version), **App lock** (a PIN; it hides the app but does not encrypt the data, and if you forget it the only way back in is to erase that device), and the app version. These settings stay on the device.
 
 ## Syncing between devices (optional)
 
@@ -32,7 +32,7 @@ runs on [Render](https://render.com), not on any of your own devices, so it work
 not your computer or phone is on. On Render's Free plan the server falls asleep when idle
 (the first Sync now after a while can take up to a minute) and keeps its data only in a
 temporary folder, so it is a go-between, not a safe place for your data: every device keeps
-its own full copy. Syncing only happens when you tap **Sync now**.
+its own full copy. Syncing happens when you tap **Sync now**, and on its own when the app opens and a few seconds after you change something (Menu, **Auto-sync**, turns that off; it pauses for a few minutes after a failed sync).
 
 On each device, open the app and find the sync setup form — it just asks for a
 passphrase (set as the `SYNC_TOKEN` environment variable on the Render service). Enter
