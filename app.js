@@ -432,7 +432,7 @@ function recordUndo(collectionName, id, before, after) {
 
 const UI_STORAGE_KEY = 'secondMemory.ui.v1';
 // Every screen id; each has a matching "<id>-collection" section and a sidebar button.
-const TABS = ['home', 'books', 'recipes', 'medications', 'diagnoses', 'weight', 'journal', 'todo', 'shopping', 'notes', 'resume'];
+const TABS = ['home', 'calendar', 'books', 'recipes', 'medications', 'diagnoses', 'weight', 'journal', 'todo', 'shopping', 'notes', 'resume'];
 
 // Reads the saved screen state (which tab was open), tolerating missing or damaged data.
 function loadUiState() {
@@ -470,6 +470,7 @@ function setActiveTab(tab) {
   });
   saveUiState({ activeTab });
   if (showingJournal) renderJournal(); // the tab is visible now, so widths (and the scroll position) are real
+  if (activeTab === 'calendar') renderCalendar(); // the data may have changed since it was last drawn
   if (activeTab === 'recipes') updateRecipeArrows(); // arrows can only be judged once the row has a width
 
   if (window.matchMedia('(max-width: 700px)').matches) {
@@ -1264,6 +1265,7 @@ const RECIPE_SORTS = {
   date_added_asc: compareByField((r) => r.dateAdded, 1, { text: false }),
   date_added_desc: compareByField((r) => r.dateAdded, -1, { text: false }),
   title_asc: compareByField((r) => r.title, 1),
+  manual: compareManual,
 };
 
 // Redraws the whole Recipes screen: filters, search, sort and the recipe cards.
@@ -1332,6 +1334,12 @@ function renderRecipes() {
         });
       });
     }
+    // Move buttons show only under "Sort: My order" (a drag handle does not suit a sideways row).
+    node.querySelector('.move-earlier-btn').hidden = selectedRecipesSort !== MANUAL_SORT;
+    node.querySelector('.move-later-btn').hidden = selectedRecipesSort !== MANUAL_SORT;
+    node.querySelector('.move-earlier-btn').addEventListener('click', () => moveByStep('recipes', recipe.id, -1, list, '.recipe-card', 'data-recipe-id', '.move-earlier-btn'));
+    node.querySelector('.move-later-btn').addEventListener('click', () => moveByStep('recipes', recipe.id, 1, list, '.recipe-card', 'data-recipe-id', '.move-later-btn'));
+
     const pinBtn = node.querySelector('.pin-btn');
     pinBtn.setAttribute('aria-pressed', String(!!recipe.pinned));
     pinBtn.textContent = recipe.pinned ? 'Pinned \u2605' : 'Pin';
@@ -2801,6 +2809,7 @@ let selectedTodoSort = 'due_date_asc';
 const TODO_SORTS = {
   due_date_asc: compareByField((t) => t.dueDate, 1, { text: false }),
   due_date_desc: compareByField((t) => t.dueDate, -1, { text: false }),
+  manual: compareManual,
   date_added_desc: compareByField((t) => t.dateAdded, -1, { text: false }),
   date_added_asc: compareByField((t) => t.dateAdded, 1, { text: false }),
 };
@@ -2840,6 +2849,9 @@ function renderTodos() {
     li.classList.toggle('completed', !!todo.completed); // !! because an imported to-do may lack the field, and toggle(x, undefined) flips instead of clearing
     const viewSection = node.querySelector('.todo-view');
     const editForm = node.querySelector('.todo-edit-form');
+
+    // The drag handle shows only under "Sort: My order".
+    node.querySelector('.drag-handle').hidden = selectedTodoSort !== MANUAL_SORT;
 
     // Snooze buttons only make sense for an open to-do that is due today or already overdue.
     const snoozeable = !todo.completed && todo.dueDate && todo.dueDate <= todayKey();
@@ -3164,6 +3176,7 @@ const SHOPPING_SORTS = {
   date_added_asc: compareByField((i) => i.dateAdded, 1, { text: false }),
   date_added_desc: compareByField((i) => i.dateAdded, -1, { text: false }),
   item_asc: compareByField((i) => i.item, 1),
+  manual: compareManual,
 };
 
 // Redraws the whole Shopping List screen: chips, search, sort and the item rows.
@@ -3222,6 +3235,8 @@ function renderShoppingList() {
     li.classList.toggle('completed', item.checked);
     const viewSection = node.querySelector('.shopping-view');
     const editForm = node.querySelector('.shopping-edit-form');
+
+    node.querySelector('.drag-handle').hidden = selectedShoppingSort !== MANUAL_SORT;
 
     const checkbox = node.querySelector('.shopping-checked-checkbox');
     checkbox.checked = item.checked;
@@ -3843,6 +3858,281 @@ const DATE_RANGE_MESSAGE = `Pick a date between the years ${DATE_YEAR_MIN} and $
 function formatDateKeyLong(dateKey) {
   const { y, m, d } = parseDateKey(dateKey);
   return `${MONTH_NAMES[m]} ${d}, ${y}`;
+}
+
+// ---- Calendar ----
+// One month at a time. Dots mark days with an open to-do due, a medication refill, or a weight recorded; tapping a
+// day lists those things with a button to open the right screen. Journal entries are private and never shown here.
+
+let calendarMonth = null; // { y, m } of the month on screen (m is 0 for January); null until first drawn
+let calendarSelected = null; // the date key of the tapped day
+
+// What is on each day: a Map from date key to { todos, refills, weights } lists.
+function calendarEvents() {
+  const byDay = new Map();
+  const slot = (key) => {
+    if (!byDay.has(key)) byDay.set(key, { todos: [], refills: [], weights: [] });
+    return byDay.get(key);
+  };
+  todos.filter((x) => !x.deleted && !x.completed && isRealDateKey(x.dueDate)).forEach((x) => slot(x.dueDate).todos.push(x));
+  medications.filter((m) => !m.deleted && isRealDateKey(m.refillDate)).forEach((m) => slot(m.refillDate).refills.push(m));
+  weights.filter((w) => !w.deleted && isRealDateKey(w.date)).forEach((w) => slot(w.date).weights.push(w));
+  return byDay;
+}
+
+// Moves the calendar by whole months (negative goes back) and clears the tapped day.
+function shiftCalendarMonth(delta) {
+  const base = calendarMonth || { y: parseDateKey(todayKey()).y, m: parseDateKey(todayKey()).m };
+  const moved = new Date(base.y, base.m + delta, 1);
+  calendarMonth = { y: moved.getFullYear(), m: moved.getMonth() };
+  calendarSelected = null;
+  renderCalendar();
+}
+
+// Lists what is on the tapped day under the grid.
+function renderCalendarDetail(events) {
+  const box = document.getElementById('calendar-detail');
+  box.innerHTML = '';
+  if (!calendarSelected) return;
+  const day = events.get(calendarSelected) || { todos: [], refills: [], weights: [] };
+  const heading = document.createElement('h3');
+  heading.textContent = formatDateKeyLong(calendarSelected);
+  box.appendChild(heading);
+
+  // One block per kind: a short list and a button to open that screen.
+  const addBlock = (title, lines, tab, buttonLabel) => {
+    if (lines.length === 0) return;
+    const label = document.createElement('p');
+    label.textContent = title;
+    const list = document.createElement('ul');
+    lines.forEach((line) => {
+      const item = document.createElement('li');
+      item.textContent = line;
+      list.appendChild(item);
+    });
+    const open = document.createElement('button');
+    open.type = 'button';
+    open.className = 'calendar-detail-link';
+    open.textContent = buttonLabel;
+    open.addEventListener('click', () => goToTab(tab));
+    box.append(label, list, open);
+  };
+  addBlock('To-dos due', day.todos.map((x) => x.task), 'todo', 'Open To-Do');
+  addBlock('Medication refills', day.refills.map((m) => m.name), 'medications', 'Open Medications');
+  addBlock('Weight', day.weights.map((w) => formatWeight(w.weight)), 'weight', 'Open Weight');
+  if (day.todos.length + day.refills.length + day.weights.length === 0) {
+    const none = document.createElement('p');
+    none.textContent = 'Nothing on this day.';
+    box.appendChild(none);
+  }
+}
+
+// Draws the month grid: weekday headings are in the page; this builds the day cells, six weeks at most.
+function renderCalendar() {
+  if (!calendarMonth) {
+    const now = parseDateKey(todayKey());
+    calendarMonth = { y: now.y, m: now.m };
+  }
+  const { y, m } = calendarMonth;
+  const events = calendarEvents();
+  const today = todayKey();
+  document.getElementById('calendar-title').textContent = `${MONTH_NAMES[m]} ${y}`;
+
+  const body = document.getElementById('calendar-body');
+  body.innerHTML = '';
+  const leadingBlanks = new Date(y, m, 1).getDay(); // 0 = Sunday: how many empty cells come before the 1st
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+  let row = null;
+  for (let cell = 0; cell < Math.ceil((leadingBlanks + daysInMonth) / 7) * 7; cell++) {
+    if (cell % 7 === 0) {
+      row = document.createElement('tr');
+      body.appendChild(row);
+    }
+    const td = document.createElement('td');
+    row.appendChild(td);
+    const dayNumber = cell - leadingBlanks + 1;
+    if (dayNumber < 1 || dayNumber > daysInMonth) continue; // empty cell before the 1st or after the last day
+
+    const key = dateKeyFromLocalDate(new Date(y, m, dayNumber));
+    const day = events.get(key);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'calendar-day';
+    button.dataset.date = key;
+    button.classList.toggle('is-today', key === today);
+    button.classList.toggle('is-selected', key === calendarSelected);
+    if (key === calendarSelected) button.setAttribute('aria-pressed', 'true'); else button.setAttribute('aria-pressed', 'false');
+    const number = document.createElement('span');
+    number.textContent = String(dayNumber);
+    const dots = document.createElement('span');
+    dots.className = 'calendar-dots';
+    const said = [];
+    [['todos', 'dot-todo', 'to-do due'], ['refills', 'dot-refill', 'refill'], ['weights', 'dot-weight', 'weight recorded']].forEach(([kind, dotClass, words]) => {
+      if (!day || day[kind].length === 0) return;
+      const dot = document.createElement('i');
+      dot.className = `dot ${dotClass}`;
+      dots.appendChild(dot);
+      said.push(`${day[kind].length} ${words}`);
+    });
+    button.append(number, dots);
+    button.setAttribute('aria-label', `${formatDateKeyLong(key)}${said.length ? ', ' + said.join(', ') : ''}`);
+    button.addEventListener('click', () => {
+      calendarSelected = key;
+      renderCalendar();
+      const again = document.querySelector(`#calendar-body [data-date="${key}"]`);
+      if (again) again.focus(); // the grid was rebuilt: keep keyboard focus on the same day
+    });
+    td.appendChild(button);
+  }
+  renderCalendarDetail(events);
+}
+
+document.getElementById('calendar-prev').addEventListener('click', () => shiftCalendarMonth(-1));
+document.getElementById('calendar-next').addEventListener('click', () => shiftCalendarMonth(1));
+document.getElementById('calendar-today').addEventListener('click', () => {
+  const now = parseDateKey(todayKey());
+  calendarMonth = { y: now.y, m: now.m };
+  calendarSelected = todayKey();
+  renderCalendar();
+});
+
+// ---- Manual order ("Sort: My order") ----
+// To-dos, shopping items and recipes can be put in your own order. Each record gets a `sortOrder` number
+// (synced like any other field). Moving a record gives it a number halfway between its new neighbours, so
+// only ONE record changes and Undo works as usual. Records without a number (new ones) go last.
+
+const MANUAL_SORT = 'manual'; // the value of the "Sort: My order" option
+const MANUAL_GAP = 1024; // spacing between numbers, so there is room to slot records in between
+
+// How a record's number counts when sorting: no number means "after everything numbered".
+function manualOrderOf(record) {
+  return Number.isFinite(record.sortOrder) ? record.sortOrder : Number.MAX_SAFE_INTEGER;
+}
+
+// Sort comparator for "My order": by number, then by the day it was added.
+function compareManual(a, b) {
+  return manualOrderOf(a) - manualOrderOf(b) || String(a.dateAdded || '').localeCompare(String(b.dateAdded || ''));
+}
+
+// What each reorderable list needs (looked up when used, because the lists are defined further down the file).
+function manualListConfig(name) {
+  return {
+    todos: { key: TODOS_KEY, items: () => todos, render: () => renderTodos() },
+    shoppingList: { key: SHOPPING_KEY, items: () => shoppingItems, render: () => renderShoppingList() },
+    recipes: { key: RECIPES_KEY, items: () => recipes, render: () => renderRecipes() },
+  }[name];
+}
+
+// Gives every record in the list a fresh, evenly spaced number in its current order (only saving the ones that changed).
+function renumberManual(list) {
+  list.forEach((record, i) => {
+    const value = (i + 1) * MANUAL_GAP;
+    if (record.sortOrder === value) return;
+    record.sortOrder = value;
+    stampSync(record);
+  });
+}
+
+// Moves one record next to another (before it, or after it when placeAfter is true). Returns false if nothing moved.
+function moveManual(name, id, targetId, placeAfter) {
+  const cfg = manualListConfig(name);
+  const items = cfg.items();
+  const live = items.filter((r) => !r.deleted).sort(compareManual);
+  const moving = live.find((r) => r.id === id);
+  const target = live.find((r) => r.id === targetId);
+  if (!moving || !target || moving === target) return false;
+
+  // First time (or if numbers collide): number the whole list in its current order so there is something to slot between.
+  const unnumbered = live.some((r, i) => !Number.isFinite(r.sortOrder) || (i > 0 && r.sortOrder <= live[i - 1].sortOrder));
+  if (unnumbered) renumberManual(live);
+
+  const rest = live.filter((r) => r !== moving);
+  const at = rest.indexOf(target) + (placeAfter ? 1 : 0);
+  const prev = rest[at - 1];
+  const next = rest[at];
+  let value;
+  if (prev && next) value = (prev.sortOrder + next.sortOrder) / 2;
+  else if (prev) value = prev.sortOrder + MANUAL_GAP;
+  else value = next.sortOrder - MANUAL_GAP;
+
+  const before = structuredClone(moving);
+  if (prev && next && !(value > prev.sortOrder && value < next.sortOrder)) {
+    // The gap between the neighbours is used up: renumber the whole list with the record in its new place (no Undo step).
+    rest.splice(at, 0, moving);
+    renumberManual(rest);
+    saveCollection(cfg.key, items);
+    cfg.render();
+    return true;
+  }
+  moving.sortOrder = value;
+  stampSync(moving);
+  saveCollection(cfg.key, items);
+  recordUndo(name, id, before, structuredClone(moving));
+  cfg.render();
+  return true;
+}
+
+// Moves a record one place up (-1) or down (+1) among the rows currently on screen, then puts keyboard focus back
+// on its handle. `selector` finds the rows, `attr` is the data attribute holding the record id.
+function moveByStep(name, id, direction, list, selector, attr, focusSelector) {
+  const rows = [...list.querySelectorAll(selector)];
+  const index = rows.findIndex((row) => row.getAttribute(attr) === id);
+  const neighbour = rows[index + direction];
+  if (index < 0 || !neighbour) return false;
+  const moved = moveManual(name, id, neighbour.getAttribute(attr), direction > 0);
+  if (moved && focusSelector) {
+    const again = [...list.querySelectorAll(selector)].find((row) => row.getAttribute(attr) === id);
+    const control = again && again.querySelector(focusSelector);
+    if (control) control.focus();
+  }
+  return moved;
+}
+
+// Drag a row by its handle (touch, pen or mouse) to a new place: a line shows where it will land, and the move
+// happens when you let go. The arrow keys on a focused handle do the same one step at a time.
+function enableDragReorder(listId, name, selector, attr) {
+  const list = document.getElementById(listId);
+  let drag = null;
+  const clearMarks = () => list.querySelectorAll('.drop-before, .drop-after').forEach((row) => row.classList.remove('drop-before', 'drop-after'));
+  const finish = (apply) => {
+    if (!drag) return;
+    const { row, target, after } = drag;
+    drag = null;
+    row.classList.remove('dragging');
+    clearMarks();
+    if (apply && target) moveManual(name, row.getAttribute(attr), target.getAttribute(attr), after);
+  };
+  list.addEventListener('pointerdown', (e) => {
+    const handle = e.target.closest('.drag-handle');
+    if (!handle) return;
+    const row = handle.closest(selector);
+    drag = { row, target: null, after: false };
+    row.classList.add('dragging');
+    try { handle.setPointerCapture(e.pointerId); } catch { /* the drag still works without capture */ }
+    e.preventDefault();
+  });
+  list.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    clearMarks();
+    const over = document.elementFromPoint(e.clientX, e.clientY);
+    const row = over && over.closest(selector);
+    if (row && row !== drag.row && list.contains(row)) {
+      const box = row.getBoundingClientRect();
+      drag.target = row;
+      drag.after = e.clientY > box.top + box.height / 2;
+      row.classList.add(drag.after ? 'drop-after' : 'drop-before');
+    } else {
+      drag.target = null;
+    }
+  });
+  list.addEventListener('pointerup', () => finish(true));
+  list.addEventListener('pointercancel', () => finish(false));
+  list.addEventListener('keydown', (e) => {
+    if (!e.target.classList.contains('drag-handle') || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+    e.preventDefault();
+    const row = e.target.closest(selector);
+    moveByStep(name, row.getAttribute(attr), e.key === 'ArrowUp' ? -1 : 1, list, selector, attr, '.drag-handle');
+  });
 }
 
 // ---- Journal (dreams + therapy sessions) ----
@@ -5256,6 +5546,33 @@ function computeHomeTodos(nonDeletedTodos) {
   return { overdue, dueSoon };
 }
 
+// The sentences for the Home "This week" panel (empty when there is nothing to say). "Finished" and "bought"
+// go by the day the record was last saved, which is when it was ticked off unless it was edited afterwards.
+function weekSummaryLines() {
+  const today = todayKey();
+  const since = shiftDateKey(today, -6); // the last seven days, today included
+  const sinceStamp = new Date(`${since}T00:00:00`).toISOString();
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  const lines = [];
+
+  const liveWeights = weights.filter((w) => !w.deleted);
+  if (liveWeights.length > 0) {
+    const days = new Set(liveWeights.filter((w) => w.date >= since && w.date <= today).map((w) => w.date)).size;
+    lines.push(`Weighed in ${days} of the last 7 days`);
+  }
+  const finished = todos.filter((x) => !x.deleted && x.completed && String(x.updatedAt || '') >= sinceStamp).length;
+  if (finished > 0) lines.push(`${plural(finished, 'to-do', 'to-dos')} finished`);
+  const bought = shoppingItems.filter((i) => !i.deleted && i.checked && String(i.updatedAt || '') >= sinceStamp).length;
+  if (bought > 0) lines.push(`${plural(bought, 'shopping item', 'shopping items')} bought`);
+
+  const refillDays = medications.filter((m) => !m.deleted && isRealDateKey(m.refillDate)).map((m) => daysUntilDateKey(m.refillDate));
+  const soon = refillDays.filter((d) => d >= 0 && d <= 7).length;
+  const late = refillDays.filter((d) => d < 0).length;
+  if (soon > 0) lines.push(`${plural(soon, 'refill', 'refills')} coming up in the next 7 days`);
+  if (late > 0) lines.push(`${plural(late, 'refill is', 'refills are')} overdue`);
+  return lines;
+}
+
 // Draws a tiny trend line (no axes) into an <svg viewBox="0 0 120 32"> from a list of numbers.
 function drawSparkline(svg, values) {
   svg.innerHTML = '';
@@ -5319,6 +5636,8 @@ function renderHome() {
   const shoppingPanel = document.getElementById('home-shopping-panel');
   const shoppingList = document.getElementById('home-shopping-list');
   const weightPanel = document.getElementById('home-weight-panel');
+  const weekPanel = document.getElementById('home-week-panel');
+  const weekList = document.getElementById('home-week-list');
   const recipesPanel = document.getElementById('home-recipes-panel');
   const recipesList = document.getElementById('home-recipes-list');
 
@@ -5416,6 +5735,16 @@ function renderHome() {
     document.getElementById('home-weight-text').textContent = `${formatWeight(latest.weight)}${words}`;
     drawSparkline(document.getElementById('home-weight-spark'), trendPoints.slice(-14).map((w) => w.weight));
   }
+
+  // This week: a few plain-English numbers about the last seven days.
+  weekList.innerHTML = '';
+  const weekLines = weekSummaryLines();
+  weekPanel.hidden = weekLines.length === 0;
+  weekLines.forEach((line) => {
+    const item = document.createElement('li');
+    item.textContent = line;
+    weekList.appendChild(item);
+  });
 
   // Pinned recipes: tap to open Cook mode (or the Recipes tab when the recipe has no steps yet).
   const pinned = recipes.filter((r) => !r.deleted && r.pinned);
@@ -6411,7 +6740,7 @@ function refreshForNewDay() {
   if (now === lastRenderedDayKey) return;
   lastRenderedDayKey = now;
   [
-    renderTodos, renderMedications, // both also redraw Home, so it is not listed again here
+    renderTodos, renderMedications, renderCalendar, // the first two also redraw Home, so it is not listed again here
     // The reading goal is for "this year", so it must roll over on 1 January too.
     () => renderReadingGoal(books.filter((b) => !b.deleted)),
   ].forEach(safeRender);
@@ -6428,7 +6757,7 @@ document.addEventListener('visibilitychange', () => {
 
 // The build number shown in the Menu. Keep it equal to the number in CACHE_NAME in sw.js
 // (a test checks this), so "which version am I on?" has a one-glance answer.
-const APP_VERSION = 77;
+const APP_VERSION = 79;
 const THEME_KEY = 'secondMemory.theme.v1';
 const THEMES = ['auto', 'light', 'dark'];
 
@@ -7119,13 +7448,16 @@ enableSwipe('shopping-list', '.shopping-item', 'shoppingId',
   (id) => { const item = shoppingItems.find((x) => x.id === id); if (item) toggleShoppingChecked(id, !item.checked); },
   (id) => deleteShoppingItem(id));
 
+enableDragReorder('todo-list', 'todos', '.todo-item', 'data-todo-id');
+enableDragReorder('shopping-list', 'shoppingList', '.shopping-item', 'data-shopping-id');
+
 // Customize Home: which panels you want to see (the rest stay hidden even when they have something to show).
 // HOME_PANEL_CHOICES is read by renderHome (through applyHomePanelChoices), so no Home redraw may run
 // before this line; the first one is in the Init block below.
 const HOME_PANELS_KEY = 'secondMemory.homePanels.v1';
 const HOME_PANEL_CHOICES = [
   ['home-todo-panel', 'To-Do'], ['home-refills-panel', 'Medication refills'], ['home-weigh-panel', 'Weigh in'],
-  ['home-weight-panel', 'Weight'], ['home-recipes-panel', 'Pinned recipes'], ['home-shopping-panel', 'Still to buy'],
+  ['home-weight-panel', 'Weight'], ['home-week-panel', 'This week'], ['home-recipes-panel', 'Pinned recipes'], ['home-shopping-panel', 'Still to buy'],
   ['home-reading-panel', 'Currently reading'],
 ];
 
@@ -7235,6 +7567,129 @@ applyTextSize(TEXT_SIZES.includes(document.documentElement.getAttribute('data-te
 updateUndoRedoButtons();
 setActiveTab(loadUiState().activeTab || 'home');
 initSyncUI();
+
+// ---- Settings check ----
+// A short checklist in the Menu: what is set up and what needs a look. Built each time the list is opened,
+// so it always shows the current state. Each row is "OK", "Check" (needs attention) or "Info", with an
+// optional button that does the fix.
+
+// Adds one row to the checklist.
+function addCheckRow(list, level, title, detail, actionLabel, action) {
+  const row = document.createElement('li');
+  row.className = `check-${level}`;
+  const mark = document.createElement('span');
+  mark.className = 'check-mark';
+  mark.textContent = { ok: 'OK', warn: 'Check', info: 'Info' }[level];
+  const text = document.createElement('span');
+  text.textContent = `${title}: ${detail}`;
+  row.append(mark, text);
+  if (actionLabel) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'check-action';
+    btn.textContent = actionLabel;
+    btn.addEventListener('click', action);
+    row.appendChild(btn);
+  }
+  list.appendChild(row);
+}
+
+// "Never" or "N days ago" rows for a backup/sync time: OK when recent, Check when never or a week old.
+function addAgeRow(list, title, days, dueDays, actionLabel, action) {
+  if (days === null) addCheckRow(list, 'warn', title, 'never', actionLabel, action);
+  else if (days >= dueDays) addCheckRow(list, 'warn', title, backupAgeText(days), actionLabel, action);
+  else addCheckRow(list, 'ok', title, backupAgeText(days));
+}
+
+// Rebuilds the whole checklist from the current state of this device.
+async function renderSettingsCheck() {
+  const list = document.getElementById('settings-check-list');
+  const rows = document.createElement('ul'); // built off-screen first: the offline check below is async
+  const state = loadReminderState();
+
+  if (!loadSyncConfig()) addCheckRow(rows, 'info', 'Sync', 'not set up, so your data stays on this device only');
+  else addAgeRow(rows, 'Last sync', daysSinceBackup(LAST_SYNC_AT_KEY), SYNC_STALE_DAYS, 'Sync now', runSync);
+
+  const hasAnyData = SYNC_COLLECTIONS.some((c) => c.get().some((r) => !r.deleted));
+  if (hasAnyData) addAgeRow(rows, 'Backup file', daysSinceBackup(EXPORT_AT_KEY), EXPORT_DUE_DAYS, 'Back up now', exportData);
+  else addCheckRow(rows, 'info', 'Backup file', 'nothing to back up yet');
+  if (journalEntries.length > 0) addAgeRow(rows, 'Journal backup', daysSinceBackup(JOURNAL_BACKUP_AT_KEY), JOURNAL_BACKUP_DUE_DAYS, 'Back up journal', downloadJournalBackup);
+
+  if (!remindersSupported()) addCheckRow(rows, 'info', 'Reminders', 'not supported in this browser');
+  else if (Notification.permission === 'denied') addCheckRow(rows, 'warn', 'Reminders', 'blocked in your browser settings');
+  else if (state.enabled && Notification.permission === 'granted') addCheckRow(rows, 'ok', 'Reminders', `on (weigh-in ${state.weighInTime}, refills ${state.refillTime})`);
+  else addCheckRow(rows, 'info', 'Reminders', 'off', 'Turn on', () => document.getElementById('reminders-btn').click());
+
+  if (loadLock()) addCheckRow(rows, 'ok', 'App lock', 'on');
+  else addCheckRow(rows, 'info', 'App lock', 'off, so anyone holding your phone can open the app', 'Set up', () => document.getElementById('lock-btn').click());
+
+  let offline = null;
+  try { offline = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration() : null; } catch { /* treated as not installed */ }
+  if (offline) addCheckRow(rows, 'ok', 'Offline use', 'ready, the app works without a connection');
+  else addCheckRow(rows, 'info', 'Offline use', 'not set up here; open the app once with a connection');
+
+  list.replaceChildren(...rows.children);
+}
+
+document.getElementById('settings-check').addEventListener('toggle', (e) => {
+  if (e.target.open) renderSettingsCheck();
+});
+
+// ---- Updates ----
+// The app updates itself in the background: the service worker downloads a new version and takes over, but the
+// page already on screen keeps running the old code until it is reloaded. "Update now" (Menu) and the banner
+// below let you do that reload right away instead of waiting for the next time the app is opened.
+
+let newVersionReady = false; // true once a newer version has taken over behind the page
+
+// Reloads the page. A tiny wrapper so the tests can replace it.
+function reloadApp() {
+  location.reload();
+}
+
+// Shows the "new version is ready" banner (called when a newer service worker takes over).
+function noteNewVersionReady() {
+  newVersionReady = true;
+  document.getElementById('update-banner').hidden = false;
+}
+
+// The Update now button: reload at once if a new version is already waiting, otherwise ask the browser to
+// look for one, wait for it to take over and reload. Says so when you already have the latest.
+async function updateNow() {
+  const status = document.getElementById('update-status');
+  status.hidden = false;
+  if (newVersionReady || !('serviceWorker' in navigator)) { reloadApp(); return; }
+  status.textContent = 'Checking for a new version\u2026';
+  try {
+    const registration = await navigator.serviceWorker.getRegistration();
+    if (!registration) { reloadApp(); return; } // not installed as an offline app: a plain reload fetches the newest files
+    await registration.update();
+    const worker = registration.installing || registration.waiting;
+    if (!worker) {
+      status.textContent = `You have the latest version (${APP_VERSION}).`;
+      return;
+    }
+    status.textContent = 'Downloading the new version\u2026';
+    await new Promise((resolve) => {
+      if (worker.state === 'activated') { resolve(); return; }
+      worker.addEventListener('statechange', () => { if (worker.state === 'activated' || worker.state === 'redundant') resolve(); });
+    });
+    status.textContent = 'Updated. Reloading\u2026';
+    reloadApp();
+  } catch {
+    status.textContent = "Couldn't check for updates. Are you online?";
+  }
+}
+
+document.getElementById('update-now-btn').addEventListener('click', updateNow);
+document.getElementById('update-banner-btn').addEventListener('click', () => reloadApp());
+
+// A new service worker taking over while the page was already controlled means a new version arrived.
+// (The very first install also fires this event, so it only counts when there was a controller before.)
+if ('serviceWorker' in navigator) {
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController) noteNewVersionReady(); });
+}
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

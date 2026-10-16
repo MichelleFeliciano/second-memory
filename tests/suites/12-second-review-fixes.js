@@ -342,7 +342,7 @@ todos.length = 0; shoppingItems.length = 0; renderTodos(); renderShoppingList();
 
 // customise Home
 nav('home'); weights.length = 0; renderHome();
-check('Customize Home has a checkbox for every panel, all on', document.querySelectorAll('#home-customize-list input').length === 7 && [...document.querySelectorAll('#home-customize-list input')].every((c) => c.checked));
+check('Customize Home has a checkbox for every panel, all on', document.querySelectorAll('#home-customize-list input').length === 8 && [...document.querySelectorAll('#home-customize-list input')].every((c) => c.checked));
 check('the weigh-in panel shows before it is switched off', !$('home-weigh-panel').hidden);
 const weighBox = [...document.querySelectorAll('#home-customize-list label')].find((l) => /Weigh in/.test(l.textContent)).querySelector('input');
 weighBox.click();
@@ -365,3 +365,195 @@ check('with the weigh-in box showing, the all-caught-up message is hidden', !$('
 localStorage.setItem(HOME_PANELS_KEY, JSON.stringify(['home-weigh-panel', 'home-shopping-panel'])); renderHome();
 check('with the weigh-in panel switched off, the all-caught-up message returns', $('home-weigh-panel').hidden && !$('home-empty-state').hidden);
 localStorage.removeItem(HOME_PANELS_KEY); renderHome();
+
+// ---- Update now button and the new-version banner ----
+{
+  const realReload = window.reloadApp;
+  let reloads = 0;
+  window.reloadApp = () => { reloads += 1; };
+  const realSW = Object.getOwnPropertyDescriptor(navigator, 'serviceWorker');
+  const fakeSW = (registration) => Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: { getRegistration: async () => registration, addEventListener() {}, controller: null } });
+  const status = () => $('update-status').textContent;
+
+  fakeSW(undefined);
+  $('update-now-btn').click(); await sleep(30);
+  check('with no offline install, Update now simply reloads', reloads === 1);
+
+  fakeSW({ update: async () => {}, installing: null, waiting: null });
+  $('update-now-btn').click(); await sleep(30);
+  check('with nothing new it says you have the latest version and does not reload', reloads === 1 && new RegExp('latest version \\(' + APP_VERSION + '\\)').test(status()), status());
+
+  const worker = { state: 'installing', _cb: null, addEventListener(type, cb) { this._cb = cb; } };
+  fakeSW({ update: async () => {}, installing: worker, waiting: null });
+  $('update-now-btn').click(); await sleep(30);
+  check('a new version downloading is waited for', reloads === 1 && /Downloading/.test(status()), status());
+  worker.state = 'activated'; worker._cb(); await sleep(30);
+  check('once the new version takes over the app reloads', reloads === 2 && /Reloading/.test(status()), status());
+
+  fakeSW({ update: async () => { throw new Error('offline'); }, installing: null, waiting: null });
+  $('update-now-btn').click(); await sleep(30);
+  check('when the check fails it says so and does not reload', reloads === 2 && /Couldn't check/.test(status()), status());
+
+  check('the banner starts hidden', $('update-banner').hidden === true);
+  noteNewVersionReady();
+  check('a new version arriving behind the page shows the banner', $('update-banner').hidden === false);
+  $('update-banner-btn').click();
+  check('the banner button reloads', reloads === 3);
+  $('update-now-btn').click(); await sleep(30);
+  check('Update now reloads at once when a new version is already waiting', reloads === 4);
+
+  newVersionReady = false; $('update-banner').hidden = true;
+  if (realSW) Object.defineProperty(navigator, 'serviceWorker', realSW); else delete navigator.serviceWorker;
+  window.reloadApp = realReload;
+}
+
+// ---- v79: This week panel and Settings check ----
+{
+  todos.length = 0; shoppingItems.length = 0; weights.length = 0; medications.length = 0;
+  nav('home'); renderHome();
+  check('with nothing recorded the This week panel is hidden', $('home-week-panel').hidden);
+  const nowIso = new Date().toISOString();
+  const oldIso = new Date(Date.now() - 20 * 86400000).toISOString();
+  weights.push({ ...r2, id: 'wk1', date: dk(0), weight: 150, note: '' }, { ...r2, id: 'wk2', date: dk(-3), weight: 151, note: '' }, { ...r2, id: 'wk3', date: dk(-20), weight: 155, note: '' });
+  todos.push({ ...r2, id: 'wt1', task: 'Done now', dueDate: null, completed: true, repeat: '', updatedAt: nowIso });
+  todos.push({ ...r2, id: 'wt2', task: 'Done long ago', dueDate: null, completed: true, repeat: '', updatedAt: oldIso });
+  todos.push({ ...r2, id: 'wt3', task: 'Still open', dueDate: null, completed: false, repeat: '', updatedAt: nowIso });
+  shoppingItems.push({ ...r2, id: 'ws1', item: 'Milk', quantity: '', category: '', checked: true, updatedAt: nowIso });
+  medications.push({ ...r2, id: 'wm1', name: 'Soon', dosage: '', frequency: '', prescribingDoctor: '', startDate: null, endDate: null, refillDate: dk(3), notes: '' });
+  medications.push({ ...r2, id: 'wm2', name: 'Late', dosage: '', frequency: '', prescribingDoctor: '', startDate: null, endDate: null, refillDate: dk(-2), notes: '' });
+  renderHome();
+  const weekText = [...document.querySelectorAll('#home-week-list li')].map((li) => li.textContent).join(' | ');
+  check('This week counts weigh-in days, finished to-dos, bought items and refills', !$('home-week-panel').hidden && weekText === 'Weighed in 2 of the last 7 days | 1 to-do finished | 1 shopping item bought | 1 refill coming up in the next 7 days | 1 refill is overdue', weekText);
+  todos.length = 0; shoppingItems.length = 0; weights.length = 0; medications.length = 0; renderHome();
+
+  // Settings check
+  localStorage.removeItem(SYNC_CONFIG_KEY); localStorage.removeItem(LOCK_KEY); localStorage.removeItem(EXPORT_AT_KEY);
+  books.length = 0; books.push({ ...r2, id: 'sc1', title: 'Some book', author: '', status: 'owned_unread', rating: null });
+  $('settings-check').open = true;
+  await renderSettingsCheck();
+  const rows = () => [...document.querySelectorAll('#settings-check-list li')].map((li) => li.querySelector('.check-mark').textContent + ' ' + li.firstElementChild.nextSibling.textContent);
+  const joined = () => rows().join(' | ');
+  check('the checklist shows sync, backup, reminders, lock and offline rows', /Sync: not set up/.test(joined()) && /Backup file: never/.test(joined()) && /Reminders: (off|blocked|not supported)/.test(joined()) && /App lock: off/.test(joined()) && /Offline use/.test(joined()), joined());
+  check('a backup that was never made is flagged Check with a button', /^Check Backup file/.test(rows().find((r) => /Backup file/.test(r))) && [...document.querySelectorAll('#settings-check-list li')].some((li) => /Backup file/.test(li.textContent) && li.querySelector('.check-action')));
+  recordBackupTime(EXPORT_AT_KEY);
+  saveSyncConfig({ token: 'x' }); recordBackupTime(LAST_SYNC_AT_KEY);
+  await renderSettingsCheck();
+  check('after a backup and a sync the rows turn OK', /^OK Backup file: today/.test(rows().find((r) => /Backup file/.test(r))) && /^OK Last sync: today/.test(rows().find((r) => /Last sync/.test(r))), joined());
+  books.length = 0; localStorage.removeItem(SYNC_CONFIG_KEY); localStorage.removeItem(EXPORT_AT_KEY); localStorage.removeItem(LAST_SYNC_AT_KEY);
+  $('settings-check').open = false;
+}
+
+// ---- v79: Sort: My order (drag handles, arrow keys, move buttons) ----
+{
+  const stampAt = (n) => new Date(Date.UTC(2026, 0, 1, 0, 0, n)).toISOString();
+  const mk = (id, task, n, extra = {}) => ({ ...r2, id, task, dueDate: null, completed: false, repeat: '', dateAdded: stampAt(n), ...extra });
+  todos.length = 0;
+  todos.push(mk('mo1', 'Task A', 1), mk('mo2', 'Task B', 2), mk('mo3', 'Task C', 3));
+  nav('todo'); selectedTodoSort = 'due_date_asc'; renderTodos();
+  const order = () => [...document.querySelectorAll('#todo-list .todo-task')].map((e) => e.textContent).join('|');
+  check('the To-Do sort menu has My order and handles are hidden until it is chosen', !!document.querySelector('#todo-sort-input option[value="manual"]') && [...document.querySelectorAll('#todo-list .drag-handle')].every((h) => h.hidden));
+  set('todo-sort-input', 'manual'); $('todo-sort-input').dispatchEvent(new Event('change'));
+  check('choosing My order shows a handle on every to-do', document.querySelectorAll('#todo-list .drag-handle:not([hidden])').length === 3 && order() === 'Task A|Task B|Task C', order());
+
+  check('moving C before A puts it first', moveManual('todos', 'mo3', 'mo1', false) && order() === 'Task C|Task A|Task B', order());
+  const byId = (id) => todos.find((x) => x.id === id);
+  check('the list was numbered once and C was numbered ahead of A', byId('mo1').sortOrder === 1024 && byId('mo2').sortOrder === 2048 && byId('mo3').sortOrder < byId('mo1').sortOrder, [1, 2, 3].map((i) => byId('mo' + i).sortOrder).join(','));
+  undo(); await sleep(30);
+  check('undo puts it back', order() === 'Task A|Task B|Task C' && byId('mo3').sortOrder === 3072, order());
+
+  const handleOf = (title) => [...document.querySelectorAll('#todo-list .todo-item')].find((li) => li.querySelector('.todo-task').textContent === title).querySelector('.drag-handle');
+  handleOf('Task B').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+  check('arrow up on a handle moves the to-do up one place', order() === 'Task B|Task A|Task C', order());
+  handleOf('Task B').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+  check('arrow down moves it back', order() === 'Task A|Task B|Task C', order());
+  check('moving the first one up does nothing', moveByStep('todos', 'mo1', -1, $('todo-list'), '.todo-item', 'data-todo-id') === false && order() === 'Task A|Task B|Task C');
+
+  // dragging with the pointer: pick up A's handle and let go over the lower half of C
+  const rowOf = (title) => [...document.querySelectorAll('#todo-list .todo-item')].find((li) => li.querySelector('.todo-task').textContent === title);
+  const box = rowOf('Task C').getBoundingClientRect();
+  const hA = handleOf('Task A');
+  hA.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, pointerType: 'touch', clientX: 5, clientY: 5, bubbles: true, cancelable: true }));
+  check('picking up a handle marks the row as dragging', rowOf('Task A').classList.contains('dragging'));
+  hA.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, pointerType: 'touch', clientX: box.left + 20, clientY: box.bottom - 2, bubbles: true }));
+  check('a line shows where it will land', rowOf('Task C').classList.contains('drop-after'));
+  hA.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, pointerType: 'touch', clientX: box.left + 20, clientY: box.bottom - 2, bubbles: true }));
+  check('letting go moves it there', order() === 'Task B|Task C|Task A' && !document.querySelector('#todo-list .dragging, #todo-list .drop-after'), order());
+
+  todos.push(mk('mo4', 'Task D', 4));
+  renderTodos();
+  check('a new to-do goes to the end of My order', order() === 'Task B|Task C|Task A|Task D', order());
+
+  // a used-up gap renumbers instead of failing
+  todos.length = 0;
+  todos.push(mk('g1', 'G1', 1, { sortOrder: 1 }), mk('g2', 'G2', 2, { sortOrder: 1 + 2 ** -52 }), mk('g3', 'G3', 3, { sortOrder: 5 }));
+  renderTodos();
+  check('when two numbers are too close the list is renumbered and the move still happens', moveManual('todos', 'g3', 'g2', false) && order() === 'G1|G3|G2' && todos.every((x) => Number.isFinite(x.sortOrder)), order());
+  todos.length = 0; selectedTodoSort = 'due_date_asc'; set('todo-sort-input', 'due_date_asc'); renderTodos();
+
+  // shopping and recipes
+  shoppingItems.length = 0;
+  shoppingItems.push({ ...r2, id: 'ms1', item: 'Aaa', quantity: '', category: '', checked: false, dateAdded: stampAt(1) }, { ...r2, id: 'ms2', item: 'Bbb', quantity: '', category: '', checked: false, dateAdded: stampAt(2) });
+  nav('shopping'); selectedShoppingSort = 'manual'; renderShoppingList();
+  const shopOrder = () => [...document.querySelectorAll('#shopping-list .shopping-item-name')].map((e) => e.textContent).join('|');
+  check('shopping items get handles under My order', document.querySelectorAll('#shopping-list .drag-handle:not([hidden])').length === 2);
+  moveManual('shoppingList', 'ms2', 'ms1', false);
+  check('shopping items can be moved too', shopOrder() === 'Bbb|Aaa', shopOrder());
+  shoppingItems.length = 0; selectedShoppingSort = 'date_added_asc'; renderShoppingList();
+
+  recipes.length = 0;
+  recipes.push({ ...r2, id: 'mr1', title: 'First', category: '', ingredients: [], steps: [], notes: '', dateAdded: stampAt(1) }, { ...r2, id: 'mr2', title: 'Second', category: '', ingredients: [], steps: [], notes: '', dateAdded: stampAt(2) });
+  nav('recipes'); selectedRecipesSort = 'date_added_asc'; renderRecipes();
+  check('recipe move buttons are hidden until My order is chosen', [...document.querySelectorAll('#recipes-list .move-btn')].every((b) => b.hidden));
+  selectedRecipesSort = 'manual'; renderRecipes();
+  const recipeOrder = () => [...document.querySelectorAll('#recipes-list .recipe-title')].map((e) => e.textContent).join('|');
+  document.querySelector('#recipes-list .recipe-card[data-recipe-id="mr1"] .move-later-btn').click();
+  check('a recipe can be moved later with its button', recipeOrder() === 'Second|First', recipeOrder());
+  recipes.length = 0; selectedRecipesSort = 'date_added_asc'; renderRecipes();
+}
+
+// ---- v79: Calendar ----
+{
+  todos.length = 0; medications.length = 0; weights.length = 0; journalEntries.length = 0;
+  const thisMonth = todayKey().slice(0, 8); // "YYYY-MM-"
+  const day = (d) => thisMonth + String(d).padStart(2, '0');
+  todos.push({ ...r2, id: 'cal1', task: 'Pay rent', dueDate: day(10), completed: false, repeat: '' });
+  todos.push({ ...r2, id: 'cal2', task: 'Already done', dueDate: day(10), completed: true, repeat: '' });
+  todos.push({ ...r2, id: 'cal3', task: 'Deleted one', dueDate: day(11), completed: false, repeat: '', deleted: true });
+  medications.push({ ...r2, id: 'calm', name: 'Zinc', dosage: '', frequency: '', prescribingDoctor: '', startDate: null, endDate: null, refillDate: day(10), notes: '' });
+  weights.push({ ...r2, id: 'calw', date: day(12), weight: 150.5, note: '' });
+  journalEntries.push({ id: 'calj', type: 'daily', date: day(13), answers: { on_mind: 'private words' } });
+  nav('calendar');
+  check('the Calendar tab opens its own section with a month title', !$('calendar-collection').hidden && /\d{4}$/.test($('calendar-title').textContent), $('calendar-title').textContent);
+  const cell = (d) => document.querySelector('#calendar-body [data-date="' + day(d) + '"]');
+  const dotsOf = (d) => [...cell(d).querySelectorAll('.dot')].map((e) => e.className.replace('dot ', '')).join(',');
+  check('every day of the month has a button and today is marked', document.querySelectorAll('#calendar-body .calendar-day').length >= 28 && document.querySelector('#calendar-body .is-today').dataset.date === todayKey());
+  check('a day with an open to-do and a refill shows both dots', dotsOf(10) === 'dot-todo,dot-refill', dotsOf(10));
+  check('finished and deleted to-dos get no dot', dotsOf(11) === '');
+  check('a weigh-in shows its dot', dotsOf(12) === 'dot-weight');
+  check('journal entries never appear on the calendar', dotsOf(13) === '' && !/private words/.test($('calendar-collection').textContent));
+  check('each day has a spoken label', /to-do due/.test(cell(10).getAttribute('aria-label')) && /refill/.test(cell(10).getAttribute('aria-label')));
+  cell(10).click();
+  check('tapping a day lists what is on it and highlights it', /Pay rent/.test($('calendar-detail').textContent) && /Zinc/.test($('calendar-detail').textContent) && !/Already done/.test($('calendar-detail').textContent) && cell(10).classList.contains('is-selected') && cell(10).getAttribute('aria-pressed') === 'true');
+  check('the detail has buttons to open the matching screens', [...document.querySelectorAll('#calendar-detail .calendar-detail-link')].map((b) => b.textContent).join('|') === 'Open To-Do|Open Medications');
+  cell(14).click();
+  check('an empty day says so', /Nothing on this day/.test($('calendar-detail').textContent));
+  $('calendar-next').click();
+  const shownTitle = $('calendar-title').textContent;
+  check('Next moves to the next month and clears the selection', shownTitle !== '' && !$('calendar-detail').textContent && !document.querySelector('#calendar-body .is-selected'));
+  $('calendar-prev').click(); $('calendar-prev').click();
+  check('Previous goes back', $('calendar-title').textContent !== shownTitle);
+  $('calendar-today').click();
+  check('Today returns to this month with today selected', document.querySelector('#calendar-body .is-selected').dataset.date === todayKey());
+  // month arithmetic across a year boundary
+  calendarMonth = { y: 2026, m: 11 }; shiftCalendarMonth(1);
+  check('December rolls over to January of the next year', $('calendar-title').textContent === 'January 2027', $('calendar-title').textContent);
+  calendarMonth = { y: 2026, m: 0 }; shiftCalendarMonth(-1);
+  check('January goes back to December of the year before', $('calendar-title').textContent === 'December 2025', $('calendar-title').textContent);
+  calendarMonth = { y: 2026, m: 1 }; renderCalendar();
+  check('February 2026 has 28 day buttons', document.querySelectorAll('#calendar-body .calendar-day').length === 28);
+  calendarMonth = { y: 2024, m: 1 }; renderCalendar();
+  check('February 2024 has 29', document.querySelectorAll('#calendar-body .calendar-day').length === 29);
+  calendarMonth = null; calendarSelected = null;
+  todos.length = 0; medications.length = 0; weights.length = 0; journalEntries.length = 0;
+  nav('home');
+}

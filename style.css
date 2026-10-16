@@ -2425,6 +2425,10 @@ select[id$="-sort-input"],
 html[data-locked] .bottom-bar,
 html[data-locked] .toast { visibility: hidden; }
 
+/* The "new version is ready" banner sits at the top so it never covers the Undo toast or the bottom bar. */
+.update-banner { top: 12px; bottom: auto; }
+@media (max-width: 700px) { .update-banner { bottom: auto; } }
+
 /* Text size: scales everything sized in rem. Set from the Menu. */
 html[data-text="large"] { font-size: 112.5%; }
 html[data-text="larger"] { font-size: 125%; }
@@ -2577,3 +2581,118 @@ html[data-text="larger"] { font-size: 125%; }
 .home-customize > summary { cursor: pointer; color: var(--accent); font-weight: 600; }
 .home-customize-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
 .home-customize-list label { display: flex; align-items: center; gap: 8px; }
+
+/* ===== 29. This week panel and Settings check ===== */
+
+.week-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+
+.settings-check { margin: 8px 0; font-size: 0.85rem; }
+.settings-check > summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+.settings-check-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.settings-check-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.check-mark {
+  min-width: 48px;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.check-ok .check-mark { border-color: var(--accent); color: var(--accent); }
+.check-warn .check-mark { border-color: var(--accent-2); color: var(--accent-2); }
+.check-action {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+/* ===== 30. Sort: My order (drag handles and move buttons) ===== */
+
+.drag-handle {
+  padding: 4px 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  cursor: grab;
+  touch-action: none; /* a drag on the handle must not scroll the page */
+  letter-spacing: -2px;
+}
+.drag-handle[hidden], .move-btn[hidden] { display: none; }
+.move-btn {
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+/* While dragging: the row being moved fades, and a line shows where it will land. */
+.dragging { opacity: 0.55; }
+.drop-before { box-shadow: 0 -3px 0 var(--accent); }
+.drop-after { box-shadow: 0 3px 0 var(--accent); }
+
+/* ===== 31. Calendar ===== */
+
+.calendar-controls { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.calendar-controls h3 { flex: 1; margin: 0; text-align: center; }
+.calendar-controls button {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 1rem;
+}
+
+.calendar-table { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 3px; }
+.calendar-table th { font-size: 0.75rem; color: var(--muted); font-weight: 600; padding: 2px 0; }
+.calendar-table td { padding: 0; }
+
+/* One day: the number on top and up to three dots under it. */
+.calendar-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.calendar-day.is-today { border-color: var(--accent); font-weight: 700; }
+.calendar-day.is-selected { background: var(--accent); color: var(--accent-contrast); }
+.calendar-dots { display: flex; gap: 3px; min-height: 7px; }
+.dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; }
+.dot-todo { background: var(--accent-2); }
+.dot-refill { background: var(--accent-rose); }
+.dot-weight { background: var(--accent); }
+.calendar-day.is-selected .dot { box-shadow: 0 0 0 1px var(--accent-contrast); }
+
+.calendar-legend { display: flex; flex-wrap: wrap; gap: 14px; margin: 10px 0; font-size: 0.8rem; color: var(--muted); }
+.calendar-legend .dot { margin-right: 4px; }
+
+.calendar-detail { margin-top: 8px; }
+.calendar-detail h3 { margin: 0 0 6px; }
+.calendar-detail ul { margin: 0 0 8px; padding-left: 18px; }
+.calendar-detail-link {
+  padding: 4px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 13px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
