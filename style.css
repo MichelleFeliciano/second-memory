@@ -2756,3 +2756,47 @@ html[data-text="larger"] { font-size: 125%; }
 .todo-task, .shopping-item-name { cursor: text; }
 
 .history-when { color: var(--muted); font-size: 0.75rem; }
+
+/* ===== 34. Password vault ===== */
+
+.vault-note { margin: 0 0 12px; font-size: 0.85rem; color: var(--muted); }
+.vault-bar { display: flex; gap: 8px; margin-bottom: 12px; }
+.vault-bar input { flex: 1; min-width: 0; }
+.vault-bar button, .vault-link, #vault-generate, #vault-cancel-edit {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+.vault-link { border-color: transparent; color: var(--accent); text-decoration: underline; }
+.vault-form-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.vault-strength { font-size: 0.85rem; color: var(--muted); }
+.vault-tool-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+
+/* One saved password. The password itself shows as dots until you tap Show. */
+.vault-entry {
+  overflow-wrap: anywhere;
+  border: 1px solid var(--border-soft);
+  border-radius: 18px;
+  padding: 14px 16px;
+  background: var(--bg);
+}
+.vault-entry strong { display: block; }
+.vault-entry .vault-line { margin: 2px 0; color: var(--muted); font-size: 0.9rem; }
+.vault-secret { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; letter-spacing: 0.05em; color: var(--text); }
+.vault-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.vault-actions button, .vault-actions a {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.85rem;
+  text-decoration: none;
+}
+
+/* The vault's create and unlock forms are .add-form (display: flex), which would override the hidden attribute. */
+.add-form[hidden], #vault-open[hidden] { display: none; }

@@ -433,7 +433,7 @@ function recordUndo(collectionName, id, before, after) {
 
 const UI_STORAGE_KEY = 'secondMemory.ui.v1';
 // Every screen id; each has a matching "<id>-collection" section and a sidebar button.
-const TABS = ['home', 'calendar', 'books', 'recipes', 'medications', 'diagnoses', 'weight', 'journal', 'todo', 'shopping', 'notes', 'resume'];
+const TABS = ['home', 'calendar', 'passwords', 'books', 'recipes', 'medications', 'diagnoses', 'weight', 'journal', 'todo', 'shopping', 'notes', 'resume'];
 
 // Reads the saved screen state (which tab was open), tolerating missing or damaged data.
 function loadUiState() {
@@ -471,6 +471,7 @@ function setActiveTab(tab) {
   });
   saveUiState({ activeTab });
   if (showingJournal) renderJournal(); // the tab is visible now, so widths (and the scroll position) are real
+  if (activeTab === 'passwords') renderVault(); // shows create, locked or open depending on the vault
   if (activeTab === 'calendar') renderCalendar(); // the data may have changed since it was last drawn
   if (activeTab === 'recipes') updateRecipeArrows(); // arrows can only be judged once the row has a width
 
@@ -6680,6 +6681,8 @@ function buildExportPayload() {
   if (goal !== null) local.weightGoal = goal;
   const readingGoals = loadReadingGoals();
   if (Object.keys(readingGoals).length > 0) local.readingGoals = readingGoals;
+  const vault = loadVaultBlob();
+  if (vault) local.vault = vault; // still encrypted: a backup file never holds a readable password
   return { collections, local };
 }
 
@@ -6934,6 +6937,13 @@ function importData(parsed) {
       anyChanged = true;
       summaries.push('weight goal');
     }
+    // The encrypted password vault is only restored onto a device that has none (it never replaces yours).
+    const incomingVault = parseVaultBlob(localPart.vault);
+    if (incomingVault && !loadVaultBlob()) {
+      try { localStorage.setItem(VAULT_KEY, JSON.stringify(incomingVault)); } catch { /* storage full: not restored */ }
+      anyChanged = true;
+      summaries.push('password vault');
+    }
     // Reading goals fill in only the years this device has no goal for.
     if (localPart.readingGoals && typeof localPart.readingGoals === 'object') {
       const have = loadReadingGoals();
@@ -7015,7 +7025,7 @@ document.addEventListener('visibilitychange', () => {
 
 // The build number shown in the Menu. Keep it equal to the number in CACHE_NAME in sw.js
 // (a test checks this), so "which version am I on?" has a one-glance answer.
-const APP_VERSION = 80;
+const APP_VERSION = 81;
 const THEME_KEY = 'secondMemory.theme.v1';
 const THEMES = ['auto', 'light', 'dark'];
 
@@ -7522,6 +7532,7 @@ function clearAppLock() {
 // Shows the lock screen (if a lock is set) and puts the cursor in the PIN box.
 function lockNow() {
   if (!loadLock()) return;
+  lockVault(); // the password vault locks with the app
   // Close anything showing private details first (summaries, cook mode, the lock settings dialog).
   if (!document.getElementById('health-summary').hidden) closeHealthSummary();
   if (!document.getElementById('therapy-summary').hidden) closeTherapySummary();
@@ -7832,6 +7843,603 @@ document.getElementById('text-size-btn').addEventListener('click', () => {
 });
 applyTextSize(TEXT_SIZES.includes(document.documentElement.getAttribute('data-text')) ? document.documentElement.getAttribute('data-text') : 'normal');
 
+// ---- Password vault ----
+// A small encrypted store for passwords. Everything is encrypted with the browser's built-in Web Crypto (no
+// libraries): the master password is stretched with PBKDF2-SHA256 (600,000 rounds, random salt) into an AES-256-GCM
+// key, and the whole list is encrypted into one blob in localStorage. The master password and the key are never
+// stored; the key lives in memory only while the vault is open. The vault is never synced, never searched, never in
+// the Undo history, and a backup of it is the still-encrypted blob. Forget the master password and the passwords
+// cannot be recovered: that is the point of encryption.
+
+const VAULT_KEY = 'secondMemory.vault.v1';
+const VAULT_BACKUP_AT_KEY = 'secondMemory.vaultBackupAt.v1';
+let VAULT_ITERATIONS = 600000; // `let` so the tests can use a small number
+const VAULT_MIN_LENGTH = 10;
+let VAULT_IDLE_MS = 3 * 60000; // locks itself after this long without touching the vault
+const VAULT_HIDDEN_LOCK_MS = 60000; // ...or after the app has been out of sight this long
+let VAULT_CLIPBOARD_MS = 30000; // a copied password is wiped from the clipboard after this long
+const VAULT_MAX_FAILS = 5; // wrong master passwords in a row before a short pause
+const VAULT_PAUSE_MS = 30000;
+
+let vaultKey = null; // the AES key while unlocked; null when locked
+let vaultSalt = null; // the salt that key was made with
+let vaultIterations = 0; // and the number of rounds
+let vaultEntries = []; // the decrypted passwords, only while unlocked
+let vaultFails = 0;
+let vaultPausedUntil = 0;
+let vaultIdleTimer = null;
+let vaultHiddenAt = null;
+let vaultClipboardTimer = null;
+let vaultEditingId = null; // the entry being edited in the form, if any
+let vaultSaving = Promise.resolve(); // saves run one after another
+const vaultRevealed = new Set(); // ids whose password is currently shown
+
+// ---- encoding helpers ----
+
+// Bytes to base64 text (in chunks, so a big blob does not overflow the argument limit).
+function bytesToB64(bytes) {
+  let text = '';
+  for (let i = 0; i < bytes.length; i += 8192) text += String.fromCharCode(...bytes.subarray(i, i + 8192));
+  return btoa(text);
+}
+
+// Base64 text back to bytes (throws on bad input).
+function b64ToBytes(text) {
+  const binary = atob(text);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+// Checks a stored or imported vault blob: version 1, a sane round count, and a salt, IV and data that are base64
+// of the right size. Returns a clean copy, or null.
+function parseVaultBlob(value) {
+  if (!value || typeof value !== 'object' || value.v !== 1) return null;
+  if (!Number.isInteger(value.iter) || value.iter < 1000 || value.iter > 10000000) return null;
+  const base64 = /^[A-Za-z0-9+/]+={0,2}$/;
+  if (![value.salt, value.iv, value.data].every((s) => typeof s === 'string' && base64.test(s))) return null;
+  try {
+    if (b64ToBytes(value.salt).length !== 16 || b64ToBytes(value.iv).length !== 12 || b64ToBytes(value.data).length < 16) return null;
+  } catch {
+    return null;
+  }
+  return { v: 1, iter: value.iter, salt: value.salt, iv: value.iv, data: value.data };
+}
+
+// The stored vault, or null if there is none (or it is damaged).
+function loadVaultBlob() {
+  try {
+    return parseVaultBlob(JSON.parse(localStorage.getItem(VAULT_KEY)));
+  } catch {
+    return null;
+  }
+}
+
+// ---- encryption ----
+
+// Turns a master password into the AES key (not extractable: the key bytes can never be read back out).
+async function deriveVaultKey(password, salt, iterations) {
+  const material = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations, hash: 'SHA-256' },
+    material,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+// Encrypts the current entries with a fresh IV and stores them. Returns false if the browser refused to store it.
+function saveVault() {
+  vaultSaving = vaultSaving.then(async () => {
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const plain = new TextEncoder().encode(JSON.stringify({ entries: vaultEntries }));
+    const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, vaultKey, plain));
+    const blob = { v: 1, iter: vaultIterations, salt: bytesToB64(vaultSalt), iv: bytesToB64(iv), data: bytesToB64(cipher) };
+    try {
+      localStorage.setItem(VAULT_KEY, JSON.stringify(blob));
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  return vaultSaving;
+}
+
+// Decrypts a blob with a key; returns the list of valid entries, or null if the key is wrong or the data was changed.
+async function decryptVault(blob, key) {
+  try {
+    const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64ToBytes(blob.iv) }, key, b64ToBytes(blob.data));
+    const parsed = JSON.parse(new TextDecoder().decode(plain));
+    if (!parsed || !Array.isArray(parsed.entries)) return null;
+    return parsed.entries.filter((e) => e && typeof e.id === 'string').map(cleanVaultEntry);
+  } catch {
+    return null; // AES-GCM fails the integrity check on a wrong password or any tampering
+  }
+}
+
+// One entry with every field forced to text (a damaged value becomes empty rather than breaking the screen).
+function cleanVaultEntry(raw) {
+  const text = (v) => (typeof v === 'string' ? v : '');
+  return {
+    id: text(raw.id),
+    site: text(raw.site),
+    username: text(raw.username),
+    password: text(raw.password),
+    url: text(raw.url),
+    notes: text(raw.notes),
+    dateAdded: text(raw.dateAdded),
+    updatedAt: text(raw.updatedAt),
+  };
+}
+
+// ---- opening, creating, locking ----
+
+// Makes a new vault protected by `password` and leaves it open. Returns { ok } or { ok: false, error }.
+async function createVault(password) {
+  if (typeof password !== 'string' || password.length < VAULT_MIN_LENGTH) {
+    return { ok: false, error: `Use at least ${VAULT_MIN_LENGTH} characters.` };
+  }
+  if (loadVaultBlob()) return { ok: false, error: 'A vault already exists on this device.' };
+  vaultSalt = crypto.getRandomValues(new Uint8Array(16));
+  vaultIterations = VAULT_ITERATIONS;
+  vaultKey = await deriveVaultKey(password, vaultSalt, vaultIterations);
+  vaultEntries = [];
+  if (!(await saveVault())) {
+    vaultKey = null;
+    return { ok: false, error: 'Could not save the vault (the browser refused to store it).' };
+  }
+  armVaultIdle();
+  return { ok: true };
+}
+
+// Tries a master password. Returns { ok } or { ok: false, error }; five wrong tries in a row pause for 30 seconds.
+async function unlockVault(password) {
+  const blob = loadVaultBlob();
+  if (!blob) return { ok: false, error: 'There is no vault on this device.' };
+  if (Date.now() < vaultPausedUntil) {
+    return { ok: false, error: `Too many wrong tries. Wait ${Math.ceil((vaultPausedUntil - Date.now()) / 1000)} seconds.` };
+  }
+  const salt = b64ToBytes(blob.salt);
+  const key = await deriveVaultKey(String(password), salt, blob.iter);
+  const entries = await decryptVault(blob, key);
+  if (!entries) {
+    vaultFails += 1;
+    if (vaultFails >= VAULT_MAX_FAILS) {
+      vaultFails = 0;
+      vaultPausedUntil = Date.now() + VAULT_PAUSE_MS;
+      return { ok: false, error: 'Wrong master password. Too many tries: wait 30 seconds.' };
+    }
+    return { ok: false, error: 'Wrong master password.' };
+  }
+  vaultFails = 0;
+  vaultKey = key;
+  vaultSalt = salt;
+  vaultIterations = blob.iter;
+  vaultEntries = entries;
+  armVaultIdle();
+  return { ok: true };
+}
+
+// Forgets the key and every decrypted password, and shows the locked screen.
+function lockVault() {
+  clearTimeout(vaultIdleTimer);
+  vaultKey = null;
+  vaultSalt = null;
+  vaultEntries = [];
+  vaultRevealed.clear();
+  vaultEditingId = null;
+  const search = document.getElementById('vault-search');
+  if (search) search.value = '';
+  renderVault();
+}
+
+// Restarts the idle countdown (called whenever the vault is touched).
+function armVaultIdle() {
+  clearTimeout(vaultIdleTimer);
+  if (vaultKey) vaultIdleTimer = setTimeout(lockVault, VAULT_IDLE_MS);
+}
+
+// ---- the passwords themselves ----
+
+// Checks the form fields; returns { ok, entry } or { ok: false, error }.
+function checkVaultFields(fields) {
+  const site = String(fields.site || '').trim();
+  const password = String(fields.password || '');
+  if (!site) return { ok: false, error: 'Enter the website or app.' };
+  if (!password) return { ok: false, error: 'Enter the password.' };
+  return {
+    ok: true,
+    entry: { site, username: String(fields.username || '').trim(), password, url: String(fields.url || '').trim(), notes: String(fields.notes || '').trim() },
+  };
+}
+
+// Runs a change to the entries and saves it; if saving fails the change is taken back. Returns { ok } or { ok: false, error }.
+async function changeVaultEntries(change) {
+  if (!vaultKey) return { ok: false, error: 'The vault is locked.' };
+  const before = JSON.stringify(vaultEntries);
+  change();
+  if (await saveVault()) {
+    armVaultIdle();
+    return { ok: true };
+  }
+  vaultEntries = JSON.parse(before);
+  return { ok: false, error: 'Could not save (the browser refused to store it).' };
+}
+
+// Adds a password.
+async function addVaultEntry(fields) {
+  const checked = checkVaultFields(fields);
+  if (!checked.ok) return checked;
+  const now = new Date().toISOString();
+  return changeVaultEntries(() => vaultEntries.push({ id: makeId(), ...checked.entry, dateAdded: now, updatedAt: now }));
+}
+
+// Saves changes to a password.
+async function updateVaultEntry(id, fields) {
+  const checked = checkVaultFields(fields);
+  if (!checked.ok) return checked;
+  if (!vaultEntries.some((e) => e.id === id)) return { ok: false, error: 'That password was not found.' };
+  return changeVaultEntries(() => {
+    const entry = vaultEntries.find((e) => e.id === id);
+    Object.assign(entry, checked.entry, { updatedAt: new Date().toISOString() });
+  });
+}
+
+// Deletes a password for good (it is not kept in Undo or anywhere else).
+async function deleteVaultEntry(id) {
+  return changeVaultEntries(() => { vaultEntries = vaultEntries.filter((e) => e.id !== id); });
+}
+
+// Changes the master password: checks the current one, then re-encrypts everything with a new salt and key.
+async function changeMasterPassword(current, next) {
+  const blob = loadVaultBlob();
+  if (!vaultKey || !blob) return { ok: false, error: 'Unlock the vault first.' };
+  if (!(await decryptVault(blob, await deriveVaultKey(String(current), b64ToBytes(blob.salt), blob.iter)))) {
+    return { ok: false, error: 'The current master password is wrong.' };
+  }
+  if (typeof next !== 'string' || next.length < VAULT_MIN_LENGTH) return { ok: false, error: `Use at least ${VAULT_MIN_LENGTH} characters.` };
+  const previous = { key: vaultKey, salt: vaultSalt, iterations: vaultIterations };
+  vaultSalt = crypto.getRandomValues(new Uint8Array(16));
+  vaultIterations = VAULT_ITERATIONS;
+  vaultKey = await deriveVaultKey(next, vaultSalt, vaultIterations);
+  if (!(await saveVault())) {
+    vaultKey = previous.key; vaultSalt = previous.salt; vaultIterations = previous.iterations;
+    return { ok: false, error: 'Could not save the vault.' };
+  }
+  armVaultIdle();
+  return { ok: true };
+}
+
+// ---- generator and strength ----
+
+// A random integer from 0 to n-1 with no bias (values from the random source that would favour small numbers are skipped).
+function secureRandomIndex(n) {
+  const limit = Math.floor(0x100000000 / n) * n;
+  const buffer = new Uint32Array(1);
+  do { crypto.getRandomValues(buffer); } while (buffer[0] >= limit);
+  return buffer[0] % n;
+}
+
+// A random password with at least one lowercase, uppercase and digit (and a symbol if asked), shuffled.
+// Look-alike characters (l, 1, I, O, 0) are left out so it can be read aloud or typed from a screen.
+function generatePassword(length = 16, { symbols = true } = {}) {
+  const sets = ['abcdefghijkmnopqrstuvwxyz', 'ABCDEFGHJKLMNPQRSTUVWXYZ', '23456789'];
+  if (symbols) sets.push('!@#$%^&*-_=+?');
+  const all = sets.join('');
+  const size = Math.max(length, sets.length);
+  const chars = sets.map((set) => set[secureRandomIndex(set.length)]);
+  while (chars.length < size) chars.push(all[secureRandomIndex(all.length)]);
+  for (let i = chars.length - 1; i > 0; i--) { // Fisher-Yates shuffle
+    const j = secureRandomIndex(i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join('');
+}
+
+// A rough strength guess from length and the kinds of characters used: { bits, label }.
+function passwordStrength(password) {
+  if (!password) return { bits: 0, label: '' };
+  let pool = 0;
+  if (/[a-z]/.test(password)) pool += 26;
+  if (/[A-Z]/.test(password)) pool += 26;
+  if (/[0-9]/.test(password)) pool += 10;
+  if (/[^A-Za-z0-9]/.test(password)) pool += 20;
+  const bits = Math.round(password.length * Math.log2(Math.max(pool, 2)));
+  return { bits, label: bits < 40 ? 'Weak' : bits < 60 ? 'Fair' : bits < 80 ? 'Good' : 'Strong' };
+}
+
+// ---- clipboard ----
+
+// Copies text; a copied password is wiped from the clipboard again after 30 seconds (the countdown restarts on each copy).
+async function copyVaultText(text, what) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    showToast(`Could not copy the ${what}.`, false);
+    return;
+  }
+  showToast(what === 'password' ? 'Password copied. It is cleared from the clipboard in 30 seconds.' : `Copied the ${what}.`, false);
+  if (what !== 'password') return;
+  clearTimeout(vaultClipboardTimer);
+  vaultClipboardTimer = setTimeout(async () => {
+    try { await navigator.clipboard.writeText(''); } catch { /* the browser will not let us (app not in front): nothing more to do */ }
+  }, VAULT_CLIPBOARD_MS);
+}
+
+// ---- backup file ----
+
+// Downloads the stored blob. It is already encrypted, so the file is safe to keep anywhere (it is useless without the master password).
+function exportVaultFile() {
+  const blob = loadVaultBlob();
+  if (!blob) { setVaultMessage('There is no vault to export.', true); return; }
+  const url = URL.createObjectURL(new Blob([JSON.stringify(blob, null, 2)], { type: 'application/json' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `second-memory-vault-${todayKey()}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  recordBackupTime(VAULT_BACKUP_AT_KEY);
+  setVaultMessage('Vault file downloaded. It is encrypted: you need the master password to open it.', false);
+}
+
+// Puts a vault file in place of the vault on this device (after asking, if there already is one).
+function restoreVaultFile(text) {
+  let blob = null;
+  try { blob = parseVaultBlob(JSON.parse(text)); } catch { /* not JSON */ }
+  if (!blob) { setVaultMessage("That file doesn't look like a vault file.", true); return false; }
+  if (loadVaultBlob() && !confirm('Replace the password vault on this device with this file? The current vault will be gone.')) return false;
+  try { localStorage.setItem(VAULT_KEY, JSON.stringify(blob)); } catch { setVaultMessage('Could not store the vault file.', true); return false; }
+  lockVault();
+  setVaultMessage('Vault restored. Unlock it with its master password.', false);
+  return true;
+}
+
+// ---- the screen ----
+
+// A short message under the heading.
+function setVaultMessage(text, isError) {
+  const el = document.getElementById('vault-message');
+  el.textContent = text;
+  el.hidden = !text;
+  el.classList.toggle('sync-failed', !!isError);
+}
+
+// Shows an error under one of the vault forms.
+function showVaultError(id, text) {
+  const el = document.getElementById(id);
+  el.textContent = text;
+  el.hidden = !text;
+}
+
+// Shows the right view (create / locked / open) and, when open, the list.
+function renderVault() {
+  const hasVault = !!loadVaultBlob();
+  const open = !!vaultKey;
+  document.getElementById('vault-setup').hidden = hasVault;
+  document.getElementById('vault-unlock').hidden = !hasVault || open;
+  document.getElementById('vault-open').hidden = !open;
+  if (!open) { renderVaultList(); return; }
+  renderVaultForm();
+  renderVaultList();
+}
+
+// Fills the add/edit form's title and button from whether an entry is being edited.
+function renderVaultForm() {
+  const editing = vaultEditingId !== null;
+  document.getElementById('vault-form-title').textContent = editing ? 'Edit password' : 'Add a password';
+  document.getElementById('vault-save-btn').textContent = editing ? 'Save changes' : 'Add password';
+  document.getElementById('vault-cancel-edit').hidden = !editing;
+}
+
+// Clears the add/edit form.
+function resetVaultForm() {
+  vaultEditingId = null;
+  ['vault-site', 'vault-username', 'vault-password', 'vault-url', 'vault-notes'].forEach((id) => { document.getElementById(id).value = ''; });
+  document.getElementById('vault-show-password').checked = false;
+  document.getElementById('vault-password').type = 'password';
+  document.getElementById('vault-strength').textContent = '';
+  showVaultError('vault-form-error', '');
+  renderVaultForm();
+}
+
+// Only http and https addresses become links (never javascript: or anything else).
+function safeVaultUrl(url) {
+  const value = String(url || '').trim();
+  if (!value) return null;
+  const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(value) ? value : `https://${value}`;
+  try {
+    const parsed = new URL(withScheme);
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:' ? parsed.href : null;
+  } catch {
+    return null;
+  }
+}
+
+// Draws the list of passwords (empty when locked). Text is always set with textContent, never as HTML.
+function renderVaultList() {
+  const list = document.getElementById('vault-list');
+  list.innerHTML = '';
+  const empty = document.getElementById('vault-empty');
+  if (!vaultKey) { empty.hidden = true; return; }
+  const term = document.getElementById('vault-search').value.trim().toLowerCase();
+  const shown = vaultEntries
+    .filter((e) => !term || `${e.site} ${e.username} ${e.url}`.toLowerCase().includes(term))
+    .sort((a, b) => a.site.localeCompare(b.site, undefined, { sensitivity: 'base' }));
+  empty.hidden = vaultEntries.length !== 0;
+  shown.forEach((entry) => {
+    const li = document.createElement('li');
+    li.className = 'vault-entry';
+    li.dataset.vaultId = entry.id;
+    const site = document.createElement('strong');
+    site.textContent = entry.site;
+    li.appendChild(site);
+    const line = (text, className) => { const p = document.createElement('p'); p.className = className || 'vault-line'; p.textContent = text; li.appendChild(p); return p; };
+    if (entry.username) line(entry.username);
+    const shownPassword = vaultRevealed.has(entry.id);
+    line(shownPassword ? entry.password : '\u2022'.repeat(Math.min(entry.password.length, 12) || 8), 'vault-line vault-secret').classList.add('vault-password');
+    if (entry.notes) line(entry.notes);
+
+    const actions = document.createElement('div');
+    actions.className = 'vault-actions';
+    const button = (label, onClick, extraClass) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = label;
+      if (extraClass) b.className = extraClass;
+      b.addEventListener('click', () => { armVaultIdle(); onClick(); });
+      actions.appendChild(b);
+      return b;
+    };
+    button(shownPassword ? 'Hide' : 'Show', () => { if (shownPassword) vaultRevealed.delete(entry.id); else vaultRevealed.add(entry.id); renderVaultList(); }, 'vault-toggle');
+    button('Copy password', () => copyVaultText(entry.password, 'password'), 'vault-copy-password');
+    if (entry.username) button('Copy username', () => copyVaultText(entry.username, 'username'), 'vault-copy-username');
+    const href = safeVaultUrl(entry.url);
+    if (href) {
+      const open = document.createElement('a');
+      open.href = href;
+      open.target = '_blank';
+      open.rel = 'noopener noreferrer';
+      open.textContent = 'Open site';
+      actions.appendChild(open);
+    }
+    button('Edit', () => startVaultEdit(entry.id), 'vault-edit');
+    button('Delete', async () => {
+      if (!confirm(`Delete the saved password for ${entry.site}? This cannot be undone.`)) return;
+      vaultRevealed.delete(entry.id);
+      const result = await deleteVaultEntry(entry.id);
+      if (!result.ok) setVaultMessage(result.error, true);
+      renderVaultList();
+    }, 'vault-delete');
+    li.appendChild(actions);
+    list.appendChild(li);
+  });
+}
+
+// Loads an entry into the form for editing.
+function startVaultEdit(id) {
+  const entry = vaultEntries.find((e) => e.id === id);
+  if (!entry) return;
+  vaultEditingId = id;
+  document.getElementById('vault-site').value = entry.site;
+  document.getElementById('vault-username').value = entry.username;
+  document.getElementById('vault-password').value = entry.password;
+  document.getElementById('vault-url').value = entry.url;
+  document.getElementById('vault-notes').value = entry.notes;
+  document.getElementById('vault-add-details').open = true;
+  renderVaultForm();
+  updateVaultStrength();
+  document.getElementById('vault-site').focus();
+}
+
+// Shows the strength guess under the password box.
+function updateVaultStrength() {
+  const { bits, label } = passwordStrength(document.getElementById('vault-password').value);
+  document.getElementById('vault-strength').textContent = label ? `${label} (about ${bits} bits)` : '';
+}
+
+// ---- wiring ----
+
+// First visit: create the vault.
+document.getElementById('vault-setup').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const password = document.getElementById('vault-new-password').value;
+  if (password !== document.getElementById('vault-new-confirm').value) { showVaultError('vault-setup-error', 'The two passwords do not match.'); return; }
+  showVaultError('vault-setup-error', 'Creating\u2026');
+  const result = await createVault(password);
+  if (!result.ok) { showVaultError('vault-setup-error', result.error); return; }
+  document.getElementById('vault-new-password').value = '';
+  document.getElementById('vault-new-confirm').value = '';
+  showVaultError('vault-setup-error', '');
+  setVaultMessage('Vault created. Remember the master password: it cannot be recovered.', false);
+  renderVault();
+});
+
+// Locked: unlock.
+document.getElementById('vault-unlock').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const input = document.getElementById('vault-unlock-password');
+  showVaultError('vault-unlock-error', 'Unlocking\u2026');
+  const result = await unlockVault(input.value);
+  input.value = '';
+  if (!result.ok) { showVaultError('vault-unlock-error', result.error); return; }
+  showVaultError('vault-unlock-error', '');
+  setVaultMessage('', false);
+  renderVault();
+});
+
+// Forgot the master password: the only way forward is to erase the vault and start again.
+document.getElementById('vault-forgot').addEventListener('click', () => {
+  if (!confirm('Erase the password vault on this device? Every saved password will be gone for good. This cannot be undone.')) return;
+  try { localStorage.removeItem(VAULT_KEY); } catch { /* nothing to remove it from */ }
+  lockVault();
+  setVaultMessage('The vault was erased. You can create a new one.', false);
+});
+
+document.getElementById('vault-lock-btn').addEventListener('click', lockVault);
+document.getElementById('vault-search').addEventListener('input', () => { armVaultIdle(); renderVaultList(); });
+
+// Add or save.
+document.getElementById('vault-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fields = {
+    site: document.getElementById('vault-site').value,
+    username: document.getElementById('vault-username').value,
+    password: document.getElementById('vault-password').value,
+    url: document.getElementById('vault-url').value,
+    notes: document.getElementById('vault-notes').value,
+  };
+  const result = vaultEditingId ? await updateVaultEntry(vaultEditingId, fields) : await addVaultEntry(fields);
+  if (!result.ok) { showVaultError('vault-form-error', result.error); return; }
+  resetVaultForm();
+  document.getElementById('vault-add-details').open = false;
+  renderVaultList();
+});
+document.getElementById('vault-cancel-edit').addEventListener('click', () => { resetVaultForm(); document.getElementById('vault-add-details').open = false; });
+document.getElementById('vault-show-password').addEventListener('change', (e) => { document.getElementById('vault-password').type = e.target.checked ? 'text' : 'password'; });
+document.getElementById('vault-password').addEventListener('input', updateVaultStrength);
+document.getElementById('vault-generate').addEventListener('click', () => {
+  document.getElementById('vault-password').value = generatePassword(16);
+  document.getElementById('vault-show-password').checked = true;
+  document.getElementById('vault-password').type = 'text';
+  updateVaultStrength();
+});
+
+// Vault tools.
+document.getElementById('vault-export').addEventListener('click', exportVaultFile);
+for (const id of ['vault-import', 'vault-import-first']) document.getElementById(id).addEventListener('click', () => document.getElementById('vault-file-input').click());
+document.getElementById('vault-file-input').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => restoreVaultFile(String(reader.result));
+  reader.onerror = () => setVaultMessage('Could not read that file.', true);
+  reader.readAsText(file);
+});
+document.getElementById('vault-change-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const current = document.getElementById('vault-change-current').value;
+  const next = document.getElementById('vault-change-new').value;
+  if (next !== document.getElementById('vault-change-confirm').value) { showVaultError('vault-change-error', 'The two new passwords do not match.'); return; }
+  const result = await changeMasterPassword(current, next);
+  if (!result.ok) { showVaultError('vault-change-error', result.error); return; }
+  ['vault-change-current', 'vault-change-new', 'vault-change-confirm'].forEach((id) => { document.getElementById(id).value = ''; });
+  showVaultError('vault-change-error', '');
+  setVaultMessage('Master password changed.', false);
+});
+
+// Locks itself: after a few idle minutes (any touch inside the Passwords screen restarts the countdown),
+// and when the app has been out of sight for a minute.
+['pointerdown', 'keydown'].forEach((type) => document.getElementById('passwords-collection').addEventListener(type, armVaultIdle));
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') { vaultHiddenAt = Date.now(); return; }
+  if (vaultKey && vaultHiddenAt !== null && Date.now() - vaultHiddenAt >= VAULT_HIDDEN_LOCK_MS) lockVault();
+  vaultHiddenAt = null;
+});
+
 // ---- Init ----
 // First draw of every screen, then the sync controls and the service worker. Home is not drawn here
 // directly: renderBooks, renderTodos, renderWeights and others each end by calling renderHome.
@@ -8015,6 +8623,12 @@ async function renderSettingsCheck() {
   else if (Notification.permission === 'denied') addCheckRow(rows, 'warn', 'Reminders', 'blocked in your browser settings');
   else if (state.enabled && Notification.permission === 'granted') addCheckRow(rows, 'ok', 'Reminders', `on (weigh-in ${state.weighInTime}, refills ${state.refillTime}, to-dos ${state.todoTime})`);
   else addCheckRow(rows, 'info', 'Reminders', 'off', 'Turn on', () => document.getElementById('reminders-btn').click());
+
+  if (!loadVaultBlob()) addCheckRow(rows, 'info', 'Password vault', 'not created');
+  else {
+    addCheckRow(rows, 'ok', 'Password vault', vaultKey ? 'unlocked' : 'locked');
+    addAgeRow(rows, 'Vault backup', daysSinceBackup(VAULT_BACKUP_AT_KEY), 30, 'Export vault', exportVaultFile);
+  }
 
   if (loadLock()) addCheckRow(rows, 'ok', 'App lock', 'on');
   else addCheckRow(rows, 'info', 'App lock', 'off, so anyone holding your phone can open the app', 'Set up', () => document.getElementById('lock-btn').click());

@@ -57,6 +57,13 @@ class AppFiles(unittest.TestCase):
             if name:
                 self.assertTrue((ROOT / name).exists(), f"{name} is in APP_SHELL but missing on disk")
 
+    def test_code_the_first_screen_draws_is_defined_before_the_init_section(self):
+        """Init draws the saved screen straight away, so each screen's own code must come before it in the file
+        (a `let` or `const` below it is not set up yet: this once broke the app when it reopened on Passwords)."""
+        init = APP.index("// ---- Init ----")
+        for marker in ["// ---- Password vault ----", "// ---- Calendar ----", "// ---- Manual order"]:
+            self.assertLess(APP.index(marker), init, marker + " must come before the Init section")
+
 
 if __name__ == "__main__":
     unittest.main()
