@@ -518,16 +518,23 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
       <details class="add-dropdown">
       <summary>Add a medication</summary>
       <form id="medications-add-form" class="add-form add-form-stacked">
+        <select id="medications-kind-input" aria-label="Type">
+          <option value="medication">Medication</option>
+          <option value="equipment">Medical equipment (replaced on a schedule)</option>
+        </select>
         <input type="text" id="medications-name-input" placeholder="Name" required aria-label="Medication name">
         <input type="text" id="medications-dosage-input" placeholder="Dosage (e.g. 10mg)" aria-label="Medication dosage">
         <input type="text" id="medications-frequency-input" placeholder="Frequency (e.g. twice daily)" aria-label="Medication frequency">
         <input type="text" id="medications-doctor-input" placeholder="Prescribing doctor" aria-label="Prescribing doctor">
+        <input type="text" id="medications-pharmacy-input" placeholder="Pharmacy or supplier (optional)" aria-label="Pharmacy or supplier">
         <label class="date-field">Start date
           <input type="date" id="medications-start-input" min="1990-01-01" max="2100-12-31" aria-label="Start date">
         </label>
         <label class="date-field">Next refill date
           <input type="date" id="medications-refill-input" min="1990-01-01" max="2100-12-31" aria-label="Next refill date">
         </label>
+        <input type="number" id="medications-refills-left-input" min="0" max="99" placeholder="Refills left (optional)" aria-label="Refills left">
+        <input type="number" id="medications-every-input" min="1" max="365" placeholder="Refill or replace every N days (optional)" aria-label="Refill or replace every N days">
         <textarea id="medications-notes-input" placeholder="Notes (optional)" aria-label="Medication notes" rows="2"></textarea>
         <p class="form-error" id="medications-form-error" hidden></p>
         <button type="submit">Add medication</button>
@@ -1027,16 +1034,20 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
     <div class="med-view">
       <div class="med-info">
         <strong class="med-name"></strong>
+        <span class="med-kind badge" hidden>Equipment</span>
         <span class="med-field med-dosage-field" hidden><span class="field-label">Dosage:</span> <span class="med-dosage"></span></span>
         <span class="med-field med-frequency-field" hidden><span class="field-label">Frequency:</span> <span class="med-frequency"></span></span>
         <span class="med-field med-doctor-field" hidden><span class="field-label">Prescriber:</span> <span class="med-doctor"></span></span>
+        <span class="med-field med-pharmacy-field" hidden><span class="field-label">Pharmacy:</span> <span class="med-pharmacy"></span></span>
+        <span class="med-field med-refills-field" hidden><span class="field-label">Refills left:</span> <span class="med-refills-left"></span></span>
+        <span class="med-field med-last-field" hidden><span class="field-label med-last-label">Last picked up:</span> <span class="med-last"></span></span>
       </div>
       <div class="med-dates">
         <label class="date-field">Start date
           <input type="date" class="med-start-date" min="1990-01-01" max="2100-12-31" aria-label="Start date">
           <small class="unknown-hint" hidden>unknown</small>
         </label>
-        <label class="date-field">Next refill date
+        <label class="date-field"><span class="med-refill-label">Next refill date</span>
           <input type="date" class="med-refill-date" min="1990-01-01" max="2100-12-31" aria-label="Next refill date">
           <small class="refill-hint" hidden></small>
         </label>
@@ -1048,10 +1059,14 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         <button type="button" class="refill-picked-btn">Picked up refill</button>
         <button type="button" class="refill-change-btn" hidden>Change days</button>
         <div class="refill-interval" hidden>
-          <span>Picked up &mdash; refills every:</span>
-          <button type="button" class="chip" data-days="30">30 days</button>
-          <button type="button" class="chip" data-days="60">60 days</button>
-          <button type="button" class="chip" data-days="90">90 days</button>
+          <span class="refill-interval-label">Picked up &mdash; refills every:</span>
+          <button type="button" class="chip" data-days="30" data-for="both">30 days</button>
+          <button type="button" class="chip" data-days="60" data-for="med">60 days</button>
+          <button type="button" class="chip" data-days="90" data-for="both">90 days</button>
+          <button type="button" class="chip" data-days="180" data-for="equip">6 months</button>
+          <button type="button" class="chip" data-days="365" data-for="equip">1 year</button>
+          <input type="number" class="refill-custom-days" min="1" max="365" placeholder="days" aria-label="Number of days">
+          <button type="button" class="chip refill-custom-go">Set</button>
         </div>
       </div>
       <div class="med-actions">
@@ -1060,10 +1075,17 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
       </div>
     </div>
     <form class="med-edit-form" hidden>
+      <select class="med-edit-kind" aria-label="Edit type">
+        <option value="medication">Medication</option>
+        <option value="equipment">Medical equipment (replaced on a schedule)</option>
+      </select>
       <input type="text" class="med-edit-name" placeholder="Name" required aria-label="Edit medication name">
       <input type="text" class="med-edit-dosage" placeholder="Dosage (e.g. 10mg)" aria-label="Edit medication dosage">
       <input type="text" class="med-edit-frequency" placeholder="Frequency (e.g. twice daily)" aria-label="Edit medication frequency">
       <input type="text" class="med-edit-doctor" placeholder="Prescribing doctor" aria-label="Edit prescribing doctor">
+      <input type="text" class="med-edit-pharmacy" placeholder="Pharmacy or supplier (optional)" aria-label="Edit pharmacy or supplier">
+      <input type="number" class="med-edit-refills-left" min="0" max="99" placeholder="Refills left (optional)" aria-label="Edit refills left">
+      <input type="number" class="med-edit-every" min="1" max="365" placeholder="Refill or replace every N days (optional)" aria-label="Edit refill or replace every N days">
       <textarea class="med-edit-notes" placeholder="Notes (optional)" aria-label="Edit medication notes" rows="2"></textarea>
       <p class="form-error med-edit-error" hidden></p>
       <div class="med-actions">

@@ -1551,7 +1551,27 @@ const MEDICATIONS_KEY = 'secondMemory.medications.v1';
 
 let medications = migrateSyncFields(loadCollection(MEDICATIONS_KEY), MEDICATIONS_KEY, getDeviceId());
 
-// Adds a medication. Returns { ok } or { ok: false, error } for a missing name or out-of-range date.
+// A whole number from 0 to 99 (refills left), or null when blank or not a sensible number.
+function cleanCount(value) {
+  if (value === '' || value === null || value === undefined) return null;
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 0 && n <= 99 ? n : null;
+}
+
+// A whole number of days from 1 to 365, or null.
+function cleanDays(value) {
+  if (value === '' || value === null || value === undefined) return null;
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 1 && n <= 365 ? n : null;
+}
+
+// Medications and medical equipment share this list: equipment (a CPAP mask, test strips, a tubing set...) is
+// "replaced" on a schedule where a medication is "refilled". Anything that is not 'equipment' counts as medication.
+function isEquipment(med) {
+  return med.kind === 'equipment';
+}
+
+// Adds a medication or piece of equipment. Returns { ok } or { ok: false, error } for a missing name or out-of-range date.
 function addMedication(fields) {
   const trimmedName = fields.name.trim();
   if (!trimmedName) return { ok: false, error: 'Name is required.' };
@@ -1571,6 +1591,11 @@ function addMedication(fields) {
     endDate: null,
     refillDate,
     notes: fields.notes.trim(),
+    kind: fields.kind === 'equipment' ? 'equipment' : 'medication',
+    pharmacy: String(fields.pharmacy || '').trim(),
+    refillsLeft: cleanCount(fields.refillsLeft),
+    refillEveryDays: cleanDays(fields.refillEveryDays),
+    lastPickedUp: null,
     dateAdded: now,
     updatedAt: now,
     deviceId: getDeviceId(),
@@ -1627,6 +1652,8 @@ function markRefillPickedUp(id, days) {
   const before = structuredClone(med);
   med.refillDate = shiftDateKey(todayKey(), days);
   med.refillEveryDays = days;
+  med.lastPickedUp = todayKey();
+  if (!isEquipment(med) && Number.isInteger(med.refillsLeft) && med.refillsLeft > 0) med.refillsLeft -= 1; // one refill used
   stampSync(med);
   saveCollection(MEDICATIONS_KEY, medications);
   recordUndo('medications', id, before, structuredClone(med));
@@ -1693,6 +1720,11 @@ function updateMedication(id, fields) {
   med.frequency = fields.frequency.trim();
   med.prescribingDoctor = fields.prescribingDoctor.trim();
   med.notes = fields.notes.trim();
+  // The newer fields change only when the caller sends them.
+  if (fields.kind !== undefined) med.kind = fields.kind === 'equipment' ? 'equipment' : 'medication';
+  if (fields.pharmacy !== undefined) med.pharmacy = String(fields.pharmacy).trim();
+  if (fields.refillsLeft !== undefined) med.refillsLeft = cleanCount(fields.refillsLeft);
+  if (fields.refillEveryDays !== undefined) med.refillEveryDays = cleanDays(fields.refillEveryDays);
   stampSync(med);
   saveCollection(MEDICATIONS_KEY, medications);
   recordUndo('medications', id, before, structuredClone(med));
@@ -1748,6 +1780,21 @@ function renderMedicationList(items, template, openEdit) {
     setField('med-dosage', 'med-dosage-field', med.dosage);
     setField('med-frequency', 'med-frequency-field', med.frequency);
     setField('med-doctor', 'med-doctor-field', med.prescribingDoctor);
+    setField('med-pharmacy', 'med-pharmacy-field', med.pharmacy);
+    const equipment = isEquipment(med);
+    node.querySelector('.med-kind').hidden = !equipment;
+    node.querySelector('.med-refill-label').textContent = equipment ? 'Next replacement date' : 'Next refill date';
+    if (!equipment && Number.isInteger(med.refillsLeft)) {
+      const left = node.querySelector('.med-refills-left');
+      left.textContent = med.refillsLeft === 0 ? 'none. Ask for a new prescription' : String(med.refillsLeft);
+      left.classList.toggle('med-warn', med.refillsLeft === 0);
+      node.querySelector('.med-refills-field').hidden = false;
+    }
+    if (isRealDateKey(med.lastPickedUp)) {
+      node.querySelector('.med-last-label').textContent = equipment ? 'Last replaced:' : 'Last picked up:';
+      node.querySelector('.med-last').textContent = formatDateKeyLong(med.lastPickedUp);
+      node.querySelector('.med-last-field').hidden = false;
+    }
 
     const startInput = node.querySelector('.med-start-date');
     const refillInput = node.querySelector('.med-refill-date');
@@ -1764,14 +1811,23 @@ function renderMedicationList(items, template, openEdit) {
     const changeBtn = node.querySelector('.refill-change-btn');
     const intervalRow = node.querySelector('.refill-interval');
     const knownDays = Number.isInteger(med.refillEveryDays) && med.refillEveryDays >= 1 && med.refillEveryDays <= 365 ? med.refillEveryDays : null;
-    pickedBtn.textContent = knownDays ? `Picked up refill (next in ${knownDays} days)` : 'Picked up refill';
+    const doneWord = equipment ? 'Replaced' : 'Picked up refill';
+    pickedBtn.textContent = knownDays ? `${doneWord} (next in ${knownDays} days)` : doneWord;
+    node.querySelector('.refill-interval-label').textContent = equipment ? 'Replaced \u2014 replace every:' : 'Picked up \u2014 refills every:';
+    // Each kind offers its own usual intervals; any other number can be typed in.
+    intervalRow.querySelectorAll('.chip[data-for]').forEach((chip) => { chip.hidden = chip.dataset.for === (equipment ? 'med' : 'equip'); });
+    const customDays = node.querySelector('.refill-custom-days'); // looked up now: `node` is empty once the card is on the page
+    node.querySelector('.refill-custom-go').addEventListener('click', () => {
+      const days = cleanDays(customDays.value);
+      if (days) markRefillPickedUp(med.id, days);
+    });
     changeBtn.hidden = !knownDays;
     pickedBtn.addEventListener('click', () => {
       if (knownDays) markRefillPickedUp(med.id, knownDays);
       else intervalRow.hidden = !intervalRow.hidden;
     });
     changeBtn.addEventListener('click', () => { intervalRow.hidden = !intervalRow.hidden; });
-    intervalRow.querySelectorAll('.chip').forEach((chip) => {
+    intervalRow.querySelectorAll('.chip[data-days]').forEach((chip) => {
       chip.addEventListener('click', () => markRefillPickedUp(med.id, Number(chip.dataset.days)));
     });
 
@@ -1815,6 +1871,10 @@ function renderMedicationList(items, template, openEdit) {
     const editFrequencyInput = node.querySelector('.med-edit-frequency');
     const editDoctorInput = node.querySelector('.med-edit-doctor');
     const editNotesInput = node.querySelector('.med-edit-notes');
+    const editKindInput = node.querySelector('.med-edit-kind');
+    const editPharmacyInput = node.querySelector('.med-edit-pharmacy');
+    const editRefillsLeftInput = node.querySelector('.med-edit-refills-left');
+    const editEveryInput = node.querySelector('.med-edit-every');
     const editError = node.querySelector('.med-edit-error');
 
     node.querySelector('.edit-btn').addEventListener('click', () => {
@@ -1829,6 +1889,10 @@ function renderMedicationList(items, template, openEdit) {
       editFrequencyInput.value = med.frequency || '';
       editDoctorInput.value = med.prescribingDoctor || '';
       editNotesInput.value = med.notes || '';
+      editKindInput.value = med.kind === 'equipment' ? 'equipment' : 'medication';
+      editPharmacyInput.value = med.pharmacy || '';
+      editRefillsLeftInput.value = Number.isInteger(med.refillsLeft) ? med.refillsLeft : '';
+      editEveryInput.value = Number.isInteger(med.refillEveryDays) ? med.refillEveryDays : '';
       editError.hidden = true;
       viewSection.hidden = true;
       editForm.hidden = false;
@@ -1856,6 +1920,10 @@ function renderMedicationList(items, template, openEdit) {
         frequency: editFrequencyInput.value,
         prescribingDoctor: editDoctorInput.value,
         notes: editNotesInput.value,
+        kind: editKindInput.value,
+        pharmacy: editPharmacyInput.value,
+        refillsLeft: editRefillsLeftInput.value,
+        refillEveryDays: editEveryInput.value,
       });
       if (!result.ok) {
         viewSection.hidden = true;
@@ -1873,6 +1941,10 @@ function renderMedicationList(items, template, openEdit) {
       editFrequencyInput.value = openEdit.frequency;
       editDoctorInput.value = openEdit.prescribingDoctor;
       editNotesInput.value = openEdit.notes;
+      editKindInput.value = openEdit.kind;
+      editPharmacyInput.value = openEdit.pharmacy;
+      editRefillsLeftInput.value = openEdit.refillsLeft;
+      editEveryInput.value = openEdit.refillEveryDays;
       viewSection.hidden = true;
       editForm.hidden = false;
     }
@@ -1902,6 +1974,10 @@ function renderMedications() {
       frequency: openForm.querySelector('.med-edit-frequency').value,
       prescribingDoctor: openForm.querySelector('.med-edit-doctor').value,
       notes: openForm.querySelector('.med-edit-notes').value,
+      kind: openForm.querySelector('.med-edit-kind').value,
+      pharmacy: openForm.querySelector('.med-edit-pharmacy').value,
+      refillsLeft: openForm.querySelector('.med-edit-refills-left').value,
+      refillEveryDays: openForm.querySelector('.med-edit-every').value,
     };
   }
 
@@ -1932,6 +2008,10 @@ document.getElementById('medications-add-form').addEventListener('submit', (e) =
     startDate: startInput.value,
     refillDate: refillInput.value,
     notes: notesInput.value,
+    kind: document.getElementById('medications-kind-input').value,
+    pharmacy: document.getElementById('medications-pharmacy-input').value,
+    refillsLeft: document.getElementById('medications-refills-left-input').value,
+    refillEveryDays: document.getElementById('medications-every-input').value,
   });
 
   if (!result.ok) {
@@ -1948,6 +2028,8 @@ document.getElementById('medications-add-form').addEventListener('submit', (e) =
   startInput.value = '';
   refillInput.value = '';
   notesInput.value = '';
+  ['medications-pharmacy-input', 'medications-refills-left-input', 'medications-every-input'].forEach((id) => { document.getElementById(id).value = ''; });
+  document.getElementById('medications-kind-input').value = 'medication';
   nameInput.focus();
 });
 
@@ -4037,7 +4119,7 @@ function renderCalendarDetail(events) {
     box.append(label, list, open);
   };
   addBlock('To-dos due', day.todos.map((x) => x.task), 'todo', 'Open To-Do');
-  addBlock('Medication refills', day.refills.map((m) => m.name), 'medications', 'Open Medications');
+  addBlock('Refills and replacements', day.refills.map((m) => m.name), 'medications', 'Open Medications');
   addBlock('Weight', day.weights.map((w) => formatWeight(w.weight)), 'weight', 'Open Weight');
   if (day.todos.length + day.refills.length + day.weights.length === 0) {
     const none = document.createElement('p');
@@ -5915,7 +5997,9 @@ function renderHome() {
       const due = document.createElement('span');
       const days = daysUntilDateKey(med.refillDate);
       due.className = days < 0 ? 'bill-due overdue' : 'bill-due';
-      due.textContent = days < 0 ? `refill overdue (${med.refillDate})` : `refill ${whenLabel(days)}`;
+      const word = isEquipment(med) ? 'replacement' : 'refill';
+      due.textContent = days < 0 ? `${word} overdue (${med.refillDate})` : `${word} ${whenLabel(days)}`;
+      if (!isEquipment(med) && med.refillsLeft === 0) due.textContent += ' \u00b7 no refills left';
       btn.append(name, due);
     }));
   });
@@ -7025,7 +7109,7 @@ document.addEventListener('visibilitychange', () => {
 
 // The build number shown in the Menu. Keep it equal to the number in CACHE_NAME in sw.js
 // (a test checks this), so "which version am I on?" has a one-glance answer.
-const APP_VERSION = 81;
+const APP_VERSION = 82;
 const THEME_KEY = 'secondMemory.theme.v1';
 const THEMES = ['auto', 'light', 'dark'];
 
@@ -7176,9 +7260,10 @@ async function checkReminders() {
   const needing = refillTimeReached ? medicationsNeedingRefillNotice().filter((m) => state.refills[m.id] !== today) : [];
   if (needing.length > 0) {
     const overdue = needing.some((m) => daysUntilDateKey(m.refillDate) < 0);
+    const allMeds = needing.every((m) => !isEquipment(m)); // only medications: keep the plain "refill" wording
     await showReminder(
-      overdue ? 'Medication refill overdue' : 'Medication refill coming up',
-      needing.length === 1 ? 'Open Second Memory to see which one.' : `${needing.length} refills need attention.`,
+      overdue ? (allMeds ? 'Medication refill overdue' : 'Refill or replacement overdue') : (allMeds ? 'Medication refill coming up' : 'Refill or replacement coming up'),
+      needing.length === 1 ? 'Open Second Memory to see which one.' : `${needing.length} ${allMeds ? 'refills' : 'refills or replacements'} need attention.`,
       'refill'
     );
     needing.forEach((m) => { state.refills[m.id] = today; });
@@ -7299,10 +7384,12 @@ function buildHealthSummaryData() {
       const how = [m.dosage, m.frequency].filter(Boolean).join(', ');
       if (how) lines.push(how);
       if (m.prescribingDoctor) lines.push(`Prescribed by ${m.prescribingDoctor}`);
+      if (m.pharmacy) lines.push(`${isEquipment(m) ? 'Supplier' : 'Pharmacy'}: ${m.pharmacy}`);
+      if (!isEquipment(m) && Number.isInteger(m.refillsLeft)) lines.push(`Refills left: ${m.refillsLeft}`);
       if (isRealDateKey(m.startDate)) lines.push(`Started ${formatDateKeyLong(m.startDate)}`);
       if (isRealDateKey(m.refillDate)) lines.push(`Next refill ${formatDateKeyLong(m.refillDate)}`);
       if (m.notes) lines.push(m.notes);
-      return { head: m.name, lines };
+      return { head: isEquipment(m) ? `${m.name} (equipment)` : m.name, lines };
     }),
   });
 

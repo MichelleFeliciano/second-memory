@@ -2800,3 +2800,9 @@ html[data-text="larger"] { font-size: 125%; }
 
 /* The vault's create and unlock forms are .add-form (display: flex), which would override the hidden attribute. */
 .add-form[hidden], #vault-open[hidden] { display: none; }
+
+/* ===== 35. Medication extras: equipment badge, no-refills warning, custom days ===== */
+
+.med-warn { color: var(--accent-2); font-weight: 600; }
+.refill-interval .refill-custom-days { width: 80px; padding: 4px 8px; }
+.refill-interval [hidden] { display: none; }

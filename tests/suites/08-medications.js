@@ -92,3 +92,58 @@ medications.length = 0; renderMedications();
   check('typing a date then deleting gives two undo steps in order', undoStack.length === 3 && dateStep && dateStep.after.refillDate === dk(5) && dateStep.after.deleted === false, JSON.stringify(dateStep));
   medications.length = 0; undoStack.length = 0; redoStack.length = 0; renderMedications();
 }
+
+// ---- medical equipment, refills left, pharmacy, last pickup and custom days ----
+{
+  medications.length = 0;
+  check('cleanCount and cleanDays accept sensible numbers only', cleanCount('5') === 5 && cleanCount('') === null && cleanCount('abc') === null && cleanCount(120) === null && cleanCount(-1) === null && cleanDays(0) === null && cleanDays('30') === 30 && cleanDays(400) === null);
+  const blank = { dosage: '', frequency: '', prescribingDoctor: '', startDate: '', notes: '' };
+  addMedication({ ...blank, name: 'Metformin', refillDate: dk(-1), pharmacy: 'Corner Pharmacy', refillsLeft: '2', refillEveryDays: '', kind: 'medication' });
+  addMedication({ ...blank, name: 'CPAP mask', refillDate: dk(3), pharmacy: 'MedSupply Co', refillsLeft: '', refillEveryDays: '90', kind: 'equipment' });
+  const med = (name) => medications.find((m) => m.name === name);
+  check('the new fields are stored', med('Metformin').refillsLeft === 2 && med('Metformin').pharmacy === 'Corner Pharmacy' && med('CPAP mask').kind === 'equipment' && med('CPAP mask').refillEveryDays === 90 && med('Metformin').lastPickedUp === null);
+  nav('medications'); renderMedications();
+  const mcard = (name) => [...document.querySelectorAll('#medications-list .med-card')].find((c) => c.querySelector('.med-name').textContent === name);
+  check('equipment shows a badge, replacement wording and its supplier', !mcard('CPAP mask').querySelector('.med-kind').hidden && /replacement/.test(mcard('CPAP mask').querySelector('.med-refill-label').textContent) && /MedSupply/.test(mcard('CPAP mask').textContent) && /Replaced \(next in 90 days\)/.test(mcard('CPAP mask').querySelector('.refill-picked-btn').textContent));
+  check('a medication shows no badge, refill wording, pharmacy and refills left', mcard('Metformin').querySelector('.med-kind').hidden && /refill date/.test(mcard('Metformin').querySelector('.med-refill-label').textContent) && /Corner Pharmacy/.test(mcard('Metformin').textContent) && mcard('Metformin').querySelector('.med-refills-left').textContent === '2');
+  const visibleChips = (name) => [...mcard(name).querySelectorAll('.refill-interval .chip[data-days]')].filter((c) => !c.hidden).map((c) => c.dataset.days).join(',');
+  check('each kind offers its own usual intervals', visibleChips('Metformin') === '30,60,90' && visibleChips('CPAP mask') === '30,90,180,365', visibleChips('Metformin') + ' / ' + visibleChips('CPAP mask'));
+
+  mcard('CPAP mask').querySelector('.refill-picked-btn').click();
+  check('Replaced moves the date out by the remembered days and records the day', med('CPAP mask').refillDate === shiftDateKey(todayKey(), 90) && med('CPAP mask').lastPickedUp === todayKey() && /Last replaced/.test(mcard('CPAP mask').textContent));
+  mcard('Metformin').querySelector('.refill-picked-btn').click();
+  mcard('Metformin').querySelector('.refill-interval .chip[data-days="30"]').click();
+  check('picking up a medication uses one refill and remembers the day', med('Metformin').refillsLeft === 1 && med('Metformin').lastPickedUp === todayKey() && /Last picked up/.test(mcard('Metformin').textContent));
+  mcard('Metformin').querySelector('.refill-picked-btn').click();
+  check('the next pickup uses the last one and warns to ask for a new prescription', med('Metformin').refillsLeft === 0 && /Ask for a new prescription/.test(mcard('Metformin').textContent) && !!mcard('Metformin').querySelector('.med-warn'));
+  mcard('Metformin').querySelector('.refill-picked-btn').click();
+  check('refills left never goes below zero', med('Metformin').refillsLeft === 0);
+  check('equipment never uses refills left', med('CPAP mask').refillsLeft === null);
+  mcard('Metformin').querySelector('.refill-custom-days').value = '45';
+  mcard('Metformin').querySelector('.refill-custom-go').click();
+  check('any number of days can be typed in', med('Metformin').refillDate === shiftDateKey(todayKey(), 45) && med('Metformin').refillEveryDays === 45);
+  mcard('Metformin').querySelector('.refill-custom-days').value = '0';
+  mcard('Metformin').querySelector('.refill-custom-go').click();
+  check('a wrong number of days is ignored', med('Metformin').refillDate === shiftDateKey(todayKey(), 45));
+
+  med('Metformin').refillDate = dk(1); med('CPAP mask').refillDate = dk(-2); renderHome();
+  const homeText = $('home-refills-list').textContent;
+  check('Home says "replacement" for equipment and warns when no refills are left', /replacement overdue/.test(homeText) && /refill tomorrow/.test(homeText) && /no refills left/.test(homeText), homeText);
+
+  updateMedication(med('CPAP mask').id, { name: 'CPAP mask', dosage: '', frequency: '', prescribingDoctor: '', notes: '', pharmacy: 'New Supplier', refillEveryDays: '180', kind: 'equipment' });
+  check('the edit form can change the supplier and interval', med('CPAP mask').pharmacy === 'New Supplier' && med('CPAP mask').refillEveryDays === 180);
+  updateMedication(med('CPAP mask').id, { name: 'CPAP mask', dosage: '', frequency: '', prescribingDoctor: '', notes: '' });
+  check('an older-style edit leaves the newer fields alone', med('CPAP mask').pharmacy === 'New Supplier' && med('CPAP mask').kind === 'equipment' && med('CPAP mask').refillEveryDays === 180);
+
+  const sheetText = buildHealthSummaryText(buildHealthSummaryData());
+  check('the health summary labels equipment and lists supplier and refills left', /CPAP mask \(equipment\)/.test(sheetText) && /Supplier: New Supplier/.test(sheetText) && /Refills left: 0/.test(sheetText), sheetText);
+  const RealNotification3 = window.Notification; const shown3 = [];
+  window.Notification = function (title, options) { shown3.push({ title, options }); };
+  window.Notification.permission = 'granted';
+  med('Metformin').refillDate = dk(1); med('CPAP mask').refillDate = dk(1);
+  saveReminderState({ enabled: true, refills: {}, weighIn: '', weighInTime: '23:59', refillTime: '00:00', todoTime: '23:59', todosTold: '' });
+  await checkReminders();
+  check('a notice covering equipment says "refill or replacement"', shown3.some((n) => /Refill or replacement/.test(n.title) && /2 refills or replacements/.test(n.options.body)), JSON.stringify(shown3));
+  window.Notification = RealNotification3; localStorage.removeItem(REMINDERS_KEY);
+  medications.length = 0; renderMedications();
+}
