@@ -78,7 +78,7 @@ COLLECTION_NAMES = [
 # not this machine), so browsers treat sync requests as cross-origin and
 # block them without an explicit CORS allowlist. Only these exact origins
 # are ever allowed to call /api/sync from a browser.
-ALLOWED_SYNC_ORIGINS = {"https://sagebrushsites.com", "https://michellefeliciano.github.io"}
+ALLOWED_SYNC_ORIGINS = {"https://sagebrushstudiollc.com", "https://michellefeliciano.github.io"}
 
 # One lock guards every read-modify-write of the data file and backups (the server is
 # threaded, so two devices can sync at the same moment).
