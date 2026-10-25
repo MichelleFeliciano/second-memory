@@ -9,7 +9,7 @@ HTML = (ROOT / "index.html").read_text(encoding="utf-8")
 SW = (ROOT / "sw.js").read_text(encoding="utf-8")
 
 # Elements the app creates itself while running (so they are not in index.html).
-CREATED_BY_APP = {"storage-warning", "therapy-summary-title", "health-summary-title"}
+CREATED_BY_APP = {"storage-warning", "therapy-summary-title"}
 
 
 class AppFiles(unittest.TestCase):
@@ -61,8 +61,24 @@ class AppFiles(unittest.TestCase):
         """Init draws the saved screen straight away, so each screen's own code must come before it in the file
         (a `let` or `const` below it is not set up yet: this once broke the app when it reopened on Passwords)."""
         init = APP.index("// ---- Init ----")
-        for marker in ["// ---- Password vault ----", "// ---- Calendar ----", "// ---- Manual order"]:
+        for marker in ["// ---- Password vault ----", "// ---- Journal (dreams + therapy sessions) ----"]:
             self.assertLess(APP.index(marker), init, marker + " must come before the Init section")
+
+    def test_lists_that_moved_out_are_still_kept_exported_and_known_to_the_server(self):
+        """The to-do, shopping, medication, diagnosis and weight lists left the screens but never the data: the app
+        still holds and exports them, and the server must keep their names (a list the server does not name is
+        dropped on its next save, which would delete the server's copy)."""
+        import json
+        synced = set(re.findall(r"\{ name: '(\w+)', label:", APP))
+        retired = set(re.findall(r"\{ name: '(\w+)', key: 'secondMemory\.", APP))
+        self.assertEqual(retired, {"todos", "shoppingList", "medications", "diagnoses", "weights"})
+        self.assertEqual(synced, {"books", "recipes", "notes", "links"})
+        server = (ROOT / "sync_server.py").read_text(encoding="utf-8")
+        names = set(re.findall(r'"(\w+)"', re.search(r"COLLECTION_NAMES = \[(.*?)\]", server, re.S).group(1)))
+        self.assertTrue((synced | retired) <= names, "the server must keep naming every list, moved or not")
+        # A real export saved from version 82 only uses lists this version still knows how to read or keep.
+        fixture = json.loads((ROOT / "tests" / "fixtures" / "second-memory-export-v82.sample.json").read_text(encoding="utf-8"))
+        self.assertEqual(set(fixture["collections"]) - synced - retired, set())
 
 
 if __name__ == "__main__":

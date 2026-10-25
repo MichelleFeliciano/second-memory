@@ -19,19 +19,14 @@ check('the Menu shows the version', $('app-version').textContent === 'Version ' 
 
 // ---- quick add on Home ----
 nav('home');
-const todosBefore = todos.filter((t) => !t.deleted).length;
-const shopBefore = shoppingItems.filter((t) => !t.deleted).length;
 const notesBefore = notes.filter((t) => !t.deleted).length;
-const quick = (type, text) => { set('quick-add-type', type); set('quick-add-input', text); $('quick-add-form').requestSubmit(); };
-quick('todo', 'Quick task');
-quick('shopping', 'Quick apples');
-quick('note', 'Quick thought');
-check('quick add makes a to-do', todos.filter((t) => !t.deleted).length === todosBefore + 1 && todos.some((t) => t.task === 'Quick task'));
-check('quick add makes a shopping item', shoppingItems.filter((t) => !t.deleted).length === shopBefore + 1 && shoppingItems.some((t) => t.item === 'Quick apples'));
+const quick = (text) => { set('quick-add-input', text); $('quick-add-form').requestSubmit(); };
+check('quick add no longer offers to-dos or shopping items', !document.getElementById('quick-add-type'));
+quick('Quick thought');
 check('quick add makes a note', notes.filter((t) => !t.deleted).length === notesBefore + 1 && notes.some((t) => t.body === 'Quick thought'));
 check('quick add says where it went and clears the box', /your notes/.test($('quick-add-status').textContent) && $('quick-add-input').value === '');
-quick('todo', '   ');
-check('a blank quick add does nothing', todos.filter((t) => !t.deleted).length === todosBefore + 1);
+quick('   ');
+check('a blank quick add does nothing', notes.filter((t) => !t.deleted).length === notesBefore + 1);
 
 // ---- stale sync reminder ----
 const reminderText = () => $('home-backup-notes').hidden ? '' : $('home-backup-notes').textContent;

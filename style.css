@@ -807,45 +807,11 @@ body::before {
 .add-dropdown[open] > summary { margin-bottom: 12px; }
 
 /* A row of cards you scroll sideways: arrow buttons on both sides, or swipe / arrow keys. */
-.carousel { display: flex; align-items: center; gap: 8px; }
-.carousel-track {
-  flex: 1;
-  min-width: 0;
-  flex-direction: row;
-  align-items: flex-start;
-  gap: 16px;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  scroll-behavior: smooth;
-  padding: 4px 0 12px;
-}
-.carousel-track > li { flex: 0 0 min(380px, 88%); scroll-snap-align: start; }
-.carousel-arrow {
-  flex: 0 0 auto;
-  width: 40px;
-  height: 40px;
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  background: var(--bg);
-  color: var(--accent);
-  cursor: pointer;
-  font-size: 1.5rem;
-  line-height: 1;
-}
-.carousel-arrow:hover { border-color: var(--accent); }
-.carousel-arrow:disabled { opacity: 0.35; cursor: default; }
-.carousel-arrow[hidden] { display: none; }
-@media (max-width: 600px) { .carousel-arrow { width: 32px; height: 32px; font-size: 1.2rem; } }
 
 /* Shared look for every kind of card: same border, radius, padding and shadow. */
 .book-card,
 .recipe-card,
-.med-card,
-.diagnosis-card,
-.todo-item,
-.shopping-item,
 .note-card,
-.weight-card,
 .link-card,
 .home-item {
   overflow-wrap: break-word;
@@ -859,12 +825,7 @@ body::before {
 
 .book-card:hover,
 .recipe-card:hover,
-.med-card:hover,
-.diagnosis-card:hover,
-.todo-item:hover,
-.shopping-item:hover,
 .note-card:hover,
-.weight-card:hover,
 .link-card:hover,
 .home-item:hover {
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.055);
@@ -893,7 +854,6 @@ body::before {
 .sync-change-btn:hover,
 .sidebar-toggle:hover,
 .reminder-banner-btn:hover,
-.recipe-open-shopping:hover,
 .journal-secondary-btn:hover {
   color: var(--accent);
   border-color: var(--accent);
@@ -956,18 +916,14 @@ body::before {
 }
 
 /* Notes and button rows on cards (Recipes, Medications, Diagnoses). */
-.recipe-notes,
-.med-notes,
-.diagnosis-notes {
+.recipe-notes {
   color: var(--muted);
   font-size: 0.85rem;
   font-style: italic;
   margin: 0 0 8px;
 }
 
-.recipe-actions,
-.med-actions,
-.diagnosis-actions {
+.recipe-actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -1116,213 +1072,39 @@ body::before {
   margin-bottom: 2px;
 }
 
-.recipe-scale { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 6px; }
-.recipe-scale-label { font-size: 0.8rem; color: var(--muted); }
-
 /* Recipe -> shopping list */
-.add-to-shopping-btn,
-.cook-mode-btn {
-  padding: 5px 12px;
-  border: 1px solid var(--accent);
-  border-radius: 13px;
-  background: transparent;
-  color: var(--accent);
-  font-size: 0.8rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.add-to-shopping-btn:hover,
-.cook-mode-btn:hover { background: var(--accent); color: var(--accent-contrast); }
-.add-to-shopping-btn[hidden],
-.cook-mode-btn[hidden] { display: none; }
 
 /* Confirmation line under a recipe after adding it to the shopping list. */
-.recipe-shop-status {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin: 8px 0 0;
-  font-size: 0.85rem;
-  color: var(--accent);
-}
-
-.recipe-shop-status[hidden] { display: none; }
-
-.recipe-open-shopping {
-  padding: 3px 10px;
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 0.8rem;
-  cursor: pointer;
-}
 
 /* ===== 11. Medications ===== */
-
-.med-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-bottom: 8px;
-}
-
-.med-name { font-size: 0.95rem; }
-
-.med-field {
-  font-size: 0.85rem;
-  color: var(--muted);
-}
 
 .field-label {
   font-weight: 600;
   color: var(--text);
 }
 
-.med-dates {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 8px;
-}
-
 /* Refill reminder text: red-orange when overdue, rose when coming up soon. */
-.refill-hint { font-weight: 600; }
-.refill-hint.overdue { color: var(--accent-2); }
-.refill-hint.soon { color: var(--accent-rose); }
-
-/* ===== 12. Diagnoses ===== */
-
-.diagnosis-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-bottom: 8px;
-}
-
-.diagnosis-condition { font-size: 0.95rem; }
-.diagnosis-date,
-.diagnosis-provider {
-  color: var(--muted);
-  font-size: 0.85rem;
-}
 
 /* ===== 13. To-Do and Shopping List ===== */
 
 /* Both lists are single-row cards: checkbox and name on the left, details and buttons on the right. */
-.todo-item,
-.shopping-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.todo-check,
-.shopping-check {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex: 1;
-  min-width: 0; /* a long task wraps instead of widening the row */
-  cursor: pointer;
-}
 
 /* Done / checked-off items are struck through and greyed. */
-.todo-item.completed .todo-task,
-.shopping-item.completed .shopping-item-name {
-  text-decoration: line-through;
-  color: var(--muted);
-}
-
-.todo-due {
-  font-size: 0.85rem;
-  color: var(--muted);
-  white-space: nowrap;
-}
 
 /* A long quantity ("2 gallons of ...") wraps inside its card instead of running off the edge. */
-.shopping-quantity {
-  font-size: 0.85rem;
-  color: var(--muted);
-  white-space: normal;
-  overflow-wrap: anywhere;
-  min-width: 0;
-}
 
 /* Past-due dates for to-dos and medication refills (.bill-due is the Home refill row's date label;
    the odd name is left over from the removed Budget tab and app.js still uses it). */
-.todo-due.overdue,
 .bill-due.overdue {
   color: var(--accent-2);
   font-weight: 600;
 }
 
 /* Long words (a long to-do or item name) must wrap instead of widening the page. */
-.todo-task,
-.shopping-item-name {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
 
 /* To-Do / Shopping List keep their existing horizontal-row card shape — the
    view/edit-form split just wraps that same row instead of switching to a
    vertical stack. */
-.todo-view, .shopping-view {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-}
-
-.todo-edit-form, .shopping-edit-form {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-}
-
-.todo-view[hidden], .shopping-view[hidden],
-.todo-edit-form[hidden], .shopping-edit-form[hidden] {
-  display: none;
-}
-
-.todo-edit-form input, .shopping-edit-form input {
-  padding: 7px 10px;
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  background: var(--surface);
-  color: var(--text);
-  font-family: inherit;
-  font-size: 0.85rem;
-}
-
-.todo-repeat[hidden] { display: none; }
-.todo-edit-form select {
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  background: var(--surface);
-  color: var(--text);
-  font-family: inherit;
-}
-
-@media (max-width: 700px) {
-  /* The to-do / shopping row holds a task plus a due date, badge and two buttons: let it
-     wrap onto a second line instead of squeezing everything onto one. */
-  .todo-view,
-  .shopping-view {
-    flex-wrap: wrap;
-    row-gap: 8px;
-  }
-
-  .todo-check,
-  .shopping-check {
-    flex: 1 1 100%;
-  }
-}
 
 /* ===== 14. Notes ===== */
 
@@ -1392,13 +1174,8 @@ body::before {
 .book-edit-form,
 .recipe-view,
 .recipe-edit-form,
-.med-view,
-.med-edit-form,
-.diagnosis-view,
-.diagnosis-edit-form,
 .link-view,
-.link-edit-form,
-.weight-edit-form {
+.link-edit-form {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -1411,13 +1188,8 @@ body::before {
 .book-edit-form[hidden],
 .recipe-view[hidden],
 .recipe-edit-form[hidden],
-.med-view[hidden],
-.med-edit-form[hidden],
-.diagnosis-view[hidden],
-.diagnosis-edit-form[hidden],
 .link-view[hidden],
-.link-edit-form[hidden],
-.weight-edit-form[hidden] {
+.link-edit-form[hidden] {
   display: none;
 }
 
@@ -1428,13 +1200,8 @@ body::before {
 .book-edit-form textarea,
 .recipe-edit-form input,
 .recipe-edit-form textarea,
-.med-edit-form input,
-.med-edit-form textarea,
-.diagnosis-edit-form input,
-.diagnosis-edit-form textarea,
 .link-edit-form input,
-.link-edit-form textarea,
-.weight-edit-form input {
+.link-edit-form textarea {
   width: 100%;
   padding: 9px 12px;
   border: 1px solid var(--border);
@@ -1447,8 +1214,6 @@ body::before {
 .note-edit-form textarea,
 .book-edit-form textarea,
 .recipe-edit-form textarea,
-.med-edit-form textarea,
-.diagnosis-edit-form textarea,
 .link-edit-form textarea {
   resize: vertical;
 }
@@ -1457,12 +1222,7 @@ body::before {
 .note-edit-form button[type="submit"],
 .book-edit-form button[type="submit"],
 .recipe-edit-form button[type="submit"],
-.med-edit-form button[type="submit"],
-.diagnosis-edit-form button[type="submit"],
-.link-edit-form button[type="submit"],
-.weight-edit-form button[type="submit"],
-.todo-edit-form button[type="submit"],
-.shopping-edit-form button[type="submit"] {
+.link-edit-form button[type="submit"] {
   padding: 5px 14px;
   border: none;
   border-radius: 13px;
@@ -1476,19 +1236,13 @@ body::before {
 .note-edit-form button[type="submit"]:hover,
 .book-edit-form button[type="submit"]:hover,
 .recipe-edit-form button[type="submit"]:hover,
-.med-edit-form button[type="submit"]:hover,
-.diagnosis-edit-form button[type="submit"]:hover,
-.link-edit-form button[type="submit"]:hover,
-.weight-edit-form button[type="submit"]:hover,
-.todo-edit-form button[type="submit"]:hover,
-.shopping-edit-form button[type="submit"]:hover {
+.link-edit-form button[type="submit"]:hover {
   opacity: 0.9;
 }
 
 /* A date box inside a column-flex edit form: the 160px flex basis of .date-field would become a
    height there, leaving a tall empty gap, so it is switched off (the add forms already do this). */
-.book-edit-form .date-field,
-.diagnosis-edit-form .date-field { flex: none; }
+.book-edit-form .date-field { flex: none; }
 
 /* ===== 17. Reminder banner (backup and sync reminders) ===== */
 
@@ -1831,8 +1585,6 @@ body::before {
 
 /* ===== 19. Home: rows, search everything, quick add ===== */
 
-.home-actions { margin: 0 0 16px; }
-
 .quick-add {
   display: flex;
   flex-wrap: wrap;
@@ -1943,9 +1695,7 @@ body::before {
 
 /* Home rows: put the name and its detail (amount, due date) on separate lines, like the
    to-do cards, instead of running them together in a narrow column. */
-.home-item-link .bill-due,
-.home-item-link .todo-task,
-.home-item-link .todo-due {
+.home-item-link .bill-due {
   display: block;
 }
 
@@ -1964,112 +1714,6 @@ body::before {
 }
 
 /* Four headline figures (oldest, highest, lowest, most recent) above the form. */
-.weight-stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 12px;
-  margin-bottom: 18px;
-}
-
-.weight-stat {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 14px 16px;
-  border: 1px solid var(--border-soft);
-  border-radius: 16px;
-  background: var(--surface);
-}
-
-.weight-stat-label { font-size: 0.8rem; color: var(--muted); }
-.weight-stat-value { font-size: 1.5rem; overflow-wrap: anywhere; }
-.weight-stat-date { font-size: 0.8rem; color: var(--muted); min-height: 1.1em; }
-
-.weight-view {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.weight-view[hidden] { display: none; }
-
-.weight-info { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; min-width: 0; }
-.weight-entry-value { font-size: 1.1rem; }
-.weight-entry-date, .weight-entry-note { font-size: 0.85rem; color: var(--muted); overflow-wrap: anywhere; }
-.weight-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-
-.weight-chart-box { margin-bottom: 18px; }
-
-.weight-chart-toolbar { margin-bottom: 6px; }
-
-.weight-chart {
-  display: block;
-  width: 100%;
-  height: auto;
-  border: 1px solid var(--border-soft);
-  border-radius: 16px;
-  background: var(--surface);
-}
-
-.weight-chart .w-grid { stroke: var(--border-soft); stroke-width: 1; }
-.weight-chart .w-label { fill: var(--muted); font-size: 16px; }
-.weight-chart .w-line { fill: none; stroke: var(--accent); stroke-width: 2.2; }
-.weight-chart .w-dot { fill: var(--accent); stroke: var(--surface); stroke-width: 1.5; }
-.weight-chart .w-goal { stroke: var(--accent-rose); stroke-width: 1.6; stroke-dasharray: 6 4; }
-.weight-chart .w-goal-label { fill: var(--accent-rose); font-size: 16px; font-weight: 600; }
-.weight-chart .w-empty { fill: var(--muted); font-size: 18px; }
-
-.weight-trend { margin: 8px 0; font-size: 0.9rem; color: var(--muted); min-height: 1.2em; }
-
-.weight-goal-form {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.weight-goal-form label { font-size: 0.85rem; color: var(--muted); }
-
-.weight-goal-form input {
-  width: 8em;
-  max-width: 100%;
-  padding: 7px 10px;
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  background: var(--surface);
-  color: var(--text);
-  font-family: inherit;
-}
-
-.weight-goal-form button {
-  padding: 6px 14px;
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  background: transparent;
-  color: var(--text);
-  cursor: pointer;
-  font-size: 0.85rem;
-}
-
-.weight-goal-form button[type="submit"] {
-  border: none;
-  background: var(--accent);
-  color: var(--accent-contrast);
-  font-weight: 600;
-}
-
-@media (max-width: 700px) {
-  /* Two figures per row instead of one tall column */
-  .weight-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-  .weight-stat { padding: 12px; }
-  .weight-stat-value { font-size: 1.25rem; }
-
-  /* The chart is drawn in a 600-unit box that shrinks to the screen, so its labels need to start big. */
-  .weight-chart .w-label,
-  .weight-chart .w-goal-label { font-size: 26px; }
-}
 
 /* ===== 21. Therapy and health summary sheets, print styles ===== */
 
@@ -2166,33 +1810,6 @@ body::before {
   .summary-no-print { display: none !important; }
 }
 
-/* ===== 22. Recipe cook mode ===== */
-
-.cook-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 2000;
-  overflow-y: auto;
-  padding: 16px;
-  background: var(--bg);
-  color: var(--text);
-}
-
-.cook-overlay[hidden] { display: none; }
-.cook-sheet { max-width: 760px; margin: 0 auto; }
-.cook-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.cook-top h2 { margin: 0; overflow-wrap: anywhere; }
-.cook-ingredients { margin: 14px 0; }
-.cook-ingredients summary { cursor: pointer; font-weight: 600; }
-.cook-ingredients ul { margin: 8px 0 0; padding-left: 22px; }
-.cook-progress { margin: 18px 0 6px; color: var(--muted); font-size: 0.95rem; }
-.cook-step { margin: 0 0 20px; font-size: 1.6rem; line-height: 1.45; overflow-wrap: anywhere; }
-.cook-nav { display: flex; gap: 12px; }
-.cook-nav .summary-btn { flex: 1; padding: 16px; font-size: 1.1rem; }
-.cook-nav .summary-btn:disabled { opacity: 0.4; }
-.cook-awake { margin: 14px 0 0; font-size: 0.8rem; color: var(--muted); }
-.cook-awake[hidden] { display: none; }
-
 /* ===== 23. App lock ===== */
 
 /* The lock screen covers everything until the PIN is right. It is shown purely by CSS (the
@@ -2212,7 +1829,6 @@ html[data-locked] .lock-screen { display: flex; }
 html[data-locked] .app-shell,
 html[data-locked] .storage-warning,
 html[data-locked] .summary-overlay,
-html[data-locked] .cook-overlay,
 html[data-locked] .lock-backdrop { visibility: hidden; }
 
 /* The dialog for turning the lock on or off sits over the page like a small sheet. */
@@ -2358,9 +1974,8 @@ select[id$="-sort-input"],
 
   /* Finger-sized tap targets for the small buttons. */
   .chip,
-  .sync-change-btn,
-  .recipe-open-shopping,
-  .reminder-banner-btn { min-height: 36px; }
+.sync-change-btn,
+.reminder-banner-btn { min-height: 36px; }
 }
 
 /* ===== 26. Friendlier extras: undo toast, phone bottom bar, text size, Home weigh-in ===== */
@@ -2439,46 +2054,13 @@ html[data-text="larger"] { font-size: 125%; }
 }
 
 /* The Home "Weigh in" box: number and Save side by side. */
-.home-weigh-form { display: flex; gap: 8px; }
-.home-weigh-form input { flex: 1; min-width: 0; }
 
 /* The two reminder-time boxes in the Menu. */
-.reminder-times { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; font-size: 0.85rem; color: var(--muted); }
-.reminder-times label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 
 /* The "Add one now" button inside an empty-state message. */
 .empty-state-add { margin-left: 8px; }
 
 /* ===== 27. Buy again, pinned recipes, refill pickup, Home weight, high contrast ===== */
-
-.buy-again { margin: 0 0 14px; }
-.buy-again-label { margin: 0 0 6px; font-size: 0.85rem; color: var(--muted); font-weight: 600; }
-
-.pin-btn {
-  padding: 5px 12px;
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  background: transparent;
-  color: var(--text);
-  cursor: pointer;
-}
-.pin-btn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); font-weight: 600; }
-
-.refill-pickup { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0; }
-.refill-picked-btn {
-  padding: 6px 14px;
-  border: 1px solid var(--accent);
-  border-radius: 13px;
-  background: transparent;
-  color: var(--accent);
-  cursor: pointer;
-  font-weight: 600;
-  font-size: 0.85rem;
-}
-.refill-interval { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: 100%; font-size: 0.85rem; color: var(--muted); }
-
-.home-sparkline { width: 100%; max-width: 240px; height: 40px; }
-.home-sparkline polyline { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
 
 /* High contrast: near-black on white (or white on black in dark mode) with strong borders. Set from the Menu. */
 :root[data-contrast="high"] {
@@ -2527,28 +2109,8 @@ html[data-text="larger"] { font-size: 125%; }
 }
 
 /* "Change days" next to Picked up refill: a quiet outlined button like Edit and Cancel. */
-.refill-change-btn {
-  padding: 5px 12px;
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  background: transparent;
-  color: var(--text);
-  cursor: pointer;
-  font-size: 0.85rem;
-}
 
 /* ===== 28. Snooze, share, shopping groups, swipe, customise Home ===== */
-
-.snooze-btn {
-  padding: 5px 10px;
-  border: 1px solid var(--accent-2);
-  border-radius: 13px;
-  background: transparent;
-  color: var(--accent-2);
-  cursor: pointer;
-  font-size: 0.8rem;
-}
-.snooze-btn[hidden] { display: none; }
 
 .share-row { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; }
 .share-btn {
@@ -2564,18 +2126,8 @@ html[data-text="larger"] { font-size: 125%; }
 .share-status { font-size: 0.85rem; color: var(--muted); }
 
 /* A category heading inside the shopping list (shown when there are two or more categories). */
-.shopping-group {
-  list-style: none;
-  margin: 6px 0 -6px;
-  font-size: 0.8rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-}
 
 /* Swipe on touch screens: horizontal moves go to the app, vertical ones still scroll the page. */
-.todo-item, .shopping-item { touch-action: pan-y; transition: transform 0.15s ease; }
 
 .home-customize { margin: 18px 0 0; }
 .home-customize > summary { cursor: pointer; color: var(--accent); font-weight: 600; }
@@ -2583,8 +2135,6 @@ html[data-text="larger"] { font-size: 125%; }
 .home-customize-list label { display: flex; align-items: center; gap: 8px; }
 
 /* ===== 29. This week panel and Settings check ===== */
-
-.week-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
 
 .settings-check { margin: 8px 0; font-size: 0.85rem; }
 .settings-check > summary { cursor: pointer; color: var(--accent); font-weight: 600; }
@@ -2613,111 +2163,20 @@ html[data-text="larger"] { font-size: 125%; }
 
 /* ===== 30. Sort: My order (drag handles and move buttons) ===== */
 
-.drag-handle {
-  padding: 4px 8px;
-  border: 1px solid var(--border-soft);
-  border-radius: 10px;
-  background: transparent;
-  color: var(--muted);
-  cursor: grab;
-  touch-action: none; /* a drag on the handle must not scroll the page */
-  letter-spacing: -2px;
-}
-.drag-handle[hidden], .move-btn[hidden] { display: none; }
-.move-btn {
-  padding: 5px 10px;
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  background: transparent;
-  color: var(--text);
-  cursor: pointer;
-}
-
 /* While dragging: the row being moved fades, and a line shows where it will land. */
-.dragging { opacity: 0.55; }
+
 .drop-before { box-shadow: 0 -3px 0 var(--accent); }
 .drop-after { box-shadow: 0 3px 0 var(--accent); }
 
 /* ===== 31. Calendar ===== */
 
-.calendar-controls { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-.calendar-controls h3 { flex: 1; margin: 0; text-align: center; }
-.calendar-controls button {
-  padding: 6px 14px;
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  background: transparent;
-  color: var(--text);
-  cursor: pointer;
-  font-size: 1rem;
-}
-
-.calendar-table { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 3px; }
-.calendar-table th { font-size: 0.75rem; color: var(--muted); font-weight: 600; padding: 2px 0; }
-.calendar-table td { padding: 0; }
-
 /* One day: the number on top and up to three dots under it. */
-.calendar-day {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  width: 100%;
-  min-height: 46px;
-  border: 1px solid var(--border-soft);
-  border-radius: 10px;
-  background: transparent;
-  color: var(--text);
-  cursor: pointer;
-  font-size: 0.9rem;
-}
-.calendar-day.is-today { border-color: var(--accent); font-weight: 700; }
-.calendar-day.is-selected { background: var(--accent); color: var(--accent-contrast); }
-.calendar-dots { display: flex; gap: 3px; min-height: 7px; }
+
 .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; }
-.dot-todo { background: var(--accent-2); }
-.dot-refill { background: var(--accent-rose); }
-.dot-weight { background: var(--accent); }
-.calendar-day.is-selected .dot { box-shadow: 0 0 0 1px var(--accent-contrast); }
-
-.calendar-legend { display: flex; flex-wrap: wrap; gap: 14px; margin: 10px 0; font-size: 0.8rem; color: var(--muted); }
-.calendar-legend .dot { margin-right: 4px; }
-
-.calendar-detail { margin-top: 8px; }
-.calendar-detail h3 { margin: 0 0 6px; }
-.calendar-detail ul { margin: 0 0 8px; padding-left: 18px; }
-.calendar-detail-link {
-  padding: 4px 12px;
-  border: 1px solid var(--accent);
-  border-radius: 13px;
-  background: transparent;
-  color: var(--accent);
-  cursor: pointer;
-  font-size: 0.85rem;
-}
 
 /* ===== 32. Recipe print view, welcome card and tips ===== */
 
 /* The printable copy of a recipe is invisible on screen. */
-#print-recipe { display: none; }
-@media print {
-  body.printing-recipe > *:not(#print-recipe) { display: none !important; }
-  body.printing-recipe #print-recipe { display: block; padding: 16px; color: #000; background: #fff; }
-  #print-recipe h1 { margin: 0 0 4px; font-size: 1.6rem; }
-  #print-recipe h2 { margin: 16px 0 4px; font-size: 1.15rem; }
-  #print-recipe p { margin: 0 0 6px; }
-  #print-recipe li { margin-bottom: 4px; }
-}
-
-.share-recipe-btn, .print-recipe-btn {
-  padding: 5px 12px;
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  background: transparent;
-  color: var(--text);
-  cursor: pointer;
-}
 
 .welcome-card {
   margin: 0 0 16px;
@@ -2743,17 +2202,6 @@ html[data-text="larger"] { font-size: 125%; }
 /* ===== 33. Edit in place and History ===== */
 
 /* The text box that replaces a to-do or shopping item's name while you edit it in place. */
-.inline-edit {
-  flex: 1;
-  min-width: 140px;
-  padding: 4px 8px;
-  border: 1px solid var(--accent);
-  border-radius: 10px;
-  background: var(--bg);
-  color: var(--text);
-  font: inherit;
-}
-.todo-task, .shopping-item-name { cursor: text; }
 
 .history-when { color: var(--muted); font-size: 0.75rem; }
 
@@ -2801,8 +2249,3 @@ html[data-text="larger"] { font-size: 125%; }
 /* The vault's create and unlock forms are .add-form (display: flex), which would override the hidden attribute. */
 .add-form[hidden], #vault-open[hidden] { display: none; }
 
-/* ===== 35. Medication extras: equipment badge, no-refills warning, custom days ===== */
-
-.med-warn { color: var(--accent-2); font-weight: 600; }
-.refill-interval .refill-custom-days { width: 80px; padding: 4px 8px; }
-.refill-interval [hidden] { display: none; }

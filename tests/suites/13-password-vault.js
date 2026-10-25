@@ -72,7 +72,7 @@ set('vault-search', ''); $('vault-search').dispatchEvent(new Event('input'));
 check('the global search never finds a saved password', (() => { const groups = runGlobalSearch('Zeta', false); return groups.every((g) => !/zeta/i.test(JSON.stringify(g.hits))) ; })());
 undoStack.length = 0; updateUndoRedoButtons();
 check('vault changes never enter the Undo history', undoStack.length === 0);
-check('the health summary and a plain data export never hold a password', (() => { const text = JSON.stringify(buildExportPayload().collections) + buildHealthSummaryText(buildHealthSummaryData()); return !/pw-two|hunter2/.test(text); })());
+check('a plain data export never holds a password', !/pw-two|hunter2/.test(JSON.stringify(buildExportPayload().collections)));
 check('the full backup carries only the encrypted blob', (() => { const out = JSON.stringify(buildExportPayload()); return !/pw-two|hunter2|Zeta Mail/.test(out) && buildExportPayload().local.vault.data === loadVaultBlob().data; })());
 
 // ---- lock and unlock ----

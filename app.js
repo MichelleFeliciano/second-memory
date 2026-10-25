@@ -289,11 +289,6 @@ function goToTab(tab) {
 // Install the focus-keeping wrappers (function declarations are hoisted, so this is safe at the top).
 renderBooks = withFocusRestore(renderBooks);
 renderRecipes = withFocusRestore(renderRecipes);
-renderMedications = withFocusRestore(renderMedications);
-renderWeights = withFocusRestore(renderWeights);
-renderDiagnoses = withFocusRestore(renderDiagnoses);
-renderTodos = withFocusRestore(renderTodos);
-renderShoppingList = withFocusRestore(renderShoppingList);
 renderNotes = withFocusRestore(renderNotes);
 renderLinks = withFocusRestore(renderLinks);
 renderJournalTrends = withFocusRestore(renderJournalTrends);
@@ -361,15 +356,6 @@ function migrateSyncFields(items, key, deviceId) {
   return items;
 }
 
-// Native validation bubble for fields where "   " slips past the `required` attribute.
-function rejectBlank(input, message) {
-  if (input.value.trim()) return false;
-  input.setCustomValidity(message);
-  input.reportValidity();
-  input.addEventListener('input', () => input.setCustomValidity(''), { once: true });
-  return true;
-}
-
 // ---- Undo/Redo ----
 // In-memory only, never persisted. One entry per changed record (never a
 // whole-array snapshot).
@@ -406,10 +392,10 @@ document.getElementById('toast-undo').addEventListener('click', () => {
   hideToast();
 });
 
+
 // Remembers one change (the record before and after) so it can be undone; clears the redo list.
 function recordUndo(collectionName, id, before, after) {
   if (isApplyingHistory) return;
-  flushMedDateUndo(); // keep undo steps in the order things really happened
   undoStack.push({
     collection: collectionName,
     id,
@@ -433,7 +419,7 @@ function recordUndo(collectionName, id, before, after) {
 
 const UI_STORAGE_KEY = 'secondMemory.ui.v1';
 // Every screen id; each has a matching "<id>-collection" section and a sidebar button.
-const TABS = ['home', 'calendar', 'passwords', 'books', 'recipes', 'medications', 'diagnoses', 'weight', 'journal', 'todo', 'shopping', 'notes', 'resume'];
+const TABS = ['home', 'passwords', 'books', 'recipes', 'journal', 'notes', 'resume'];
 
 // Reads the saved screen state (which tab was open), tolerating missing or damaged data.
 function loadUiState() {
@@ -472,8 +458,6 @@ function setActiveTab(tab) {
   saveUiState({ activeTab });
   if (showingJournal) renderJournal(); // the tab is visible now, so widths (and the scroll position) are real
   if (activeTab === 'passwords') renderVault(); // shows create, locked or open depending on the vault
-  if (activeTab === 'calendar') renderCalendar(); // the data may have changed since it was last drawn
-  if (activeTab === 'recipes') updateRecipeArrows(); // arrows can only be judged once the row has a width
 
   if (window.matchMedia('(max-width: 700px)').matches) {
     const sidebar = document.querySelector('.sidebar');
@@ -922,230 +906,6 @@ const RECIPES_KEY = 'secondMemory.recipes.v1';
 
 let recipes = migrateSyncFields(loadCollection(RECIPES_KEY), RECIPES_KEY, getDeviceId());
 
-// ---- Recipe scaling ----
-// Scale buttons multiply the amount at the start of each ingredient line (1/2, 1 1/2, 2-3, 0.5,
-// and the symbols for a half or a quarter). Lines with no leading amount ("salt to taste") are
-// left alone. The chosen scale is remembered per recipe only while the app is open.
-
-const recipeScales = new Map(); // recipe id -> factor (1 when absent)
-// Values of the single-character fractions (1/4, 1/2, 3/4, 1/3, 2/3, 1/8, 3/8, 5/8, 7/8).
-const FRACTION_SYMBOLS = { '\u00bc': 0.25, '\u00bd': 0.5, '\u00be': 0.75, '\u2153': 1 / 3, '\u2154': 2 / 3, '\u215b': 0.125, '\u215c': 0.375, '\u215d': 0.625, '\u215e': 0.875 };
-// One amount, longest forms first so "1 1/2" is not read as just "1": whole + symbol, 1-1/2, 1 1/2,
-// 1/2, 1.5, 1, or a lone symbol. QTY_RE adds an optional list marker ("- ", "1. ") in front and an
-// optional "-"/"to" range ("2-3", "1 to 2") after it.
-const QTY_PART = '\\d+\\s*[\u00bc\u00bd\u00be\u2153\u2154\u215b\u215c\u215d\u215e]|\\d+-\\d+\\/\\d+|\\d+\\s+\\d+\\/\\d+|\\d+\\/\\d+|\\d+\\.\\d+|\\d+|[\u00bc\u00bd\u00be\u2153\u2154\u215b\u215c\u215d\u215e]';
-const QTY_RE = new RegExp(`^(\\s*(?:[-*\u2022]\\s+|\\d+[.)]\\s+)?)(${QTY_PART})(?:(\\s*(?:-|\u2013|to)\\s*)(${QTY_PART}))?`);
-
-// The number a typed amount stands for ("1 1/2" is 1.5), or null if it cannot be read.
-function parseQuantity(text) {
-  const t = text.trim();
-  let m = t.match(/^(\d+)\s*([\u00bc\u00bd\u00be\u2153\u2154\u215b\u215c\u215d\u215e])$/);
-  if (m) return Number(m[1]) + FRACTION_SYMBOLS[m[2]];
-  if (FRACTION_SYMBOLS[t] !== undefined) return FRACTION_SYMBOLS[t];
-  m = t.match(/^(\d+)-(\d+)\/(\d+)$/); // 1-1/2 written with a hyphen
-  if (m) return Number(m[3]) === 0 ? null : Number(m[1]) + Number(m[2]) / Number(m[3]);
-  m = t.match(/^(\d+)\s+(\d+)\/(\d+)$/);
-  if (m) return Number(m[3]) === 0 ? null : Number(m[1]) + Number(m[2]) / Number(m[3]);
-  m = t.match(/^(\d+)\/(\d+)$/);
-  if (m) return Number(m[2]) === 0 ? null : Number(m[1]) / Number(m[2]);
-  const n = Number(t);
-  return Number.isFinite(n) ? n : null;
-}
-
-// Writes an amount the way a cook reads it: 3, 1 1/2, 2/3, 0.4 (nearest eighth or third).
-function formatQuantity(x) {
-  if (Math.abs(x - Math.round(x)) < 0.01) return String(Math.round(x));
-  const whole = Math.floor(x);
-  const frac = x - whole;
-  // Snap the leftover fraction to the nearest kitchen fraction if it is within 0.04, else show decimals.
-  const choices = [[1 / 8, '1/8'], [1 / 4, '1/4'], [1 / 3, '1/3'], [3 / 8, '3/8'], [1 / 2, '1/2'], [5 / 8, '5/8'], [2 / 3, '2/3'], [3 / 4, '3/4'], [7 / 8, '7/8']];
-  const best = choices.reduce((a, b) => (Math.abs(b[0] - frac) < Math.abs(a[0] - frac) ? b : a));
-  if (Math.abs(best[0] - frac) <= 0.04) return whole > 0 ? `${whole} ${best[1]}` : best[1];
-  return String(Math.round(x * 100) / 100);
-}
-
-// Measures that take an "s" when there is more than one ("2 cups", "1/2 cup").
-const PLURAL_UNITS = ['cup', 'tablespoon', 'teaspoon', 'pound', 'ounce', 'clove', 'can', 'slice', 'stick', 'package', 'bunch', 'head', 'stalk', 'sprig', 'pint', 'quart', 'gallon', 'fillet'];
-
-// One ingredient line with its leading amount (or range) multiplied by the factor. A spelled-out
-// measure right after the amount is made singular or plural to match ("1 cup" doubled is "2 cups").
-function scaleIngredientLine(line, factor) {
-  if (factor === 1) return line;
-  const m = line.match(QTY_RE);
-  if (!m) return line;
-  const first = parseQuantity(m[2]);
-  if (first === null) return line;
-  if (/^\s*%/.test(line.slice(m[0].length))) return line; // "2% milk" is a fat content, not an amount
-  let out = `${m[1]}${formatQuantity(first * factor)}`;
-  let consumed = m[0].length;
-  let last = first * factor;
-  if (m[3] !== undefined) {
-    const second = parseQuantity(m[4]);
-    if (second !== null) { out += `${m[3]}${formatQuantity(second * factor)}`; last = second * factor; } else consumed = m[1].length + m[2].length;
-  }
-  let rest = line.slice(consumed);
-  const unit = rest.match(/^(\s+)([A-Za-z]+)/);
-  if (unit) {
-    const lower = unit[2].toLowerCase();
-    const base = lower.endsWith('ches') ? lower.slice(0, -2) : lower.replace(/s$/, ''); // bunches -> bunch
-    if (PLURAL_UNITS.includes(base)) {
-      const singular = unit[2].slice(0, base.length);
-      const word = last > 1 ? (base.endsWith('ch') ? `${singular}es` : `${singular}s`) : singular;
-      rest = unit[1] + word + rest.slice(unit[0].length);
-    }
-  }
-  return out + rest;
-}
-
-// A recipe's ingredient lines at the chosen scale.
-function scaledIngredients(recipe, factor) {
-  return (recipe.ingredients || []).map((line) => scaleIngredientLine(line, factor));
-}
-
-// A recipe as plain text (title, category, ingredients at the chosen scale, numbered steps, notes) for sharing.
-function recipeText(recipe, factor = 1) {
-  const lines = [recipe.title];
-  if (recipe.category) lines.push(recipe.category);
-  const ingredients = scaledIngredients(recipe, factor);
-  if (ingredients.length) lines.push('', 'Ingredients:', ...ingredients.map((line) => `- ${line}`));
-  const steps = recipe.steps || [];
-  if (steps.length) lines.push('', 'Steps:', ...steps.map((step, i) => `${i + 1}. ${step}`));
-  if (recipe.notes) lines.push('', 'Notes:', recipe.notes);
-  return lines.join('\n');
-}
-
-// Share button on a recipe card: the toast says what happened.
-async function shareRecipe(recipe) {
-  const outcome = await shareOrCopy(recipe.title, recipeText(recipe, recipeScales.get(recipe.id) || 1));
-  const said = { copied: 'Recipe copied. Paste it into a message.', failed: 'Could not share or copy the recipe.' }[outcome];
-  if (said) showToast(said, false);
-}
-
-// Print button: fills the hidden print area with a clean copy of the recipe, prints, then clears it.
-function printRecipe(recipe) {
-  const area = document.getElementById('print-recipe');
-  area.innerHTML = '';
-  const add = (tag, text) => { const el = document.createElement(tag); el.textContent = text; area.appendChild(el); return el; };
-  const addList = (tag, items) => { const list = document.createElement(tag); items.forEach((text) => { const li = document.createElement('li'); li.textContent = text; list.appendChild(li); }); area.appendChild(list); };
-  add('h1', recipe.title);
-  if (recipe.category) add('p', recipe.category);
-  const ingredients = scaledIngredients(recipe, recipeScales.get(recipe.id) || 1);
-  if (ingredients.length) { add('h2', 'Ingredients'); addList('ul', ingredients); }
-  if ((recipe.steps || []).length) { add('h2', 'Steps'); addList('ol', recipe.steps); }
-  if (recipe.notes) { add('h2', 'Notes'); add('p', recipe.notes); }
-  document.body.classList.add('printing-recipe');
-  const cleanUp = () => { document.body.classList.remove('printing-recipe'); area.innerHTML = ''; };
-  window.addEventListener('afterprint', cleanUp, { once: true });
-  window.print();
-  cleanUp(); // some browsers never fire afterprint; print() has returned by now either way
-}
-
-// ---- Cook mode ----
-// A full-screen, one-step-at-a-time view with big text. While it is open the screen is asked to
-// stay awake (where the browser supports it), so the phone does not lock with flour on your hands.
-
-let cookState = null; // { recipe, factor, step }
-let cookWakeLock = null;
-let cookReturnFocus = null; // the control that opened cook mode, so closing gives focus back to it
-
-// Asks the browser to keep the screen on; harmless if unsupported or refused.
-async function requestCookWakeLock() {
-  const note = document.getElementById('cook-awake');
-  try {
-    if ('wakeLock' in navigator) {
-      // Drop any lock we still hold before asking again (e.g. after the page was hidden and shown).
-      if (cookWakeLock) { cookWakeLock.release().catch(() => {}); cookWakeLock = null; }
-      const lock = await navigator.wakeLock.request('screen');
-      if (!cookState) { lock.release().catch(() => {}); return; } // closed while we were waiting
-      if (cookWakeLock) cookWakeLock.release().catch(() => {}); // two requests overlapped: keep only one
-      cookWakeLock = lock;
-      note.hidden = false;
-    }
-  } catch { note.hidden = true; }
-}
-
-// Shows the current step, its position, and enables or disables Back/Next.
-function renderCookStep() {
-  const { recipe, step } = cookState;
-  const steps = recipe.steps || [];
-  document.getElementById('cook-progress').textContent = steps.length ? `Step ${step + 1} of ${steps.length}` : '';
-  document.getElementById('cook-step').textContent = steps.length ? steps[step] : 'This recipe has no steps yet.';
-  document.getElementById('cook-prev').disabled = step === 0;
-  const last = step >= steps.length - 1;
-  document.getElementById('cook-next').textContent = last ? 'Done' : 'Next';
-}
-
-// Opens cook mode for a recipe at the scale chosen on its card.
-function openCookMode(recipeId) {
-  const recipe = recipes.find((r) => r.id === recipeId && !r.deleted);
-  if (!recipe) return;
-  const factor = recipeScales.get(recipe.id) || 1;
-  if (!cookState) cookReturnFocus = document.activeElement;
-  cookState = { recipe, factor, step: 0 };
-  document.getElementById('cook-title').textContent = recipe.title + (factor === 1 ? '' : ` (${factor === 0.5 ? '\u00bd' : factor}\u00d7)`);
-  const list = document.getElementById('cook-ingredients-list');
-  list.innerHTML = '';
-  scaledIngredients(recipe, factor).forEach((line) => {
-    const li = document.createElement('li');
-    li.textContent = line;
-    list.appendChild(li);
-  });
-  document.getElementById('cook-awake').hidden = true;
-  renderCookStep();
-  document.getElementById('cook-mode').hidden = false;
-  document.getElementById('cook-next').focus();
-  requestCookWakeLock();
-}
-
-// Closes cook mode, lets the screen sleep again and returns focus to the button that opened it.
-function closeCookMode() {
-  document.getElementById('cook-mode').hidden = true;
-  cookState = null;
-  if (cookWakeLock) { cookWakeLock.release().catch(() => {}); cookWakeLock = null; }
-  const back = cookReturnFocus;
-  cookReturnFocus = null;
-  if (back && document.contains(back) && !back.hidden) back.focus({ preventScroll: true });
-}
-
-// Moves one step (Next on the last step finishes and closes).
-function cookStepBy(delta) {
-  if (!cookState) return;
-  const steps = cookState.recipe.steps || [];
-  const next = cookState.step + delta;
-  if (next >= steps.length) { closeCookMode(); return; }
-  if (next < 0) return;
-  cookState.step = next;
-  renderCookStep();
-}
-
-// Next / Back / Close buttons of cook mode.
-document.getElementById('cook-next').addEventListener('click', () => cookStepBy(1));
-document.getElementById('cook-prev').addEventListener('click', () => cookStepBy(-1));
-document.getElementById('cook-close').addEventListener('click', closeCookMode);
-// Esc closes, arrows step, and Tab stays inside the dialog while it is open.
-document.addEventListener('keydown', (e) => {
-  if (!cookState) return;
-  if (e.key === 'Tab') {
-    const overlay = document.getElementById('cook-mode');
-    // Wrap Tab / Shift+Tab around the first and last control so focus can't reach the page behind.
-    const focusable = [...overlay.querySelectorAll('button:not(:disabled), summary')];
-    if (focusable.length === 0) return;
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    const inside = overlay.contains(document.activeElement);
-    if (!inside || (e.shiftKey && document.activeElement === first)) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
-    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-    return;
-  }
-  if (e.key === 'Escape') closeCookMode();
-  else if (e.key === 'ArrowRight' && cookState.step < (cookState.recipe.steps || []).length - 1) cookStepBy(1); // Done is a button press, not an arrow
-  else if (e.key === 'ArrowLeft') cookStepBy(-1);
-});
-// The browser releases a wake lock when the page is hidden; take it again when we come back.
-document.addEventListener('visibilitychange', () => {
-  if (cookState && document.visibilityState === 'visible') requestCookWakeLock();
-});
-
 // ---- Recipe list (add, edit, delete, search, screen) ----
 
 // Turns a block of text into a list of non-empty trimmed lines.
@@ -1202,18 +962,6 @@ function restoreRecipe(id) {
   renderRecipes();
 }
 
-// Pins or unpins a recipe: pinned recipes come first in the row and appear on Home with a Cook mode shortcut.
-function toggleRecipePinned(id) {
-  const recipe = recipes.find((r) => r.id === id);
-  if (!recipe) return;
-  const before = structuredClone(recipe);
-  recipe.pinned = !recipe.pinned;
-  stampSync(recipe);
-  saveCollection(RECIPES_KEY, recipes);
-  recordUndo('recipes', id, before, structuredClone(recipe));
-  renderRecipes();
-}
-
 // Saves edits to a recipe.
 function updateRecipe(id, fields) {
   const recipe = recipes.find((r) => r.id === id);
@@ -1230,37 +978,6 @@ function updateRecipe(id, fields) {
   saveCollection(RECIPES_KEY, recipes);
   recordUndo('recipes', id, before, structuredClone(recipe));
   renderRecipes();
-}
-
-// "2 cups flour", "- 2 cups flour" and "1) 2 cups flour" all become the plain item text.
-function ingredientToShoppingText(line) {
-  return String(line).replace(/^\s*(?:[-*\u2022]|\d+[.)])\s+/, '').trim();
-}
-
-// Adds each ingredient to the shopping list, skipping any that is already on it
-// unchecked (same text, ignoring case). The recipe's title is used as the
-// category so the list can be filtered by recipe.
-function addRecipeToShoppingList(recipe, factor) {
-  const onList = new Set(
-    shoppingItems.filter((i) => !i.deleted && !i.checked).map((i) => i.item.trim().toLowerCase())
-  );
-  let added = 0;
-  let alreadyThere = 0;
-  // The amounts on the list match the scale chosen on the recipe card (1 = as written).
-  const lines = factor && factor !== 1 ? scaledIngredients(recipe, factor) : (recipe.ingredients || []);
-  lines.forEach((line) => {
-    const text = ingredientToShoppingText(line);
-    if (!text) return;
-    const key = text.toLowerCase();
-    if (onList.has(key)) {
-      alreadyThere += 1;
-      return;
-    }
-    onList.add(key);
-    addShoppingItem(text, '', recipe.title || '');
-    added += 1;
-  });
-  return { added, alreadyThere };
 }
 
 // True if the search text appears in the recipe's title, category, ingredients, steps or notes.
@@ -1305,7 +1022,6 @@ const RECIPE_SORTS = {
   date_added_asc: compareByField((r) => r.dateAdded, 1, { text: false }),
   date_added_desc: compareByField((r) => r.dateAdded, -1, { text: false }),
   title_asc: compareByField((r) => r.title, 1),
-  manual: compareManual,
 };
 
 // Redraws the whole Recipes screen: filters, search, sort and the recipe cards.
@@ -1321,10 +1037,8 @@ function renderRecipes() {
   const visible = nonDeleted
     .filter((r) => matchesRecipeSearch(r, searchTerm))
     .filter((r) => matchesRecipeCategory(r, selectedRecipeCategory))
-    .sort(comparator)
-    .sort(doneLast((r) => !r.pinned)); // pinned recipes first, in the chosen order
+    .sort(comparator);
 
-  const keptScroll = list.scrollLeft;
   const openForm = list.querySelector('.recipe-edit-form:not([hidden])');
   const openEdit = openForm
     ? {
@@ -1355,42 +1069,15 @@ function renderRecipes() {
     }
 
     const ingredientsSection = node.querySelector('.recipe-ingredients-section');
-    const factor = recipeScales.get(recipe.id) || 1;
     if ((recipe.ingredients || []).length) {
       const ingredientsList = node.querySelector('.recipe-ingredients');
-      scaledIngredients(recipe, factor).forEach((ing) => {
+      recipe.ingredients.forEach((ing) => {
         const li = document.createElement('li');
         li.textContent = ing;
         ingredientsList.appendChild(li);
       });
       ingredientsSection.hidden = false;
-      // Scale buttons: pick a multiple; the choice is remembered while the app is open.
-      node.querySelectorAll('.recipe-scale .chip').forEach((chip) => {
-        chip.classList.toggle('chip-active', Number(chip.dataset.scale) === factor);
-        chip.setAttribute('aria-pressed', String(Number(chip.dataset.scale) === factor));
-        chip.addEventListener('click', () => {
-          recipeScales.set(recipe.id, Number(chip.dataset.scale));
-          renderRecipes();
-        });
-      });
     }
-    // Move buttons show only under "Sort: My order" (a drag handle does not suit a sideways row).
-    node.querySelector('.move-earlier-btn').hidden = selectedRecipesSort !== MANUAL_SORT;
-    node.querySelector('.move-later-btn').hidden = selectedRecipesSort !== MANUAL_SORT;
-    node.querySelector('.move-earlier-btn').addEventListener('click', () => moveByStep('recipes', recipe.id, -1, list, '.recipe-card', 'data-recipe-id', '.move-earlier-btn'));
-    node.querySelector('.move-later-btn').addEventListener('click', () => moveByStep('recipes', recipe.id, 1, list, '.recipe-card', 'data-recipe-id', '.move-later-btn'));
-
-    node.querySelector('.share-recipe-btn').addEventListener('click', () => shareRecipe(recipe));
-    node.querySelector('.print-recipe-btn').addEventListener('click', () => printRecipe(recipe));
-
-    const pinBtn = node.querySelector('.pin-btn');
-    pinBtn.setAttribute('aria-pressed', String(!!recipe.pinned));
-    pinBtn.textContent = recipe.pinned ? 'Pinned \u2605' : 'Pin';
-    pinBtn.addEventListener('click', () => toggleRecipePinned(recipe.id));
-    const cookBtn = node.querySelector('.cook-mode-btn');
-    cookBtn.hidden = !(recipe.steps && recipe.steps.length);
-    cookBtn.addEventListener('click', () => openCookMode(recipe.id));
-
     const stepsSection = node.querySelector('.recipe-steps-section');
     if ((recipe.steps || []).length) {
       const stepsList = node.querySelector('.recipe-steps');
@@ -1457,21 +1144,6 @@ function renderRecipes() {
 
     node.querySelector('.delete-btn').addEventListener('click', () => deleteRecipe(recipe.id));
 
-    const shopBtn = node.querySelector('.add-to-shopping-btn');
-    const shopStatus = node.querySelector('.recipe-shop-status');
-    const shopStatusText = node.querySelector('.recipe-shop-status-text');
-    shopBtn.hidden = !(recipe.ingredients && recipe.ingredients.length);
-    shopBtn.setAttribute('aria-label', `Add the ingredients of ${recipe.title} to the shopping list`);
-    shopBtn.addEventListener('click', () => {
-      const { added, alreadyThere } = addRecipeToShoppingList(recipe, recipeScales.get(recipe.id) || 1);
-      const kept = alreadyThere ? ` (${alreadyThere} already on it)` : '';
-      shopStatusText.textContent = added
-        ? `Added ${added} ingredient${added === 1 ? '' : 's'} to your shopping list${kept}.`
-        : 'Everything from this recipe is already on your shopping list.';
-      shopStatus.hidden = false;
-    });
-    node.querySelector('.recipe-open-shopping').addEventListener('click', () => goToTab('shopping'));
-
     if (openEdit && openEdit.id === recipe.id) {
       editTitleInput.value = openEdit.title;
       editCategoryInput.value = openEdit.category;
@@ -1485,37 +1157,8 @@ function renderRecipes() {
     list.appendChild(node);
   });
 
-  // Redrawing empties the row; put it back where it was so scaling or editing a card doesn't jump to the first one.
-  list.style.scrollBehavior = 'auto';
-  list.scrollLeft = keptScroll;
-  list.style.scrollBehavior = '';
-  updateRecipeArrows();
-
   document.getElementById('recipes-empty-state').hidden = nonDeleted.length !== 0;
-  renderHome(); // pinned recipes show on Home
 }
-
-// Carousel arrows: scroll the recipe row by about one card; an arrow is dimmed at its end.
-function scrollRecipes(direction) {
-  const track = document.getElementById('recipes-list');
-  track.scrollBy({ left: direction * Math.max(track.clientWidth * 0.85, 200), behavior: 'smooth' });
-}
-
-// Dims the arrows when there is nothing further to scroll to in that direction.
-function updateRecipeArrows() {
-  const track = document.getElementById('recipes-list');
-  // With nothing to scroll (no recipes, or they all fit) the arrows are hidden altogether.
-  const nothingToScroll = track.scrollWidth <= track.clientWidth + 4;
-  document.getElementById('recipes-prev').hidden = nothingToScroll;
-  document.getElementById('recipes-next').hidden = nothingToScroll;
-  document.getElementById('recipes-prev').disabled = track.scrollLeft <= 4;
-  document.getElementById('recipes-next').disabled = track.scrollLeft + track.clientWidth >= track.scrollWidth - 4;
-}
-
-document.getElementById('recipes-prev').addEventListener('click', () => scrollRecipes(-1));
-document.getElementById('recipes-next').addEventListener('click', () => scrollRecipes(1));
-document.getElementById('recipes-list').addEventListener('scroll', updateRecipeArrows);
-window.addEventListener('resize', updateRecipeArrows);
 
 // Add recipe: clears every box only if it was saved (a blank title keeps what was typed).
 document.getElementById('recipes-add-form').addEventListener('submit', (e) => {
@@ -1543,1991 +1186,6 @@ document.getElementById('recipes-search-input').addEventListener('input', render
 document.getElementById('recipes-sort-input').addEventListener('change', (e) => {
   selectedRecipesSort = e.target.value;
   renderRecipes();
-});
-
-// ---- Medications ----
-
-const MEDICATIONS_KEY = 'secondMemory.medications.v1';
-
-let medications = migrateSyncFields(loadCollection(MEDICATIONS_KEY), MEDICATIONS_KEY, getDeviceId());
-
-// A whole number from 0 to 99 (refills left), or null when blank or not a sensible number.
-function cleanCount(value) {
-  if (value === '' || value === null || value === undefined) return null;
-  const n = Number(value);
-  return Number.isInteger(n) && n >= 0 && n <= 99 ? n : null;
-}
-
-// A whole number of days from 1 to 365, or null.
-function cleanDays(value) {
-  if (value === '' || value === null || value === undefined) return null;
-  const n = Number(value);
-  return Number.isInteger(n) && n >= 1 && n <= 365 ? n : null;
-}
-
-// Medications and medical equipment share this list: equipment (a CPAP mask, test strips, a tubing set...) is
-// "replaced" on a schedule where a medication is "refilled". Anything that is not 'equipment' counts as medication.
-function isEquipment(med) {
-  return med.kind === 'equipment';
-}
-
-// Adds a medication or piece of equipment. Returns { ok } or { ok: false, error } for a missing name or out-of-range date.
-function addMedication(fields) {
-  const trimmedName = fields.name.trim();
-  if (!trimmedName) return { ok: false, error: 'Name is required.' };
-  const startDate = fields.startDate || null;
-  const refillDate = fields.refillDate || null;
-  if ((startDate && !isReasonableDateKey(startDate)) || (refillDate && !isReasonableDateKey(refillDate))) {
-    return { ok: false, error: DATE_RANGE_MESSAGE };
-  }
-  const now = new Date().toISOString();
-  const med = {
-    id: makeId(),
-    name: trimmedName,
-    dosage: fields.dosage.trim(),
-    frequency: fields.frequency.trim(),
-    prescribingDoctor: fields.prescribingDoctor.trim(),
-    startDate,
-    endDate: null,
-    refillDate,
-    notes: fields.notes.trim(),
-    kind: fields.kind === 'equipment' ? 'equipment' : 'medication',
-    pharmacy: String(fields.pharmacy || '').trim(),
-    refillsLeft: cleanCount(fields.refillsLeft),
-    refillEveryDays: cleanDays(fields.refillEveryDays),
-    lastPickedUp: null,
-    dateAdded: now,
-    updatedAt: now,
-    deviceId: getDeviceId(),
-    deleted: false,
-    version: 0,
-  };
-  medications.push(med);
-  saveCollection(MEDICATIONS_KEY, medications);
-  recordUndo('medications', med.id, null, structuredClone(med));
-  renderMedications();
-  return { ok: true };
-}
-
-// The date boxes on a medication card save as you type. They must NOT redraw the list:
-// a redraw replaces the box you are typing in and the cursor is lost after one digit.
-// So the card is updated in place, and a whole burst of typing becomes one undo step,
-// recorded when you leave the box (or just before anything else needs the undo history).
-let pendingMedDateUndo = null; // { id, before } for the burst in progress
-
-// Closes out the pending burst of date typing as a single undo step (if anything really changed).
-function flushMedDateUndo() {
-  if (!pendingMedDateUndo) return;
-  const { id, before } = pendingMedDateUndo;
-  pendingMedDateUndo = null;
-  const med = medications.find((m) => m.id === id);
-  if (!med) return;
-  // Typing and then restoring the same date leaves nothing worth undoing.
-  if (before.startDate === med.startDate && before.refillDate === med.refillDate) return;
-  recordUndo('medications', id, before, structuredClone(med));
-}
-
-// Saves a start or refill date straight from its box without redrawing the medication list.
-function updateMedicationDate(id, field, value) {
-  const med = medications.find((m) => m.id === id);
-  if (!med) return { ok: false, error: 'Medication not found.' };
-  if (field !== 'startDate' && field !== 'refillDate') return { ok: false, error: 'Unknown date field.' };
-  if (!pendingMedDateUndo || pendingMedDateUndo.id !== id) {
-    flushMedDateUndo();
-    pendingMedDateUndo = { id, before: structuredClone(med) };
-  }
-  med[field] = value || null;
-  stampSync(med);
-  saveCollection(MEDICATIONS_KEY, medications);
-  renderHome(); // refills show on Home; this does not touch the medication list
-  return { ok: true };
-}
-
-// "Picked up refill": the next refill date becomes today plus the number of days, and that number is remembered
-// on the medication so the next pickup is a single tap. One undoable change.
-function markRefillPickedUp(id, days) {
-  const med = medications.find((m) => m.id === id);
-  if (!med || !Number.isInteger(days) || days < 1 || days > 365) return false;
-  flushMedDateUndo();
-  const before = structuredClone(med);
-  med.refillDate = shiftDateKey(todayKey(), days);
-  med.refillEveryDays = days;
-  med.lastPickedUp = todayKey();
-  if (!isEquipment(med) && Number.isInteger(med.refillsLeft) && med.refillsLeft > 0) med.refillsLeft -= 1; // one refill used
-  stampSync(med);
-  saveCollection(MEDICATIONS_KEY, medications);
-  recordUndo('medications', id, before, structuredClone(med));
-  renderMedications(); // also redraws Home
-  return true;
-}
-
-// The "overdue / due in N days" and "unknown" labels under the date boxes.
-function updateMedHints(med, refillHint, unknownHint) {
-  refillHint.hidden = true;
-  refillHint.className = 'refill-hint';
-  refillHint.textContent = '';
-  if (med.refillDate) {
-    const days = daysUntilDateKey(med.refillDate);
-    if (days < 0) {
-      refillHint.textContent = 'overdue';
-      refillHint.className = 'refill-hint overdue';
-      refillHint.hidden = false;
-    } else if (days <= 7) {
-      refillHint.textContent = days === 0 ? 'due today' : `due in ${days} day${days === 1 ? '' : 's'}`;
-      refillHint.className = 'refill-hint soon';
-      refillHint.hidden = false;
-    }
-  }
-  unknownHint.hidden = !!med.startDate;
-}
-
-// Soft-deletes a medication (keeps a tombstone so syncing can tell it was deleted).
-function deleteMedication(id) {
-  const med = medications.find((m) => m.id === id);
-  if (!med) return;
-  flushMedDateUndo(); // close any date typing first, so its undo step doesn't capture this delete
-  const before = structuredClone(med);
-  med.deleted = true;
-  stampSync(med);
-  saveCollection(MEDICATIONS_KEY, medications);
-  recordUndo('medications', id, before, structuredClone(med));
-  renderMedications();
-}
-
-// Brings a deleted medication back (used by undo).
-function restoreMedication(id) {
-  const med = medications.find((m) => m.id === id);
-  if (!med || !med.deleted) return;
-  flushMedDateUndo();
-  const before = structuredClone(med);
-  med.deleted = false;
-  stampSync(med);
-  saveCollection(MEDICATIONS_KEY, medications);
-  recordUndo('medications', id, before, structuredClone(med));
-  renderMedications();
-}
-
-// Saves edits to a medication's text details (dates are saved separately by updateMedicationDate).
-function updateMedication(id, fields) {
-  const med = medications.find((m) => m.id === id);
-  if (!med) return { ok: false, error: 'Medication not found.' };
-  const trimmedName = fields.name.trim();
-  if (!trimmedName) return { ok: false, error: 'Name is required.' };
-  flushMedDateUndo(); // Safari doesn't blur a date box when a button is tapped, so close the typing burst here too
-  const before = structuredClone(med);
-  med.name = trimmedName;
-  med.dosage = fields.dosage.trim();
-  med.frequency = fields.frequency.trim();
-  med.prescribingDoctor = fields.prescribingDoctor.trim();
-  med.notes = fields.notes.trim();
-  // The newer fields change only when the caller sends them.
-  if (fields.kind !== undefined) med.kind = fields.kind === 'equipment' ? 'equipment' : 'medication';
-  if (fields.pharmacy !== undefined) med.pharmacy = String(fields.pharmacy).trim();
-  if (fields.refillsLeft !== undefined) med.refillsLeft = cleanCount(fields.refillsLeft);
-  if (fields.refillEveryDays !== undefined) med.refillEveryDays = cleanDays(fields.refillEveryDays);
-  stampSync(med);
-  saveCollection(MEDICATIONS_KEY, medications);
-  recordUndo('medications', id, before, structuredClone(med));
-  renderMedications();
-  return { ok: true };
-}
-
-// True if the search text appears in the medication's name, dosage, frequency, doctor or notes.
-function matchesMedicationSearch(med, term) {
-  if (!term) return true;
-  const haystack = [med.name, med.dosage, med.frequency, med.prescribingDoctor, med.notes]
-    .join(' ')
-    .toLowerCase();
-  return haystack.includes(term.toLowerCase());
-}
-
-// The chosen sort for the Medications screen; 'name_asc' is the default.
-let selectedMedicationsSort = 'name_asc';
-
-// Sort options by the value of the Medications sort dropdown.
-const MEDICATION_SORTS = {
-  name_asc: compareByField((m) => m.name, 1),
-  start_date_desc: compareByField((m) => m.startDate, -1, { text: false }),
-  start_date_asc: compareByField((m) => m.startDate, 1, { text: false }),
-};
-
-// Whole days from today to a YYYY-MM-DD date (negative if it's in the past).
-function daysUntilDateKey(dateKey) {
-  return Math.round((new Date(dateKey + 'T00:00:00') - new Date(todayKey() + 'T00:00:00')) / 86400000);
-}
-
-// Builds one card per medication from the template, with its date boxes, edit form and buttons.
-function renderMedicationList(items, template, openEdit) {
-  const list = document.getElementById('medications-list');
-  list.innerHTML = '';
-
-  items.forEach((med) => {
-    const node = template.content.cloneNode(true);
-    const card = node.querySelector('.med-card');
-    card.dataset.medId = med.id;
-    const viewSection = node.querySelector('.med-view');
-    const editForm = node.querySelector('.med-edit-form');
-
-    node.querySelector('.med-name').textContent = med.name;
-
-    const setField = (fieldClass, wrapperClass, value) => {
-      const wrapper = node.querySelector(`.${wrapperClass}`);
-      if (value) {
-        node.querySelector(`.${fieldClass}`).textContent = value;
-        wrapper.hidden = false;
-      }
-    };
-    setField('med-dosage', 'med-dosage-field', med.dosage);
-    setField('med-frequency', 'med-frequency-field', med.frequency);
-    setField('med-doctor', 'med-doctor-field', med.prescribingDoctor);
-    setField('med-pharmacy', 'med-pharmacy-field', med.pharmacy);
-    const equipment = isEquipment(med);
-    node.querySelector('.med-kind').hidden = !equipment;
-    node.querySelector('.med-refill-label').textContent = equipment ? 'Next replacement date' : 'Next refill date';
-    if (!equipment && Number.isInteger(med.refillsLeft)) {
-      const left = node.querySelector('.med-refills-left');
-      left.textContent = med.refillsLeft === 0 ? 'none. Ask for a new prescription' : String(med.refillsLeft);
-      left.classList.toggle('med-warn', med.refillsLeft === 0);
-      node.querySelector('.med-refills-field').hidden = false;
-    }
-    if (isRealDateKey(med.lastPickedUp)) {
-      node.querySelector('.med-last-label').textContent = equipment ? 'Last replaced:' : 'Last picked up:';
-      node.querySelector('.med-last').textContent = formatDateKeyLong(med.lastPickedUp);
-      node.querySelector('.med-last-field').hidden = false;
-    }
-
-    const startInput = node.querySelector('.med-start-date');
-    const refillInput = node.querySelector('.med-refill-date');
-    const refillHint = node.querySelector('.refill-hint');
-    const unknownHint = node.querySelector('.unknown-hint');
-    const dateError = node.querySelector('.med-date-error');
-
-    startInput.value = med.startDate || '';
-    refillInput.value = med.refillDate || '';
-    updateMedHints(med, refillHint, unknownHint);
-
-    // Picked up refill: one tap when the interval is already known, otherwise pick 30 / 60 / 90 days.
-    const pickedBtn = node.querySelector('.refill-picked-btn');
-    const changeBtn = node.querySelector('.refill-change-btn');
-    const intervalRow = node.querySelector('.refill-interval');
-    const knownDays = Number.isInteger(med.refillEveryDays) && med.refillEveryDays >= 1 && med.refillEveryDays <= 365 ? med.refillEveryDays : null;
-    const doneWord = equipment ? 'Replaced' : 'Picked up refill';
-    pickedBtn.textContent = knownDays ? `${doneWord} (next in ${knownDays} days)` : doneWord;
-    node.querySelector('.refill-interval-label').textContent = equipment ? 'Replaced \u2014 replace every:' : 'Picked up \u2014 refills every:';
-    // Each kind offers its own usual intervals; any other number can be typed in.
-    intervalRow.querySelectorAll('.chip[data-for]').forEach((chip) => { chip.hidden = chip.dataset.for === (equipment ? 'med' : 'equip'); });
-    const customDays = node.querySelector('.refill-custom-days'); // looked up now: `node` is empty once the card is on the page
-    node.querySelector('.refill-custom-go').addEventListener('click', () => {
-      const days = cleanDays(customDays.value);
-      if (days) markRefillPickedUp(med.id, days);
-    });
-    changeBtn.hidden = !knownDays;
-    pickedBtn.addEventListener('click', () => {
-      if (knownDays) markRefillPickedUp(med.id, knownDays);
-      else intervalRow.hidden = !intervalRow.hidden;
-    });
-    changeBtn.addEventListener('click', () => { intervalRow.hidden = !intervalRow.hidden; });
-    intervalRow.querySelectorAll('.chip[data-days]').forEach((chip) => {
-      chip.addEventListener('click', () => markRefillPickedUp(med.id, Number(chip.dataset.days)));
-    });
-
-    // `change` fires on every digit once a date is complete, so each one saves quietly in
-    // place. A half-typed year (e.g. 0002) is never saved; if it is still out of range when
-    // you leave the box, the box goes back to the saved date.
-    [[startInput, 'startDate'], [refillInput, 'refillDate']].forEach(([input, field]) => {
-      input.addEventListener('change', () => {
-        if (input.value && !isReasonableDateKey(input.value)) {
-          dateError.textContent = DATE_RANGE_MESSAGE;
-          dateError.hidden = false;
-          return;
-        }
-        dateError.hidden = true;
-        const result = updateMedicationDate(med.id, field, input.value);
-        if (!result.ok) {
-          dateError.textContent = result.error;
-          dateError.hidden = false;
-          input.value = med[field] || '';
-          return;
-        }
-        updateMedHints(med, refillHint, unknownHint);
-      });
-      input.addEventListener('blur', () => {
-        flushMedDateUndo();
-        if (input.value && !isReasonableDateKey(input.value)) {
-          input.value = med[field] || '';
-          dateError.hidden = true;
-        }
-      });
-    });
-
-    const notesEl = node.querySelector('.med-notes');
-    if (med.notes) {
-      notesEl.textContent = med.notes;
-      notesEl.hidden = false;
-    }
-
-    const editNameInput = node.querySelector('.med-edit-name');
-    const editDosageInput = node.querySelector('.med-edit-dosage');
-    const editFrequencyInput = node.querySelector('.med-edit-frequency');
-    const editDoctorInput = node.querySelector('.med-edit-doctor');
-    const editNotesInput = node.querySelector('.med-edit-notes');
-    const editKindInput = node.querySelector('.med-edit-kind');
-    const editPharmacyInput = node.querySelector('.med-edit-pharmacy');
-    const editRefillsLeftInput = node.querySelector('.med-edit-refills-left');
-    const editEveryInput = node.querySelector('.med-edit-every');
-    const editError = node.querySelector('.med-edit-error');
-
-    node.querySelector('.edit-btn').addEventListener('click', () => {
-      // Only one medication can be in edit mode at a time.
-      const otherOpenForm = list.querySelector('.med-edit-form:not([hidden])');
-      if (otherOpenForm && otherOpenForm !== editForm) {
-        otherOpenForm.hidden = true;
-        otherOpenForm.closest('.med-card').querySelector('.med-view').hidden = false;
-      }
-      editNameInput.value = med.name;
-      editDosageInput.value = med.dosage || '';
-      editFrequencyInput.value = med.frequency || '';
-      editDoctorInput.value = med.prescribingDoctor || '';
-      editNotesInput.value = med.notes || '';
-      editKindInput.value = med.kind === 'equipment' ? 'equipment' : 'medication';
-      editPharmacyInput.value = med.pharmacy || '';
-      editRefillsLeftInput.value = Number.isInteger(med.refillsLeft) ? med.refillsLeft : '';
-      editEveryInput.value = Number.isInteger(med.refillEveryDays) ? med.refillEveryDays : '';
-      editError.hidden = true;
-      viewSection.hidden = true;
-      editForm.hidden = false;
-    });
-
-    node.querySelector('.cancel-btn').addEventListener('click', () => {
-      editForm.hidden = true;
-      viewSection.hidden = false;
-    });
-
-    editForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      // Hide the form BEFORE calling updateMedication — if the save
-      // succeeds, updateMedication's internal re-render captures "is there
-      // an open edit form" from live DOM state, and must see this one as
-      // already closed, or it reopens the very form that just successfully
-      // saved. If the save FAILS, updateMedication returns early before any
-      // render happens at all, so these exact DOM nodes are still live/
-      // attached and safe to simply re-show.
-      editForm.hidden = true;
-      viewSection.hidden = false;
-      const result = updateMedication(med.id, {
-        name: editNameInput.value,
-        dosage: editDosageInput.value,
-        frequency: editFrequencyInput.value,
-        prescribingDoctor: editDoctorInput.value,
-        notes: editNotesInput.value,
-        kind: editKindInput.value,
-        pharmacy: editPharmacyInput.value,
-        refillsLeft: editRefillsLeftInput.value,
-        refillEveryDays: editEveryInput.value,
-      });
-      if (!result.ok) {
-        viewSection.hidden = true;
-        editForm.hidden = false;
-        editError.textContent = result.error;
-        editError.hidden = false;
-      }
-    });
-
-    node.querySelector('.delete-btn').addEventListener('click', () => deleteMedication(med.id));
-
-    if (openEdit && openEdit.id === med.id) {
-      editNameInput.value = openEdit.name;
-      editDosageInput.value = openEdit.dosage;
-      editFrequencyInput.value = openEdit.frequency;
-      editDoctorInput.value = openEdit.prescribingDoctor;
-      editNotesInput.value = openEdit.notes;
-      editKindInput.value = openEdit.kind;
-      editPharmacyInput.value = openEdit.pharmacy;
-      editRefillsLeftInput.value = openEdit.refillsLeft;
-      editEveryInput.value = openEdit.refillEveryDays;
-      viewSection.hidden = true;
-      editForm.hidden = false;
-    }
-
-    list.appendChild(node);
-  });
-}
-
-// Redraws the whole Medications screen: search, sort and the medication cards.
-function renderMedications() {
-  flushMedDateUndo(); // a redraw replaces the date boxes, so close any typing burst first
-  const searchTerm = document.getElementById('medications-search-input').value;
-  const nonDeleted = medications.filter((m) => !m.deleted);
-  const template = document.getElementById('medications-card-template');
-  const comparator = MEDICATION_SORTS[selectedMedicationsSort] || MEDICATION_SORTS.name_asc;
-
-  const sorted = nonDeleted.filter((m) => matchesMedicationSearch(m, searchTerm)).sort(comparator);
-
-  const list = document.getElementById('medications-list');
-  let openEdit = null;
-  const openForm = list.querySelector('.med-edit-form:not([hidden])');
-  if (openForm) {
-    openEdit = {
-      id: openForm.closest('.med-card').dataset.medId,
-      name: openForm.querySelector('.med-edit-name').value,
-      dosage: openForm.querySelector('.med-edit-dosage').value,
-      frequency: openForm.querySelector('.med-edit-frequency').value,
-      prescribingDoctor: openForm.querySelector('.med-edit-doctor').value,
-      notes: openForm.querySelector('.med-edit-notes').value,
-      kind: openForm.querySelector('.med-edit-kind').value,
-      pharmacy: openForm.querySelector('.med-edit-pharmacy').value,
-      refillsLeft: openForm.querySelector('.med-edit-refills-left').value,
-      refillEveryDays: openForm.querySelector('.med-edit-every').value,
-    };
-  }
-
-  renderMedicationList(sorted, template, openEdit);
-
-  document.getElementById('medications-empty-state').hidden = nonDeleted.length !== 0;
-
-  renderHome(); // Home shows upcoming refills -- keep this in sync
-}
-
-// Add medication: shows the error under the form and keeps what was typed if it was refused.
-document.getElementById('medications-add-form').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const nameInput = document.getElementById('medications-name-input');
-  const dosageInput = document.getElementById('medications-dosage-input');
-  const frequencyInput = document.getElementById('medications-frequency-input');
-  const doctorInput = document.getElementById('medications-doctor-input');
-  const startInput = document.getElementById('medications-start-input');
-  const refillInput = document.getElementById('medications-refill-input');
-  const notesInput = document.getElementById('medications-notes-input');
-  const errorEl = document.getElementById('medications-form-error');
-
-  const result = addMedication({
-    name: nameInput.value,
-    dosage: dosageInput.value,
-    frequency: frequencyInput.value,
-    prescribingDoctor: doctorInput.value,
-    startDate: startInput.value,
-    refillDate: refillInput.value,
-    notes: notesInput.value,
-    kind: document.getElementById('medications-kind-input').value,
-    pharmacy: document.getElementById('medications-pharmacy-input').value,
-    refillsLeft: document.getElementById('medications-refills-left-input').value,
-    refillEveryDays: document.getElementById('medications-every-input').value,
-  });
-
-  if (!result.ok) {
-    errorEl.textContent = result.error;
-    errorEl.hidden = false;
-    return;
-  }
-
-  errorEl.hidden = true;
-  nameInput.value = '';
-  dosageInput.value = '';
-  frequencyInput.value = '';
-  doctorInput.value = '';
-  startInput.value = '';
-  refillInput.value = '';
-  notesInput.value = '';
-  ['medications-pharmacy-input', 'medications-refills-left-input', 'medications-every-input'].forEach((id) => { document.getElementById(id).value = ''; });
-  document.getElementById('medications-kind-input').value = 'medication';
-  nameInput.focus();
-});
-
-// Search box: filters the cards as you type.
-document.getElementById('medications-search-input').addEventListener('input', renderMedications);
-
-// Sort dropdown: remembers the choice and redraws.
-document.getElementById('medications-sort-input').addEventListener('change', (e) => {
-  selectedMedicationsSort = e.target.value;
-  renderMedications();
-});
-
-// ---- Weight ----
-// A synced list of dated weights (pounds). The four headline figures are computed from the
-// entries each time: the oldest (earliest date), the highest, the lowest and the most recent.
-
-const WEIGHTS_KEY = 'secondMemory.weights.v1';
-// Weights are stored in pounds (WEIGHT_UNIT); anything above WEIGHT_MAX is rejected as a typo.
-const WEIGHT_UNIT = 'lb';
-const WEIGHT_MAX = 1500;
-
-let weights = migrateSyncFields(loadCollection(WEIGHTS_KEY), WEIGHTS_KEY, getDeviceId());
-
-// A weight shown to one decimal place with its unit, e.g. "152.4 lb".
-function formatWeight(value) {
-  return `${Number(value).toFixed(1)} ${WEIGHT_UNIT}`;
-}
-
-// Checks the form values: a real date that isn't in the future and a sensible weight (rounded to 0.1).
-function validateWeightFields(fields) {
-  const date = (fields.date || '').trim();
-  if (!isRealDateKey(date)) return { ok: false, error: 'Enter a real date.' };
-  if (date > todayKey()) return { ok: false, error: "The date can't be in the future." };
-  const raw = String(fields.value === undefined || fields.value === null ? '' : fields.value).trim();
-  const value = Number(raw);
-  const rounded = Math.round(value * 10) / 10; // what will actually be saved
-  if (raw === '' || !Number.isFinite(value) || rounded < 0.1 || value > WEIGHT_MAX) {
-    return { ok: false, error: `Enter a weight between 0.1 and ${WEIGHT_MAX} ${WEIGHT_UNIT}.` };
-  }
-  return { ok: true, date, weight: rounded, note: (fields.note || '').trim() };
-}
-
-// Adds a weight entry. Returns { ok } or { ok: false, error } if the fields don't validate.
-function addWeight(fields) {
-  const result = validateWeightFields(fields);
-  if (!result.ok) return result;
-  const now = new Date().toISOString();
-  const record = {
-    id: makeId(),
-    date: result.date,
-    weight: result.weight,
-    note: result.note,
-    dateAdded: now,
-    updatedAt: now,
-    deviceId: getDeviceId(),
-    deleted: false,
-    version: 0,
-  };
-  weights.push(record);
-  saveCollection(WEIGHTS_KEY, weights);
-  recordUndo('weights', record.id, null, structuredClone(record));
-  renderWeights();
-  return { ok: true };
-}
-
-// Saves edits to a weight entry, re-validating the fields first.
-function updateWeight(id, fields) {
-  const record = weights.find((w) => w.id === id);
-  if (!record) return { ok: false, error: 'Entry not found.' };
-  const result = validateWeightFields(fields);
-  if (!result.ok) return result;
-  const before = structuredClone(record);
-  record.date = result.date;
-  record.weight = result.weight;
-  record.note = result.note;
-  stampSync(record);
-  saveCollection(WEIGHTS_KEY, weights);
-  recordUndo('weights', id, before, structuredClone(record));
-  renderWeights();
-  return { ok: true };
-}
-
-// Soft-deletes a weight entry (keeps a tombstone so syncing can tell it was deleted).
-function deleteWeight(id) {
-  const record = weights.find((w) => w.id === id);
-  if (!record) return;
-  const before = structuredClone(record);
-  record.deleted = true;
-  stampSync(record);
-  saveCollection(WEIGHTS_KEY, weights);
-  recordUndo('weights', id, before, structuredClone(record));
-  renderWeights();
-}
-
-// Brings a deleted weight entry back (used by undo).
-function restoreWeight(id) {
-  const record = weights.find((w) => w.id === id);
-  if (!record || !record.deleted) return;
-  const before = structuredClone(record);
-  record.deleted = false;
-  stampSync(record);
-  saveCollection(WEIGHTS_KEY, weights);
-  recordUndo('weights', id, before, structuredClone(record));
-  renderWeights();
-}
-
-// Oldest first by date; entries on the same day fall back to the order they were added.
-function compareWeightsByDate(a, b) {
-  if (a.date !== b.date) return a.date < b.date ? -1 : 1;
-  return (a.dateAdded || '') < (b.dateAdded || '') ? -1 : (a.dateAdded || '') > (b.dateAdded || '') ? 1 : 0;
-}
-
-// oldest = earliest date, recent = latest date (same-day entries: the one added later).
-// highest / lowest = the largest / smallest weight; if it was reached more than once, the earliest time.
-function computeWeightStats(entries) {
-  const usable = entries
-    .filter((w) => !w.deleted && Number.isFinite(w.weight) && w.weight > 0 && typeof w.date === 'string')
-    .sort(compareWeightsByDate);
-  if (usable.length === 0) return null;
-  let highest = usable[0];
-  let lowest = usable[0];
-  usable.forEach((w) => {
-    if (w.weight > highest.weight) highest = w;
-    if (w.weight < lowest.weight) lowest = w;
-  });
-  return { oldest: usable[0], highest, lowest, recent: usable[usable.length - 1], count: usable.length };
-}
-
-// Fills the four headline cards (oldest, highest, lowest, recent); shows a dash when there's no data.
-function renderWeightStats(stats) {
-  document.querySelectorAll('#weight-stats .weight-stat').forEach((card) => {
-    const entry = stats ? stats[card.dataset.stat] : null;
-    card.querySelector('.weight-stat-value').textContent = entry ? formatWeight(entry.weight) : '\u2014';
-    card.querySelector('.weight-stat-date').textContent = entry && isRealDateKey(entry.date) ? formatDateKeyLong(entry.date) : '';
-  });
-}
-
-// Redraws the Weight screen: headline figures, then entries newest first.
-function renderWeights() {
-  const list = document.getElementById('weight-list');
-  if (!list) return;
-
-  // Remember an edit form that is open (with its unsaved typing) so the redraw below doesn't lose it.
-  const openForm = list.querySelector('.weight-edit-form:not([hidden])');
-  const openEdit = openForm
-    ? {
-        id: openForm.closest('.weight-card').dataset.weightId,
-        date: openForm.querySelector('.weight-edit-date').value,
-        value: openForm.querySelector('.weight-edit-value').value,
-        note: openForm.querySelector('.weight-edit-note').value,
-      }
-    : null;
-
-  const live = weights.filter((w) => !w.deleted && typeof w.date === 'string');
-  renderWeightStats(computeWeightStats(live));
-
-  const dateInput = document.getElementById('weight-date-input');
-  if (!dateInput.value) dateInput.value = todayKey();
-
-  list.innerHTML = '';
-  const template = document.getElementById('weight-card-template');
-  live.slice().sort((a, b) => compareWeightsByDate(b, a)).forEach((record) => {
-    const node = template.content.cloneNode(true);
-    node.querySelector('.weight-card').dataset.weightId = record.id;
-    const viewSection = node.querySelector('.weight-view');
-    const editForm = node.querySelector('.weight-edit-form');
-
-    node.querySelector('.weight-entry-value').textContent = formatWeight(record.weight);
-    node.querySelector('.weight-entry-date').textContent = isRealDateKey(record.date) ? formatDateKeyLong(record.date) : record.date;
-    const noteEl = node.querySelector('.weight-entry-note');
-    if (record.note) {
-      noteEl.textContent = record.note;
-      noteEl.hidden = false;
-    }
-
-    const editDate = node.querySelector('.weight-edit-date');
-    const editValue = node.querySelector('.weight-edit-value');
-    const editNote = node.querySelector('.weight-edit-note');
-    const editError = node.querySelector('.weight-edit-error');
-
-    node.querySelector('.edit-btn').addEventListener('click', () => {
-      const otherOpen = list.querySelector('.weight-edit-form:not([hidden])');
-      if (otherOpen && otherOpen !== editForm) {
-        otherOpen.hidden = true;
-        otherOpen.closest('.weight-card').querySelector('.weight-view').hidden = false;
-      }
-      editDate.value = record.date;
-      editValue.value = record.weight;
-      editNote.value = record.note || '';
-      editError.hidden = true;
-      viewSection.hidden = true;
-      editForm.hidden = false;
-    });
-    node.querySelector('.cancel-btn').addEventListener('click', () => {
-      editForm.hidden = true;
-      viewSection.hidden = false;
-    });
-    editForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      // Hide first (see the Medications edit form) so a successful save's own re-render doesn't
-      // reopen this form; re-show it if the entry was rejected.
-      editForm.hidden = true;
-      viewSection.hidden = false;
-      const result = updateWeight(record.id, { date: editDate.value, value: editValue.value, note: editNote.value });
-      if (!result.ok) {
-        viewSection.hidden = true;
-        editForm.hidden = false;
-        editError.textContent = result.error;
-        editError.hidden = false;
-      }
-    });
-    node.querySelector('.delete-btn').addEventListener('click', () => deleteWeight(record.id));
-
-    if (openEdit && openEdit.id === record.id) {
-      editDate.value = openEdit.date;
-      editValue.value = openEdit.value;
-      editNote.value = openEdit.note;
-      viewSection.hidden = true;
-      editForm.hidden = false;
-    }
-
-    list.appendChild(node);
-  });
-
-  document.getElementById('weight-empty-state').hidden = live.length !== 0;
-  renderWeightChart();
-  renderHome(); // Home's "Weigh in" box depends on whether today has a weight
-}
-
-// Add weight: shows the error under the form if refused; otherwise clears the value and note and resets the date to today.
-document.getElementById('weight-add-form').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const dateInput = document.getElementById('weight-date-input');
-  const valueInput = document.getElementById('weight-value-input');
-  const noteInput = document.getElementById('weight-note-input');
-  const errorEl = document.getElementById('weight-form-error');
-  const result = addWeight({ date: dateInput.value, value: valueInput.value, note: noteInput.value });
-  if (!result.ok) {
-    errorEl.textContent = result.error;
-    errorEl.hidden = false;
-    return;
-  }
-  errorEl.hidden = true;
-  valueInput.value = '';
-  noteInput.value = '';
-  dateInput.value = todayKey();
-  valueInput.focus();
-});
-
-// ---- Weight chart, trend and goal ----
-// A line chart of the entries (all, last 90 days or last 30 days), an optional goal line, and a
-// one-line "change over the last 30 days". The goal is a setting kept on this device only.
-
-const WEIGHT_GOAL_KEY = 'secondMemory.weightGoal.v1';
-let selectedWeightRange = 'all'; // 'all', '90' or '30'
-
-// The saved goal weight, or null when none is set (or the saved value is not a sensible number).
-function loadWeightGoal() {
-  try {
-    const value = Number(localStorage.getItem(WEIGHT_GOAL_KEY));
-    return Number.isFinite(value) && value > 0 && value <= WEIGHT_MAX ? value : null;
-  } catch {
-    return null;
-  }
-}
-
-// Saves the goal (a number) or clears it (null). Returns false if the browser refused to save.
-function saveWeightGoal(value) {
-  try {
-    if (value === null) localStorage.removeItem(WEIGHT_GOAL_KEY);
-    else localStorage.setItem(WEIGHT_GOAL_KEY, String(value));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-// Live entries sorted oldest to newest, limited to the last `days` days when a number is given.
-function weightEntriesForChart(entries, days) {
-  const sorted = entries.filter((w) => !w.deleted && Number.isFinite(w.weight) && isRealDateKey(w.date)).sort(compareWeightsByDate);
-  if (!days) return sorted;
-  const since = shiftDateKey(todayKey(), -days);
-  return sorted.filter((w) => w.date >= since);
-}
-
-// How much the weight changed over the last `days` days: the latest entry compared with the last entry
-// on or before that many days earlier, or with the first entry inside the window when there is none.
-// Returns null when there is nothing to compare.
-function weightChangeOver(entries, days) {
-  const sorted = weightEntriesForChart(entries, 0);
-  if (sorted.length < 2) return null;
-  const latest = sorted[sorted.length - 1];
-  if (latest.date < shiftDateKey(todayKey(), -days)) return null; // the newest weight is old: there is no such window to describe
-  const cutoff = shiftDateKey(latest.date, -days);
-  const before = sorted.filter((w) => w.date <= cutoff);
-  const base = before.length ? before[before.length - 1] : sorted.find((w) => w.date > cutoff && w !== latest);
-  if (!base) return null;
-  return { change: Math.round((latest.weight - base.weight) * 10) / 10, since: base.date };
-}
-
-// The 30-day version used on the Weight tab and in the health summary.
-function weightChangeLast30(entries) {
-  return weightChangeOver(entries, 30);
-}
-
-// Draws the chart into the <svg>: grid, axis labels, the line and dots, and the goal line.
-function drawWeightChart(svg, points, goal) {
-  svg.innerHTML = '';
-  const W = 600;
-  const H = 260;
-  const left = 52;
-  const right = 14;
-  const top = 14;
-  const bottom = 34;
-  if (points.length === 0) {
-    const msg = svgEl('text', { x: W / 2, y: H / 2, 'text-anchor': 'middle', class: 'w-empty' });
-    msg.textContent = 'No weights in this range yet.';
-    svg.appendChild(msg);
-    return;
-  }
-  const values = points.map((p) => p.weight).concat(goal ? [goal] : []);
-  let min = Math.min(...values);
-  let max = Math.max(...values);
-  // Give a flat series some height (so it isn't a line along the edge), then add 8% padding top and bottom.
-  if (max - min < 2) { min -= 1; max += 1; }
-  const pad = (max - min) * 0.08;
-  min -= pad;
-  max += pad;
-  // Dots are spaced by real calendar days, not evenly, so gaps in weighing show as gaps.
-  const days = points.map((p) => epochDays(p.date));
-  const firstDay = days[0];
-  const span = Math.max(1, days[days.length - 1] - firstDay); // never 0: avoids dividing by zero when all dots share a day
-  const x = (i) => (points.length === 1 ? (left + W - right) / 2 : left + ((days[i] - firstDay) / span) * (W - left - right));
-  const y = (v) => top + (1 - (v - min) / (max - min)) * (H - top - bottom);
-
-  // Grid lines with a weight label on each.
-  [0, 0.5, 1].forEach((f) => {
-    const v = min + (max - min) * f;
-    svg.appendChild(svgEl('line', { x1: left, x2: W - right, y1: y(v), y2: y(v), class: 'w-grid' }));
-    const label = svgEl('text', { x: left - 6, y: y(v) + 4, 'text-anchor': 'end', class: 'w-label' });
-    label.textContent = v.toFixed(0);
-    svg.appendChild(label);
-  });
-
-  // First and last dates under the chart.
-  const short = (key) => formatDateKeyLong(key).replace(/, \d{4}$/, '');
-  const firstLabel = svgEl('text', { x: left, y: H - 10, 'text-anchor': 'start', class: 'w-label' });
-  firstLabel.textContent = short(points[0].date);
-  svg.appendChild(firstLabel);
-  if (points.length > 1) {
-    const lastLabel = svgEl('text', { x: W - right, y: H - 10, 'text-anchor': 'end', class: 'w-label' });
-    lastLabel.textContent = short(points[points.length - 1].date);
-    svg.appendChild(lastLabel);
-  }
-
-  // The goal line, labelled at its right end.
-  if (goal) {
-    svg.appendChild(svgEl('line', { x1: left, x2: W - right, y1: y(goal), y2: y(goal), class: 'w-goal' }));
-    const goalLabel = svgEl('text', { x: W - right, y: y(goal) - 5, 'text-anchor': 'end', class: 'w-goal-label' });
-    goalLabel.textContent = `Goal ${goal}`;
-    svg.appendChild(goalLabel);
-  }
-
-  // The weight line, then a dot for every entry (each with a tooltip).
-  if (points.length > 1) {
-    svg.appendChild(svgEl('polyline', { points: points.map((p, i) => `${x(i).toFixed(1)},${y(p.weight).toFixed(1)}`).join(' '), class: 'w-line' }));
-  }
-  points.forEach((p, i) => {
-    const dot = svgEl('circle', { cx: x(i), cy: y(p.weight), r: 3.5, class: 'w-dot' });
-    const tip = svgEl('title', {});
-    tip.textContent = `${formatDateKeyLong(p.date)}: ${formatWeight(p.weight)}`;
-    dot.appendChild(tip);
-    svg.appendChild(dot);
-  });
-}
-
-// Redraws the chart, the "last 30 days" line and the goal box from the current entries.
-function renderWeightChart() {
-  const svg = document.getElementById('weight-chart');
-  if (!svg) return;
-  const goal = loadWeightGoal();
-  const days = selectedWeightRange === 'all' ? 0 : Number(selectedWeightRange);
-  const points = weightEntriesForChart(weights, days);
-  drawWeightChart(svg, points, goal);
-  svg.setAttribute('aria-label', points.length
-    ? `Weight over time: ${points.length} entries from ${formatWeight(points[0].weight)} to ${formatWeight(points[points.length - 1].weight)}`
-    : 'Weight over time: no entries in this range');
-
-  document.querySelectorAll('#weight-range-row .chip').forEach((chip) => {
-    chip.classList.toggle('chip-active', chip.dataset.range === selectedWeightRange);
-    chip.setAttribute('aria-pressed', String(chip.dataset.range === selectedWeightRange));
-  });
-
-  // One line under the chart: change over 30 days, and distance to the goal.
-  const parts = [];
-  const trend = weightChangeLast30(weights);
-  if (trend) {
-    const sign = trend.change > 0 ? '+' : trend.change < 0 ? '\u2212' : '';
-    parts.push(`Last 30 days: ${sign}${Math.abs(trend.change).toFixed(1)} ${WEIGHT_UNIT} (since ${formatDateKeyLong(trend.since)})`);
-  }
-  const stats = computeWeightStats(weights.filter((w) => !w.deleted));
-  if (goal && stats) {
-    const diff = Math.round((stats.recent.weight - goal) * 10) / 10;
-    parts.push(diff === 0 ? 'You are at your goal.' : `${Math.abs(diff).toFixed(1)} ${WEIGHT_UNIT} ${diff > 0 ? 'above' : 'below'} your goal of ${goal} ${WEIGHT_UNIT}`);
-  }
-  document.getElementById('weight-trend').textContent = parts.join(' \u00b7 ');
-  const goalInput = document.getElementById('weight-goal-input');
-  if (document.activeElement !== goalInput) goalInput.value = goal === null ? '' : String(goal);
-}
-
-// Range chips (All / 90 days / 30 days) switch what the chart shows.
-document.getElementById('weight-range-row').addEventListener('click', (e) => {
-  const chip = e.target.closest('.chip');
-  if (!chip) return;
-  selectedWeightRange = chip.dataset.range;
-  renderWeightChart();
-});
-
-// Goal form: validates and saves the goal weight (kept on this device only).
-document.getElementById('weight-goal-form').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const errorEl = document.getElementById('weight-goal-error');
-  const raw = document.getElementById('weight-goal-input').value.trim();
-  const value = Number(raw);
-  if (raw === '' || !Number.isFinite(value) || Math.round(value * 10) / 10 < 0.1 || value > WEIGHT_MAX) {
-    errorEl.textContent = `Enter a goal between 0.1 and ${WEIGHT_MAX} ${WEIGHT_UNIT}, or tap Clear.`;
-    errorEl.hidden = false;
-    return;
-  }
-  errorEl.hidden = true;
-  if (!saveWeightGoal(Math.round(value * 10) / 10)) {
-    errorEl.textContent = 'Could not save the goal (the browser refused to store it).';
-    errorEl.hidden = false;
-    return;
-  }
-  renderWeightChart();
-});
-
-// Clear button: removes the saved goal (and says so if the browser refuses).
-document.getElementById('weight-goal-clear').addEventListener('click', () => {
-  const errorEl = document.getElementById('weight-goal-error');
-  errorEl.hidden = true;
-  if (!saveWeightGoal(null)) {
-    errorEl.textContent = 'Could not clear the goal (the browser refused to store it).';
-    errorEl.hidden = false;
-    return;
-  }
-  document.getElementById('weight-goal-input').value = '';
-  renderWeightChart();
-});
-
-// ---- Diagnoses ----
-
-const DIAGNOSES_KEY = 'secondMemory.diagnoses.v1';
-
-let diagnoses = migrateSyncFields(loadCollection(DIAGNOSES_KEY), DIAGNOSES_KEY, getDeviceId());
-
-// Adds a diagnosis; a blank condition is refused.
-function addDiagnosis(condition, dateDiagnosed, provider, notes) {
-  const trimmedCondition = condition.trim();
-  if (!trimmedCondition) return;
-  const now = new Date().toISOString();
-  const diagnosis = {
-    id: makeId(),
-    condition: trimmedCondition,
-    dateDiagnosed: dateDiagnosed || null,
-    provider: provider.trim(),
-    notes: notes.trim(),
-    dateAdded: now,
-    updatedAt: now,
-    deviceId: getDeviceId(),
-    deleted: false,
-    version: 0,
-  };
-  diagnoses.push(diagnosis);
-  saveCollection(DIAGNOSES_KEY, diagnoses);
-  recordUndo('diagnoses', diagnosis.id, null, structuredClone(diagnosis));
-  renderDiagnoses();
-}
-
-// Soft-deletes a diagnosis (keeps a tombstone so syncing can tell it was deleted).
-function deleteDiagnosis(id) {
-  const diagnosis = diagnoses.find((d) => d.id === id);
-  if (!diagnosis) return;
-  const before = structuredClone(diagnosis);
-  diagnosis.deleted = true;
-  stampSync(diagnosis);
-  saveCollection(DIAGNOSES_KEY, diagnoses);
-  recordUndo('diagnoses', id, before, structuredClone(diagnosis));
-  renderDiagnoses();
-}
-
-// Brings a deleted diagnosis back (used by undo).
-function restoreDiagnosis(id) {
-  const diagnosis = diagnoses.find((d) => d.id === id);
-  if (!diagnosis || !diagnosis.deleted) return;
-  const before = structuredClone(diagnosis);
-  diagnosis.deleted = false;
-  stampSync(diagnosis);
-  saveCollection(DIAGNOSES_KEY, diagnoses);
-  recordUndo('diagnoses', id, before, structuredClone(diagnosis));
-  renderDiagnoses();
-}
-
-// Saves edits to a diagnosis's details.
-function updateDiagnosis(id, fields) {
-  const diagnosis = diagnoses.find((d) => d.id === id);
-  if (!diagnosis) return;
-  const trimmedCondition = fields.condition.trim();
-  if (!trimmedCondition) return;
-  const before = structuredClone(diagnosis);
-  diagnosis.condition = trimmedCondition;
-  diagnosis.dateDiagnosed = fields.dateDiagnosed || null;
-  diagnosis.provider = fields.provider.trim();
-  diagnosis.notes = fields.notes.trim();
-  stampSync(diagnosis);
-  saveCollection(DIAGNOSES_KEY, diagnoses);
-  recordUndo('diagnoses', id, before, structuredClone(diagnosis));
-  renderDiagnoses();
-}
-
-// True if the search text appears in the condition, provider or notes.
-function matchesDiagnosisSearch(diagnosis, term) {
-  if (!term) return true;
-  const haystack = `${diagnosis.condition} ${diagnosis.provider || ''} ${diagnosis.notes || ''}`.toLowerCase();
-  return haystack.includes(term.toLowerCase());
-}
-
-// Alphabetical by condition is the default order.
-let selectedDiagnosesSort = 'condition_asc';
-
-// Sort options by the value of the Diagnoses sort dropdown (a missing date sorts last either way).
-const DIAGNOSIS_SORTS = {
-  condition_asc: compareByField((d) => d.condition, 1),
-  date_diagnosed_desc: compareByField((d) => d.dateDiagnosed, -1, { text: false }),
-  date_diagnosed_asc: compareByField((d) => d.dateDiagnosed, 1, { text: false }),
-};
-
-// Redraws the whole Diagnoses screen: search, sort and one flat list of cards.
-function renderDiagnoses() {
-  const searchTerm = document.getElementById('diagnoses-search-input').value;
-  const visible = diagnoses.filter((d) => !d.deleted).filter((d) => matchesDiagnosisSearch(d, searchTerm));
-  const template = document.getElementById('diagnoses-card-template');
-  const comparator = DIAGNOSIS_SORTS[selectedDiagnosesSort] || DIAGNOSIS_SORTS.condition_asc;
-  const list = document.getElementById('diagnoses-list');
-
-  // Remember the open edit form (with unsaved typing) so the redraw doesn't lose it.
-  const openForm = list.querySelector('.diagnosis-edit-form:not([hidden])');
-  const openEdit = openForm
-    ? {
-        id: openForm.closest('.diagnosis-card').dataset.diagnosisId,
-        condition: openForm.querySelector('.diagnosis-edit-condition').value,
-        dateDiagnosed: openForm.querySelector('.diagnosis-edit-date').value,
-        provider: openForm.querySelector('.diagnosis-edit-provider').value,
-        notes: openForm.querySelector('.diagnosis-edit-notes').value,
-      }
-    : null;
-
-  list.innerHTML = '';
-  visible.sort(comparator).forEach((diagnosis) => {
-    const node = template.content.cloneNode(true);
-    const card = node.querySelector('.diagnosis-card');
-    card.dataset.diagnosisId = diagnosis.id;
-    const viewSection = node.querySelector('.diagnosis-view');
-    const editForm = node.querySelector('.diagnosis-edit-form');
-
-    node.querySelector('.diagnosis-condition').textContent = diagnosis.condition;
-    node.querySelector('.diagnosis-date').textContent = diagnosis.dateDiagnosed || 'Date unknown';
-
-    const providerEl = node.querySelector('.diagnosis-provider');
-    if (diagnosis.provider) {
-      providerEl.textContent = diagnosis.provider;
-      providerEl.hidden = false;
-    }
-
-    const notesEl = node.querySelector('.diagnosis-notes');
-    if (diagnosis.notes) {
-      notesEl.textContent = diagnosis.notes;
-      notesEl.hidden = false;
-    }
-
-    const editConditionInput = node.querySelector('.diagnosis-edit-condition');
-    const editDateInput = node.querySelector('.diagnosis-edit-date');
-    const editProviderInput = node.querySelector('.diagnosis-edit-provider');
-    const editNotesInput = node.querySelector('.diagnosis-edit-notes');
-
-    node.querySelector('.edit-btn').addEventListener('click', () => {
-      // Only one card is edited at a time: close any other open form first.
-      list.querySelectorAll('.diagnosis-edit-form:not([hidden])').forEach((otherOpenForm) => {
-        if (otherOpenForm !== editForm) {
-          otherOpenForm.hidden = true;
-          otherOpenForm.closest('.diagnosis-card').querySelector('.diagnosis-view').hidden = false;
-        }
-      });
-      editConditionInput.value = diagnosis.condition;
-      editDateInput.value = diagnosis.dateDiagnosed || '';
-      editProviderInput.value = diagnosis.provider || '';
-      editNotesInput.value = diagnosis.notes || '';
-      viewSection.hidden = true;
-      editForm.hidden = false;
-    });
-
-    node.querySelector('.cancel-btn').addEventListener('click', () => {
-      editForm.hidden = true;
-      viewSection.hidden = false;
-    });
-
-    editForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      // Hide before calling updateDiagnosis — see the identical comment
-      // on Books' edit-form submit handler.
-      if (rejectBlank(editConditionInput, 'Enter a condition.')) return;
-      editForm.hidden = true;
-      viewSection.hidden = false;
-      updateDiagnosis(diagnosis.id, {
-        condition: editConditionInput.value,
-        dateDiagnosed: editDateInput.value,
-        provider: editProviderInput.value,
-        notes: editNotesInput.value,
-      });
-    });
-
-    node.querySelector('.delete-btn').addEventListener('click', () => deleteDiagnosis(diagnosis.id));
-
-    if (openEdit && openEdit.id === diagnosis.id) {
-      editConditionInput.value = openEdit.condition;
-      editDateInput.value = openEdit.dateDiagnosed;
-      editProviderInput.value = openEdit.provider;
-      editNotesInput.value = openEdit.notes;
-      viewSection.hidden = true;
-      editForm.hidden = false;
-    }
-
-    list.appendChild(node);
-  });
-
-  document.getElementById('diagnoses-empty-state').hidden = diagnoses.filter((d) => !d.deleted).length !== 0;
-}
-
-// Add diagnosis: a blank condition is refused with a message; the form clears and keeps focus for the next one.
-document.getElementById('diagnoses-add-form').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const conditionInput = document.getElementById('diagnoses-condition-input');
-  const dateInput = document.getElementById('diagnoses-date-input');
-  const providerInput = document.getElementById('diagnoses-provider-input');
-  const notesInput = document.getElementById('diagnoses-notes-input');
-  if (rejectBlank(conditionInput, 'Enter a condition.')) return;
-  addDiagnosis(conditionInput.value, dateInput.value, providerInput.value, notesInput.value);
-  conditionInput.value = '';
-  dateInput.value = '';
-  providerInput.value = '';
-  notesInput.value = '';
-  conditionInput.focus();
-});
-
-// Search box: filters the cards as you type.
-document.getElementById('diagnoses-search-input').addEventListener('input', renderDiagnoses);
-
-// Sort dropdown: remembers the choice and redraws.
-document.getElementById('diagnoses-sort-input').addEventListener('change', (e) => {
-  selectedDiagnosesSort = e.target.value;
-  renderDiagnoses();
-});
-
-// ---- To-Do ----
-
-const TODOS_KEY = 'secondMemory.todos.v1';
-
-let todos = migrateSyncFields(loadCollection(TODOS_KEY), TODOS_KEY, getDeviceId());
-
-// The repeat options a to-do can have, with the wording shown on the card.
-const TODO_REPEATS = { daily: 'every day', weekly: 'every week', monthly: 'every month' };
-
-// Returns the repeat value if it's a known one, otherwise '' (no repeat).
-function cleanRepeat(value) {
-  return Object.prototype.hasOwnProperty.call(TODO_REPEATS, value) ? value : '';
-}
-
-// One step forward on a repeating schedule. Monthly steps keep the original day of the
-// month (the 31st becomes the 28th/30th in short months, then back to the 31st).
-function stepRepeatDate(dateKey, repeat, anchorDay) {
-  if (repeat === 'daily') return shiftDateKey(dateKey, 1);
-  if (repeat === 'weekly') return shiftDateKey(dateKey, 7);
-  // Monthly: count months as one number so December rolls into January of the next year.
-  const { y, m } = parseDateKey(dateKey);
-  const total = y * 12 + m + 1;
-  const ny = Math.floor(total / 12);
-  const nm = total % 12;
-  return dateKeyFromParts(ny, nm, Math.min(anchorDay, daysInMonth(ny, nm)));
-}
-
-// The next due date after a repeating to-do is completed: one step from its due date, and
-// never on or before today (a weekly chore finished two weeks late is next due in the future,
-// not in the past). With no due date, the schedule starts from today.
-// anchorDay (monthly only) is the day of the month the task should land on, so a task due on the
-// 31st goes Feb 28, then back to Mar 31, rather than staying on the 28th for good.
-function nextRepeatDate(dueDate, repeat, anchorDay) {
-  const today = todayKey();
-  // An unreadable imported date must not produce "NaN-NaN-NaN", and a typo year (0200) would crawl the monthly loop.
-  const base = isRealDateKey(dueDate) && isReasonableDateKey(dueDate) ? dueDate : today;
-  const anchor = anchorDay || parseDateKey(base).d;
-  if (repeat === 'daily' || repeat === 'weekly') {
-    // Jump straight past today in whole steps (no loop, so a chore years overdue is still fine).
-    const step = repeat === 'daily' ? 1 : 7;
-    const late = epochDays(today) - epochDays(base);
-    return shiftDateKey(base, (Math.max(0, Math.floor(late / step)) + 1) * step);
-  }
-  // Monthly: keep stepping until the date is in the future (the cap only guards against a runaway loop).
-  let next = stepRepeatDate(base, repeat, anchor);
-  for (let i = 0; i < 1200 && next <= today; i++) next = stepRepeatDate(next, repeat, anchor);
-  return next;
-}
-
-// The day of the month a monthly task is anchored to: the saved one while the due date still
-// matches it (it may be clamped in a short month), otherwise the day of the current due date.
-function repeatAnchorDay(todo) {
-  if (!todo.dueDate || !isRealDateKey(todo.dueDate)) return null;
-  const { y, m, d } = parseDateKey(todo.dueDate);
-  const saved = Number.isInteger(todo.repeatDay) ? todo.repeatDay : null;
-  return saved && d === Math.min(saved, daysInMonth(y, m)) ? saved : d;
-}
-
-// Adds a to-do; a blank task is ignored.
-// ---- Dates in plain words ----
-// "pay rent friday", "call mom tomorrow", "dentist on oct 20", "renew in 2 weeks" and "3/15 file taxes" all become a
-// task plus a due date. The date words must be at the very start or very end of the text, so a task like
-// "Monday meeting notes" is only changed when "Monday" really comes last or first.
-
-const WEEKDAYS = [
-  ['sunday', 'sun'], ['monday', 'mon'], ['tuesday', 'tues', 'tue'], ['wednesday', 'wed'],
-  ['thursday', 'thurs', 'thur', 'thu'], ['friday', 'fri'], ['saturday', 'sat'],
-];
-const MONTH_WORDS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-
-// One date phrase (no anchors): today, tomorrow, next week, in N days/weeks, a weekday, "oct 20", or "3/15".
-const DATE_PHRASE = [
-  'today', 'tonight', 'tomorrow', 'tmrw', 'next\\s+week',
-  'in\\s+\\d{1,3}\\s+(?:days?|weeks?)',
-  `(?:next\\s+)?(?:${WEEKDAYS.flat().sort((a, b) => b.length - a.length).join('|')})`,
-  `(?:${MONTH_WORDS.join('|')})[a-z]*\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?`,
-  '\\d{1,2}/\\d{1,2}',
-].join('|');
-const DATE_WORDS_END = new RegExp(`^(.*?\\S)\\s+(?:(?:on|by|due|for)\\s+)?(${DATE_PHRASE})$`, 'i');
-const DATE_WORDS_START = new RegExp(`^(?:(?:on|by|due)\\s+)?(${DATE_PHRASE})\\s+(.*\\S)$`, 'i');
-
-// Turns one matched phrase into a date key (null if it is not a real date).
-function dateFromPhrase(phrase) {
-  const words = phrase.toLowerCase().replace(/\s+/g, ' ').trim();
-  const today = todayKey();
-  if (words === 'today' || words === 'tonight') return today;
-  if (words === 'tomorrow' || words === 'tmrw') return shiftDateKey(today, 1);
-  if (words === 'next week') return shiftDateKey(today, 7);
-  let match = words.match(/^in (\d+) (day|days|week|weeks)$/);
-  if (match) return shiftDateKey(today, Number(match[1]) * (match[2].startsWith('week') ? 7 : 1));
-
-  // A weekday means the next one coming: a week from today if today is that day.
-  const dayWord = words.replace(/^next /, '');
-  const weekday = WEEKDAYS.findIndex((names) => names.includes(dayWord));
-  if (weekday >= 0) {
-    const todayIndex = new Date(`${today}T00:00:00`).getDay();
-    return shiftDateKey(today, ((weekday - todayIndex + 6) % 7) + 1);
-  }
-
-  // "oct 20" or "3/15": this year, or next year if that day has already gone by.
-  let month = null;
-  let day = null;
-  match = words.match(/^([a-z]+)\.? (\d{1,2})(?:st|nd|rd|th)?$/);
-  if (match) { month = MONTH_WORDS.indexOf(match[1].slice(0, 3)); day = Number(match[2]); }
-  match = words.match(/^(\d{1,2})\/(\d{1,2})$/);
-  if (match) { month = Number(match[1]) - 1; day = Number(match[2]); }
-  if (month === null || month < 0) return null;
-  const year = parseDateKey(today).y;
-  const thisYear = dateKeyFromParts(year, month, day);
-  if (!isRealDateKey(thisYear)) return null;
-  return thisYear < today ? dateKeyFromParts(year + 1, month, day) : thisYear;
-}
-
-// Splits "task + date words" into { text, dueDate }; null when there are no date words or nothing is left of the task.
-function parseDateWords(input) {
-  const trimmed = String(input || '').trim();
-  const end = trimmed.match(DATE_WORDS_END);
-  const start = end ? null : trimmed.match(DATE_WORDS_START);
-  const text = end ? end[1] : start ? start[2] : null;
-  const phrase = end ? end[2] : start ? start[1] : null;
-  if (!text || !phrase) return null;
-  const dueDate = dateFromPhrase(phrase);
-  return dueDate && isReasonableDateKey(dueDate) ? { text: text.trim(), dueDate } : null;
-}
-
-function addTodo(task, dueDate, repeat) {
-  const trimmedTask = task.trim();
-  if (!trimmedTask) return;
-  const now = new Date().toISOString();
-  const todo = {
-    id: makeId(),
-    task: trimmedTask,
-    completed: false,
-    repeat: cleanRepeat(repeat),
-    dueDate: dueDate || null,
-    dateAdded: now,
-    updatedAt: now,
-    deviceId: getDeviceId(),
-    deleted: false,
-    version: 0,
-  };
-  todos.push(todo);
-  saveCollection(TODOS_KEY, todos);
-  recordUndo('todos', todo.id, null, structuredClone(todo));
-  renderTodos();
-}
-
-// Finds a to-do by id, but only if it hasn't been deleted.
-function liveTodo(id) {
-  return id ? todos.find((t) => t.id === id && !t.deleted) : undefined;
-}
-
-// Completing a repeating to-do creates the next one (once). Un-completing it removes that
-// next one again, if it hasn't been touched, so ticking and un-ticking never piles up copies.
-// The undo entries are recorded original-first, new-one-last, so Undo steps back the new
-// to-do first and then the completion.
-function toggleTodoCompleted(id, completed) {
-  const todo = todos.find((t) => t.id === id);
-  if (!todo) return;
-  const before = structuredClone(todo);
-  todo.completed = completed;
-  let child = null;
-  let removed = null;
-  // Ticking a repeating to-do spawns the next one, unless the one it spawned earlier still exists.
-  if (completed && cleanRepeat(todo.repeat) && !liveTodo(todo.spawnedId)) {
-    const now = new Date().toISOString();
-    child = {
-      id: makeId(),
-      task: todo.task,
-      completed: false,
-      repeat: todo.repeat,
-      dueDate: nextRepeatDate(todo.dueDate, todo.repeat, repeatAnchorDay(todo)),
-      repeatDay: repeatAnchorDay(todo),
-      dateAdded: now,
-      updatedAt: now,
-      deviceId: getDeviceId(),
-      deleted: false,
-      version: 0,
-    };
-    todos.push(child);
-    todo.spawnedId = child.id;
-  } else if (!completed && todo.spawnedId) {
-    const next = liveTodo(todo.spawnedId);
-    // Only an untouched next task is taken away; if you edited it, it stays.
-    if (next && !next.completed && next.updatedAt === next.dateAdded) {
-      removed = { record: next, before: structuredClone(next) };
-      next.deleted = true;
-      stampSync(next);
-    }
-    // Forget the link only when the next task is really gone. A kept (edited or completed) next
-    // task stays linked, so ticking this one again does not create a second copy of it.
-    if (!next || removed) delete todo.spawnedId;
-  }
-  stampSync(todo);
-  saveCollection(TODOS_KEY, todos);
-  recordUndo('todos', id, before, structuredClone(todo));
-  if (child) recordUndo('todos', child.id, null, structuredClone(child));
-  if (removed) recordUndo('todos', removed.record.id, removed.before, structuredClone(removed.record));
-  renderTodos();
-}
-
-// Pushes a to-do's due date to today plus `days` (Tomorrow = 1, Next week = 7). One undoable change.
-function snoozeTodo(id, days) {
-  const todo = todos.find((x) => x.id === id);
-  if (!todo || todo.completed || !Number.isInteger(days) || days < 1 || days > 365) return false;
-  const before = structuredClone(todo);
-  todo.dueDate = shiftDateKey(todayKey(), days);
-  stampSync(todo);
-  saveCollection(TODOS_KEY, todos);
-  recordUndo('todos', id, before, structuredClone(todo));
-  renderTodos();
-  return true;
-}
-
-// Soft-deletes a to-do (keeps a tombstone so syncing can tell it was deleted).
-function deleteTodo(id) {
-  const todo = todos.find((t) => t.id === id);
-  if (!todo) return;
-  const before = structuredClone(todo);
-  todo.deleted = true;
-  stampSync(todo);
-  saveCollection(TODOS_KEY, todos);
-  recordUndo('todos', id, before, structuredClone(todo));
-  renderTodos();
-}
-
-// Brings a deleted to-do back (used by undo).
-function restoreTodo(id) {
-  const todo = todos.find((t) => t.id === id);
-  if (!todo || !todo.deleted) return;
-  const before = structuredClone(todo);
-  todo.deleted = false;
-  stampSync(todo);
-  saveCollection(TODOS_KEY, todos);
-  recordUndo('todos', id, before, structuredClone(todo));
-  renderTodos();
-}
-
-// Saves edits to a to-do's task, due date and repeat; a blank task is ignored.
-function updateTodo(id, fields) {
-  const todo = todos.find((t) => t.id === id);
-  if (!todo) return;
-  const trimmedTask = fields.task.trim();
-  if (!trimmedTask) return;
-  const before = structuredClone(todo);
-  todo.task = trimmedTask;
-  todo.dueDate = fields.dueDate || null;
-  todo.repeat = cleanRepeat(fields.repeat);
-  stampSync(todo);
-  saveCollection(TODOS_KEY, todos);
-  recordUndo('todos', id, before, structuredClone(todo));
-  renderTodos();
-}
-
-// True if the search text appears in the task.
-function matchesTodoSearch(todo, term) {
-  if (!term) return true;
-  return todo.task.toLowerCase().includes(term.toLowerCase());
-}
-
-// Comparator that moves checked-off rows below open ones. Sorting is stable, so running it
-// after the chosen sort keeps that order inside each group.
-function doneLast(isDone) {
-  return (a, b) => Number(!!isDone(a)) - Number(!!isDone(b));
-}
-
-// A to-do is overdue when it's not done and its due date is before today.
-function isTodoOverdue(todo) {
-  if (todo.completed || !todo.dueDate) return false;
-  return todo.dueDate < todayKey();
-}
-
-// 'all' is the default/initial state. Fixed 3-option set (not derived from
-// data, unlike the category-style chip filters) since `completed` is boolean.
-let selectedTodoFilter = 'all';
-
-// Applies the All / Active / Completed chip.
-function matchesTodoFilter(todo, filterKey) {
-  if (filterKey === 'active') return !todo.completed;
-  if (filterKey === 'completed') return todo.completed;
-  return true;
-}
-
-// Draws the All / Active / Completed chips.
-function renderTodoCompletedFilters() {
-  const container = document.getElementById('todo-completed-filters');
-  const options = [
-    { key: 'all', label: 'All' },
-    { key: 'active', label: 'Active' },
-    { key: 'completed', label: 'Completed' },
-  ];
-  renderChipFilter(
-    container,
-    options,
-    () => selectedTodoFilter,
-    (key) => { selectedTodoFilter = key; },
-    renderTodos
-  );
-}
-
-// 'due_date_asc' is the default; as a side effect it puts overdue to-dos (dueDate < today) first.
-let selectedTodoSort = 'due_date_asc';
-
-const TODO_SORTS = {
-  due_date_asc: compareByField((t) => t.dueDate, 1, { text: false }),
-  due_date_desc: compareByField((t) => t.dueDate, -1, { text: false }),
-  manual: compareManual,
-  date_added_desc: compareByField((t) => t.dateAdded, -1, { text: false }),
-  date_added_asc: compareByField((t) => t.dateAdded, 1, { text: false }),
-};
-
-// Redraws the whole To-Do screen: chips, search, sort and the to-do rows.
-function renderTodos() {
-  const searchTerm = document.getElementById('todo-search-input').value;
-  renderTodoCompletedFilters();
-  // Pipeline: drop deleted, then apply search, then the All/Active/Completed chip, then sort.
-  const comparator = TODO_SORTS[selectedTodoSort] || TODO_SORTS.due_date_asc;
-  const visible = todos
-    .filter((t) => !t.deleted)
-    .filter((t) => matchesTodoSearch(t, searchTerm))
-    .filter((t) => matchesTodoFilter(t, selectedTodoFilter))
-    .sort(comparator)
-    .sort(doneLast((t) => t.completed));
-  const list = document.getElementById('todo-list');
-  const template = document.getElementById('todo-card-template');
-
-  // Remember an open edit form (with unsaved typing) so the redraw doesn't lose it.
-  const openForm = list.querySelector('.todo-edit-form:not([hidden])');
-  const openEdit = openForm
-    ? {
-        id: openForm.closest('.todo-item').dataset.todoId,
-        task: openForm.querySelector('.todo-edit-task').value,
-        dueDate: openForm.querySelector('.todo-edit-due').value,
-        repeat: openForm.querySelector('.todo-edit-repeat').value,
-      }
-    : null;
-
-  list.innerHTML = '';
-
-  visible.forEach((todo) => {
-    const node = template.content.cloneNode(true);
-    const li = node.querySelector('.todo-item');
-    li.dataset.todoId = todo.id;
-    li.classList.toggle('completed', !!todo.completed); // !! because an imported to-do may lack the field, and toggle(x, undefined) flips instead of clearing
-    const viewSection = node.querySelector('.todo-view');
-    const editForm = node.querySelector('.todo-edit-form');
-
-    // The drag handle shows only under "Sort: My order".
-    node.querySelector('.drag-handle').hidden = selectedTodoSort !== MANUAL_SORT;
-
-    // Snooze buttons only make sense for an open to-do that is due today or already overdue.
-    const snoozeable = !todo.completed && todo.dueDate && todo.dueDate <= todayKey();
-    node.querySelectorAll('.snooze-btn').forEach((btn) => {
-      btn.hidden = !snoozeable;
-      btn.addEventListener('click', () => snoozeTodo(todo.id, Number(btn.dataset.days)));
-    });
-
-    const checkbox = node.querySelector('.todo-completed-checkbox');
-    checkbox.checked = todo.completed;
-    checkbox.addEventListener('change', (e) => toggleTodoCompleted(todo.id, e.target.checked));
-
-    node.querySelector('.todo-task').textContent = todo.task;
-    makeInlineEditable(node.querySelector('.todo-task'), todo.task, (text) => updateTodo(todo.id, { task: text, dueDate: todo.dueDate, repeat: todo.repeat }));
-
-    const dueEl = node.querySelector('.todo-due');
-    if (todo.dueDate) {
-      dueEl.textContent = todo.dueDate;
-      dueEl.hidden = false;
-      dueEl.classList.toggle('overdue', isTodoOverdue(todo));
-    }
-
-    const repeatEl = node.querySelector('.todo-repeat');
-    if (cleanRepeat(todo.repeat)) {
-      repeatEl.textContent = `\u21bb ${TODO_REPEATS[todo.repeat]}`;
-      repeatEl.hidden = false;
-    }
-
-    const editTaskInput = node.querySelector('.todo-edit-task');
-    const editDueInput = node.querySelector('.todo-edit-due');
-    const editRepeatInput = node.querySelector('.todo-edit-repeat');
-
-    node.querySelector('.edit-btn').addEventListener('click', () => {
-      const otherOpenForm = list.querySelector('.todo-edit-form:not([hidden])');
-      if (otherOpenForm && otherOpenForm !== editForm) {
-        otherOpenForm.hidden = true;
-        otherOpenForm.closest('.todo-item').querySelector('.todo-view').hidden = false;
-      }
-      editTaskInput.value = todo.task;
-      editDueInput.value = todo.dueDate || '';
-      editRepeatInput.value = cleanRepeat(todo.repeat);
-      viewSection.hidden = true;
-      editForm.hidden = false;
-    });
-
-    node.querySelector('.cancel-btn').addEventListener('click', () => {
-      editForm.hidden = true;
-      viewSection.hidden = false;
-    });
-
-    editForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      // Hide before calling updateTodo — see the identical comment on
-      // Books' edit-form submit handler.
-      if (rejectBlank(editTaskInput, 'Enter a task.')) return;
-      editForm.hidden = true;
-      viewSection.hidden = false;
-      updateTodo(todo.id, { task: editTaskInput.value, dueDate: editDueInput.value, repeat: editRepeatInput.value });
-    });
-
-    node.querySelector('.delete-btn').addEventListener('click', () => deleteTodo(todo.id));
-
-    if (openEdit && openEdit.id === todo.id) {
-      editTaskInput.value = openEdit.task;
-      editDueInput.value = openEdit.dueDate;
-      editRepeatInput.value = openEdit.repeat;
-      viewSection.hidden = true;
-      editForm.hidden = false;
-    }
-
-    list.appendChild(node);
-  });
-
-  document.getElementById('todo-empty-state').hidden = todos.filter((t) => !t.deleted).length !== 0;
-
-  renderHome(); // Home aggregates books/todos/medications — keep this in sync
-}
-
-// Add to-do: a blank task is refused with a message; the form clears and keeps focus for the next one.
-document.getElementById('todo-add-form').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const taskInput = document.getElementById('todo-task-input');
-  const dueInput = document.getElementById('todo-due-input');
-  if (rejectBlank(taskInput, 'Enter a task.')) return;
-  const repeatInput = document.getElementById('todo-repeat-input');
-  // Date words in the task ("pay rent friday") fill the due date, unless one was already picked.
-  const parsed = dueInput.value ? null : parseDateWords(taskInput.value);
-  addTodo(parsed ? parsed.text : taskInput.value, parsed ? parsed.dueDate : dueInput.value, repeatInput.value);
-  taskInput.value = '';
-  dueInput.value = '';
-  repeatInput.value = '';
-  taskInput.focus();
-});
-
-// Search box: filters the rows as you type.
-document.getElementById('todo-search-input').addEventListener('input', renderTodos);
-
-// Sort dropdown: remembers the choice and redraws.
-document.getElementById('todo-sort-input').addEventListener('change', (e) => {
-  selectedTodoSort = e.target.value;
-  renderTodos();
-});
-
-// ---- Shopping List ----
-
-const SHOPPING_KEY = 'secondMemory.shoppingList.v1';
-
-let shoppingItems = migrateSyncFields(loadCollection(SHOPPING_KEY), SHOPPING_KEY, getDeviceId());
-
-// The open (unchecked) items as plain text for sharing: "Shopping list", then one "- item (quantity)" line each,
-// under category names when there is more than one category.
-function shoppingListText() {
-  const open = shoppingItems.filter((i) => !i.deleted && !i.checked);
-  if (open.length === 0) return '';
-  const lineOf = (i) => `- ${i.item}${i.quantity ? ` (${i.quantity})` : ''}`;
-  // Grouped by the same case-insensitive key the on-screen list uses, so "Dairy" and "dairy" are one heading.
-  const groups = new Map();
-  open.forEach((i) => {
-    const key = normalizeChipKey(i.category);
-    if (!groups.has(key)) groups.set(key, { label: (i.category || '').trim() || 'Other', items: [] });
-    groups.get(key).items.push(i);
-  });
-  const lines = ['Shopping list'];
-  if (groups.size < 2) return [...lines, ...open.map(lineOf)].join('\n');
-  [...groups.values()].sort((a, b) => (a.label === 'Other') - (b.label === 'Other') || a.label.localeCompare(b.label)).forEach((group) => {
-    lines.push('', `${group.label}:`, ...group.items.map(lineOf));
-  });
-  return lines.join('\n');
-}
-
-// Shares text through the phone's share sheet where there is one, otherwise copies it to the clipboard.
-// Resolves to 'shared', 'cancelled' (the share sheet was closed on purpose), 'copied' or 'failed'.
-async function shareOrCopy(title, text) {
-  try {
-    if (navigator.share) {
-      await navigator.share({ title, text });
-      return 'shared';
-    }
-  } catch (err) {
-    if (err && err.name === 'AbortError') return 'cancelled';
-  }
-  try {
-    await navigator.clipboard.writeText(text);
-    return 'copied';
-  } catch {
-    return 'failed';
-  }
-}
-
-// Share button on the shopping list.
-document.getElementById('shopping-share-btn').addEventListener('click', async () => {
-  const status = document.getElementById('shopping-share-status');
-  const text = shoppingListText();
-  if (!text) { status.textContent = 'Nothing to share \u2014 the list is empty.'; return; }
-  const outcome = await shareOrCopy('Shopping list', text);
-  status.textContent = { shared: '', cancelled: '', copied: 'Copied. Paste it into a message.', failed: 'Could not share or copy the list.' }[outcome];
-});
-
-// ---- Buy again ----
-// Everything bought (ticked off) or removed before, that is not on the list right now, most often first.
-const BUY_AGAIN_SHOWN = 12;
-
-// The records to offer: one per item name, the most recently touched copy of each (so its last quantity and category come back).
-function buyAgainSuggestions() {
-  const onList = new Set(shoppingItems.filter((i) => !i.deleted && !i.checked).map((i) => String(i.item || '').trim().toLowerCase()));
-  const byName = new Map();
-  shoppingItems.forEach((rec) => {
-    const key = String(rec.item || '').trim().toLowerCase();
-    if (!key || onList.has(key)) return;
-    const entry = byName.get(key) || { count: 0, last: rec };
-    entry.count += 1;
-    if (String(rec.updatedAt || '') >= String(entry.last.updatedAt || '')) entry.last = rec;
-    byName.set(key, entry);
-  });
-  return [...byName.values()]
-    .sort((a, b) => b.count - a.count || String(b.last.updatedAt || '').localeCompare(String(a.last.updatedAt || '')))
-    .slice(0, BUY_AGAIN_SHOWN)
-    .map((entry) => entry.last);
-}
-
-// Draws the "Buy again" chips under the add form; one tap adds the item back with its old quantity and category.
-function renderBuyAgain() {
-  const box = document.getElementById('shopping-buy-again');
-  const row = document.getElementById('shopping-buy-again-chips');
-  const suggestions = buyAgainSuggestions();
-  row.innerHTML = '';
-  box.hidden = suggestions.length === 0;
-  suggestions.forEach((rec) => {
-    const chip = document.createElement('button');
-    chip.type = 'button';
-    chip.className = 'chip';
-    chip.textContent = rec.quantity ? `${rec.item} (${rec.quantity})` : rec.item;
-    chip.addEventListener('click', () => addShoppingItem(rec.item, rec.quantity || '', rec.category || ''));
-    row.appendChild(chip);
-  });
-}
-
-// Adds an item to the shopping list; a blank item name is ignored.
-function addShoppingItem(item, quantity, category) {
-  const trimmedItem = item.trim();
-  if (!trimmedItem) return;
-  const now = new Date().toISOString();
-  const shoppingItem = {
-    id: makeId(),
-    item: trimmedItem,
-    quantity: quantity.trim(),
-    checked: false,
-    category: category.trim(),
-    dateAdded: now,
-    updatedAt: now,
-    deviceId: getDeviceId(),
-    deleted: false,
-    version: 0,
-  };
-  shoppingItems.push(shoppingItem);
-  saveCollection(SHOPPING_KEY, shoppingItems);
-  recordUndo('shoppingList', shoppingItem.id, null, structuredClone(shoppingItem));
-  renderShoppingList();
-}
-
-// Ticks or unticks an item (bought / not yet bought).
-function toggleShoppingChecked(id, checked) {
-  const item = shoppingItems.find((i) => i.id === id);
-  if (!item) return;
-  const before = structuredClone(item);
-  item.checked = checked;
-  stampSync(item);
-  saveCollection(SHOPPING_KEY, shoppingItems);
-  recordUndo('shoppingList', id, before, structuredClone(item));
-  renderShoppingList();
-}
-
-// Soft-deletes a shopping item (keeps a tombstone so syncing can tell it was deleted).
-function deleteShoppingItem(id) {
-  const item = shoppingItems.find((i) => i.id === id);
-  if (!item) return;
-  const before = structuredClone(item);
-  item.deleted = true;
-  stampSync(item);
-  saveCollection(SHOPPING_KEY, shoppingItems);
-  recordUndo('shoppingList', id, before, structuredClone(item));
-  renderShoppingList();
-}
-
-// Brings a deleted shopping item back (used by undo).
-function restoreShoppingItem(id) {
-  const item = shoppingItems.find((i) => i.id === id);
-  if (!item || !item.deleted) return;
-  const before = structuredClone(item);
-  item.deleted = false;
-  stampSync(item);
-  saveCollection(SHOPPING_KEY, shoppingItems);
-  recordUndo('shoppingList', id, before, structuredClone(item));
-  renderShoppingList();
-}
-
-// Saves edits to a shopping item's name, quantity and category; a blank name is ignored.
-function updateShoppingItem(id, fields) {
-  const item = shoppingItems.find((i) => i.id === id);
-  if (!item) return;
-  const trimmedItem = fields.item.trim();
-  if (!trimmedItem) return;
-  const before = structuredClone(item);
-  item.item = trimmedItem;
-  item.quantity = fields.quantity.trim();
-  item.category = fields.category.trim();
-  stampSync(item);
-  saveCollection(SHOPPING_KEY, shoppingItems);
-  recordUndo('shoppingList', id, before, structuredClone(item));
-  renderShoppingList();
-}
-
-// True if the search text appears in the item name, category or quantity.
-function matchesShoppingSearch(item, term) {
-  if (!term) return true;
-  const haystack = `${item.item} ${item.category || ''} ${item.quantity || ''}`.toLowerCase();
-  return haystack.includes(term.toLowerCase());
-}
-
-// 'all' is the default/initial state for both new filters below.
-let selectedShoppingCategory = 'all';
-let selectedShoppingChecked = 'all';
-
-// True if the item is in the selected category chip ('all' matches everything).
-function matchesShoppingCategory(item, categoryKey) {
-  return categoryKey === 'all' || normalizeChipKey(item.category) === categoryKey;
-}
-
-// Applies the All / Active / Checked chip.
-function matchesShoppingChecked(item, checkedKey) {
-  if (checkedKey === 'active') return !item.checked;
-  if (checkedKey === 'checked') return item.checked;
-  return true;
-}
-
-// Draws the category chips, built from whatever categories the items currently use.
-function renderShoppingCategoryFilters(nonDeletedItems) {
-  const container = document.getElementById('shopping-category-filters');
-  const options = [{ key: 'all', label: 'All' }, ...deriveChipOptions(nonDeletedItems, (i) => i.category)];
-  renderChipFilter(
-    container,
-    options,
-    () => selectedShoppingCategory,
-    (key) => { selectedShoppingCategory = key; },
-    renderShoppingList
-  );
-}
-
-// Draws the All / Active / Checked chips.
-function renderShoppingCheckedFilters() {
-  const container = document.getElementById('shopping-checked-filters');
-  const options = [
-    { key: 'all', label: 'All' },
-    { key: 'active', label: 'Active' },
-    { key: 'checked', label: 'Checked' },
-  ];
-  renderChipFilter(
-    container,
-    options,
-    () => selectedShoppingChecked,
-    (key) => { selectedShoppingChecked = key; },
-    renderShoppingList
-  );
-}
-
-// 'date_added_asc' is the default — a no-op relative to the previously
-// unsorted (≈ insertion-order) rendering, same reasoning as Recipes.
-let selectedShoppingSort = 'date_added_asc';
-
-const SHOPPING_SORTS = {
-  date_added_asc: compareByField((i) => i.dateAdded, 1, { text: false }),
-  date_added_desc: compareByField((i) => i.dateAdded, -1, { text: false }),
-  item_asc: compareByField((i) => i.item, 1),
-  manual: compareManual,
-};
-
-// Redraws the whole Shopping List screen: chips, search, sort and the item rows.
-function renderShoppingList() {
-  const searchTerm = document.getElementById('shopping-search-input').value;
-  const nonDeleted = shoppingItems.filter((i) => !i.deleted);
-  renderBuyAgain();
-  renderShoppingCategoryFilters(nonDeleted);
-  renderShoppingCheckedFilters();
-  const comparator = SHOPPING_SORTS[selectedShoppingSort] || SHOPPING_SORTS.date_added_asc;
-  const visible = nonDeleted
-    .filter((i) => matchesShoppingSearch(i, searchTerm))
-    .filter((i) => matchesShoppingCategory(i, selectedShoppingCategory))
-    .filter((i) => matchesShoppingChecked(i, selectedShoppingChecked))
-    .sort(comparator)
-    .sort(doneLast((i) => i.checked));
-  const list = document.getElementById('shopping-list');
-  const template = document.getElementById('shopping-card-template');
-
-  // Remember an open edit form (with unsaved typing) so the redraw doesn't lose it.
-  const openForm = list.querySelector('.shopping-edit-form:not([hidden])');
-  const openEdit = openForm
-    ? {
-        id: openForm.closest('.shopping-item').dataset.shoppingId,
-        item: openForm.querySelector('.shopping-edit-item').value,
-        quantity: openForm.querySelector('.shopping-edit-quantity').value,
-        category: openForm.querySelector('.shopping-edit-category').value,
-      }
-    : null;
-
-  list.innerHTML = '';
-
-  // With two or more categories in view, the list is grouped under category headings (no category = "Other", last).
-  const categoryKey = (i) => normalizeChipKey(i.category);
-  const categoryLabel = (i) => (i.category || '').trim() || 'Other';
-  const groupKeys = [...new Set(visible.map(categoryKey))];
-  const grouped = groupKeys.length >= 2;
-  if (grouped) {
-    const labelOf = new Map(visible.map((i) => [categoryKey(i), categoryLabel(i)]));
-    const order = groupKeys.sort((a, b) => (labelOf.get(a) === 'Other') - (labelOf.get(b) === 'Other') || labelOf.get(a).localeCompare(labelOf.get(b)));
-    visible.sort((a, b) => order.indexOf(categoryKey(a)) - order.indexOf(categoryKey(b)));
-  }
-  let lastGroupKey = null;
-
-  visible.forEach((item) => {
-    if (grouped && categoryKey(item) !== lastGroupKey) {
-      lastGroupKey = categoryKey(item);
-      const heading = document.createElement('li');
-      heading.className = 'shopping-group';
-      heading.textContent = categoryLabel(item);
-      list.appendChild(heading);
-    }
-    const node = template.content.cloneNode(true);
-    const li = node.querySelector('.shopping-item');
-    li.dataset.shoppingId = item.id;
-    li.classList.toggle('completed', item.checked);
-    const viewSection = node.querySelector('.shopping-view');
-    const editForm = node.querySelector('.shopping-edit-form');
-
-    node.querySelector('.drag-handle').hidden = selectedShoppingSort !== MANUAL_SORT;
-
-    const checkbox = node.querySelector('.shopping-checked-checkbox');
-    checkbox.checked = item.checked;
-    checkbox.addEventListener('change', (e) => toggleShoppingChecked(item.id, e.target.checked));
-
-    node.querySelector('.shopping-item-name').textContent = item.item;
-    makeInlineEditable(node.querySelector('.shopping-item-name'), item.item, (text) => updateShoppingItem(item.id, { item: text, quantity: item.quantity || '', category: item.category || '' }));
-
-    const quantityEl = node.querySelector('.shopping-quantity');
-    if (item.quantity) {
-      quantityEl.textContent = item.quantity;
-      quantityEl.hidden = false;
-    }
-
-    const categoryEl = node.querySelector('.shopping-category');
-    if (item.category) {
-      categoryEl.textContent = item.category;
-      categoryEl.hidden = false;
-    }
-
-    const editItemInput = node.querySelector('.shopping-edit-item');
-    const editQuantityInput = node.querySelector('.shopping-edit-quantity');
-    const editCategoryInput = node.querySelector('.shopping-edit-category');
-
-    node.querySelector('.edit-btn').addEventListener('click', () => {
-      const otherOpenForm = list.querySelector('.shopping-edit-form:not([hidden])');
-      if (otherOpenForm && otherOpenForm !== editForm) {
-        otherOpenForm.hidden = true;
-        otherOpenForm.closest('.shopping-item').querySelector('.shopping-view').hidden = false;
-      }
-      editItemInput.value = item.item;
-      editQuantityInput.value = item.quantity || '';
-      editCategoryInput.value = item.category || '';
-      viewSection.hidden = true;
-      editForm.hidden = false;
-    });
-
-    node.querySelector('.cancel-btn').addEventListener('click', () => {
-      editForm.hidden = true;
-      viewSection.hidden = false;
-    });
-
-    editForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      // Hide before calling updateShoppingItem — see the identical comment
-      // on Books' edit-form submit handler.
-      if (rejectBlank(editItemInput, 'Enter an item.')) return;
-      editForm.hidden = true;
-      viewSection.hidden = false;
-      updateShoppingItem(item.id, {
-        item: editItemInput.value,
-        quantity: editQuantityInput.value,
-        category: editCategoryInput.value,
-      });
-    });
-
-    node.querySelector('.delete-btn').addEventListener('click', () => deleteShoppingItem(item.id));
-
-    if (openEdit && openEdit.id === item.id) {
-      editItemInput.value = openEdit.item;
-      editQuantityInput.value = openEdit.quantity;
-      editCategoryInput.value = openEdit.category;
-      viewSection.hidden = true;
-      editForm.hidden = false;
-    }
-
-    list.appendChild(node);
-  });
-
-  document.getElementById('shopping-empty-state').hidden = shoppingItems.filter((i) => !i.deleted).length !== 0;
-  renderHome(); // Home lists what is still unchecked
-}
-
-document.getElementById('shopping-add-form').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const itemInput = document.getElementById('shopping-item-input');
-  const quantityInput = document.getElementById('shopping-quantity-input');
-  const categoryInput = document.getElementById('shopping-category-input');
-  if (rejectBlank(itemInput, 'Enter an item.')) return;
-  addShoppingItem(itemInput.value, quantityInput.value, categoryInput.value);
-  itemInput.value = '';
-  quantityInput.value = '';
-  categoryInput.value = '';
-  itemInput.focus();
-});
-
-document.getElementById('shopping-search-input').addEventListener('input', renderShoppingList);
-
-document.getElementById('shopping-sort-input').addEventListener('change', (e) => {
-  selectedShoppingSort = e.target.value;
-  renderShoppingList();
 });
 
 // ---- Notes ----
@@ -4059,319 +1717,6 @@ const DATE_RANGE_MESSAGE = `Pick a date between the years ${DATE_YEAR_MIN} and $
 function formatDateKeyLong(dateKey) {
   const { y, m, d } = parseDateKey(dateKey);
   return `${MONTH_NAMES[m]} ${d}, ${y}`;
-}
-
-// ---- Calendar ----
-// One month at a time. Dots mark days with an open to-do due, a medication refill, or a weight recorded; tapping a
-// day lists those things with a button to open the right screen. Journal entries are private and never shown here.
-
-let calendarMonth = null; // { y, m } of the month on screen (m is 0 for January); null until first drawn
-let calendarSelected = null; // the date key of the tapped day
-
-// What is on each day: a Map from date key to { todos, refills, weights } lists.
-function calendarEvents() {
-  const byDay = new Map();
-  const slot = (key) => {
-    if (!byDay.has(key)) byDay.set(key, { todos: [], refills: [], weights: [] });
-    return byDay.get(key);
-  };
-  todos.filter((x) => !x.deleted && !x.completed && isRealDateKey(x.dueDate)).forEach((x) => slot(x.dueDate).todos.push(x));
-  medications.filter((m) => !m.deleted && isRealDateKey(m.refillDate)).forEach((m) => slot(m.refillDate).refills.push(m));
-  weights.filter((w) => !w.deleted && isRealDateKey(w.date)).forEach((w) => slot(w.date).weights.push(w));
-  return byDay;
-}
-
-// Moves the calendar by whole months (negative goes back) and clears the tapped day.
-function shiftCalendarMonth(delta) {
-  const base = calendarMonth || { y: parseDateKey(todayKey()).y, m: parseDateKey(todayKey()).m };
-  const moved = new Date(base.y, base.m + delta, 1);
-  calendarMonth = { y: moved.getFullYear(), m: moved.getMonth() };
-  calendarSelected = null;
-  renderCalendar();
-}
-
-// Lists what is on the tapped day under the grid.
-function renderCalendarDetail(events) {
-  const box = document.getElementById('calendar-detail');
-  box.innerHTML = '';
-  if (!calendarSelected) return;
-  const day = events.get(calendarSelected) || { todos: [], refills: [], weights: [] };
-  const heading = document.createElement('h3');
-  heading.textContent = formatDateKeyLong(calendarSelected);
-  box.appendChild(heading);
-
-  // One block per kind: a short list and a button to open that screen.
-  const addBlock = (title, lines, tab, buttonLabel) => {
-    if (lines.length === 0) return;
-    const label = document.createElement('p');
-    label.textContent = title;
-    const list = document.createElement('ul');
-    lines.forEach((line) => {
-      const item = document.createElement('li');
-      item.textContent = line;
-      list.appendChild(item);
-    });
-    const open = document.createElement('button');
-    open.type = 'button';
-    open.className = 'calendar-detail-link';
-    open.textContent = buttonLabel;
-    open.addEventListener('click', () => goToTab(tab));
-    box.append(label, list, open);
-  };
-  addBlock('To-dos due', day.todos.map((x) => x.task), 'todo', 'Open To-Do');
-  addBlock('Refills and replacements', day.refills.map((m) => m.name), 'medications', 'Open Medications');
-  addBlock('Weight', day.weights.map((w) => formatWeight(w.weight)), 'weight', 'Open Weight');
-  if (day.todos.length + day.refills.length + day.weights.length === 0) {
-    const none = document.createElement('p');
-    none.textContent = 'Nothing on this day.';
-    box.appendChild(none);
-  }
-}
-
-// Draws the month grid: weekday headings are in the page; this builds the day cells, six weeks at most.
-function renderCalendar() {
-  if (!calendarMonth) {
-    const now = parseDateKey(todayKey());
-    calendarMonth = { y: now.y, m: now.m };
-  }
-  const { y, m } = calendarMonth;
-  const events = calendarEvents();
-  const today = todayKey();
-  document.getElementById('calendar-title').textContent = `${MONTH_NAMES[m]} ${y}`;
-
-  const body = document.getElementById('calendar-body');
-  body.innerHTML = '';
-  const leadingBlanks = new Date(y, m, 1).getDay(); // 0 = Sunday: how many empty cells come before the 1st
-  const daysInMonth = new Date(y, m + 1, 0).getDate();
-  let row = null;
-  for (let cell = 0; cell < Math.ceil((leadingBlanks + daysInMonth) / 7) * 7; cell++) {
-    if (cell % 7 === 0) {
-      row = document.createElement('tr');
-      body.appendChild(row);
-    }
-    const td = document.createElement('td');
-    row.appendChild(td);
-    const dayNumber = cell - leadingBlanks + 1;
-    if (dayNumber < 1 || dayNumber > daysInMonth) continue; // empty cell before the 1st or after the last day
-
-    const key = dateKeyFromLocalDate(new Date(y, m, dayNumber));
-    const day = events.get(key);
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'calendar-day';
-    button.dataset.date = key;
-    button.classList.toggle('is-today', key === today);
-    button.classList.toggle('is-selected', key === calendarSelected);
-    if (key === calendarSelected) button.setAttribute('aria-pressed', 'true'); else button.setAttribute('aria-pressed', 'false');
-    const number = document.createElement('span');
-    number.textContent = String(dayNumber);
-    const dots = document.createElement('span');
-    dots.className = 'calendar-dots';
-    const said = [];
-    [['todos', 'dot-todo', 'to-do due'], ['refills', 'dot-refill', 'refill'], ['weights', 'dot-weight', 'weight recorded']].forEach(([kind, dotClass, words]) => {
-      if (!day || day[kind].length === 0) return;
-      const dot = document.createElement('i');
-      dot.className = `dot ${dotClass}`;
-      dots.appendChild(dot);
-      said.push(`${day[kind].length} ${words}`);
-    });
-    button.append(number, dots);
-    button.setAttribute('aria-label', `${formatDateKeyLong(key)}${said.length ? ', ' + said.join(', ') : ''}`);
-    button.addEventListener('click', () => {
-      calendarSelected = key;
-      renderCalendar();
-      const again = document.querySelector(`#calendar-body [data-date="${key}"]`);
-      if (again) again.focus(); // the grid was rebuilt: keep keyboard focus on the same day
-    });
-    td.appendChild(button);
-  }
-  renderCalendarDetail(events);
-}
-
-document.getElementById('calendar-prev').addEventListener('click', () => shiftCalendarMonth(-1));
-document.getElementById('calendar-next').addEventListener('click', () => shiftCalendarMonth(1));
-document.getElementById('calendar-today').addEventListener('click', () => {
-  const now = parseDateKey(todayKey());
-  calendarMonth = { y: now.y, m: now.m };
-  calendarSelected = todayKey();
-  renderCalendar();
-});
-
-// ---- Edit in place ----
-// Tap a to-do's or shopping item's text to change it right there: the text becomes a box; Enter or leaving the box
-// saves, Escape cancels. (The checkbox, not the text, ticks an item off.)
-
-// Swaps `span` for a text box holding `current`; `save(newText)` is called only if the text really changed.
-function startInlineEdit(span, current, save) {
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.className = 'inline-edit';
-  input.value = current;
-  input.setAttribute('aria-label', 'Edit text');
-  let finished = false;
-  const finish = (apply) => {
-    if (finished) return;
-    finished = true;
-    const value = input.value.trim();
-    if (apply && value && value !== current) save(value); // saving redraws the list, which replaces this box
-    else input.replaceWith(span);
-  };
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); finish(true); }
-    else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
-  });
-  input.addEventListener('blur', () => finish(true));
-  span.replaceWith(input);
-  input.focus();
-  input.select();
-}
-
-// Makes a name span clickable for in-place editing (the click must not tick the checkbox in its label).
-function makeInlineEditable(span, current, save) {
-  span.title = 'Tap to edit';
-  span.addEventListener('click', (e) => {
-    e.preventDefault();
-    startInlineEdit(span, current, save);
-  });
-}
-
-// ---- Manual order ("Sort: My order") ----
-// To-dos, shopping items and recipes can be put in your own order. Each record gets a `sortOrder` number
-// (synced like any other field). Moving a record gives it a number halfway between its new neighbours, so
-// only ONE record changes and Undo works as usual. Records without a number (new ones) go last.
-
-const MANUAL_SORT = 'manual'; // the value of the "Sort: My order" option
-const MANUAL_GAP = 1024; // spacing between numbers, so there is room to slot records in between
-
-// How a record's number counts when sorting: no number means "after everything numbered".
-function manualOrderOf(record) {
-  return Number.isFinite(record.sortOrder) ? record.sortOrder : Number.MAX_SAFE_INTEGER;
-}
-
-// Sort comparator for "My order": by number, then by the day it was added.
-function compareManual(a, b) {
-  return manualOrderOf(a) - manualOrderOf(b) || String(a.dateAdded || '').localeCompare(String(b.dateAdded || ''));
-}
-
-// What each reorderable list needs (looked up when used, because the lists are defined further down the file).
-function manualListConfig(name) {
-  return {
-    todos: { key: TODOS_KEY, items: () => todos, render: () => renderTodos() },
-    shoppingList: { key: SHOPPING_KEY, items: () => shoppingItems, render: () => renderShoppingList() },
-    recipes: { key: RECIPES_KEY, items: () => recipes, render: () => renderRecipes() },
-  }[name];
-}
-
-// Gives every record in the list a fresh, evenly spaced number in its current order (only saving the ones that changed).
-function renumberManual(list) {
-  list.forEach((record, i) => {
-    const value = (i + 1) * MANUAL_GAP;
-    if (record.sortOrder === value) return;
-    record.sortOrder = value;
-    stampSync(record);
-  });
-}
-
-// Moves one record next to another (before it, or after it when placeAfter is true). Returns false if nothing moved.
-function moveManual(name, id, targetId, placeAfter) {
-  const cfg = manualListConfig(name);
-  const items = cfg.items();
-  const live = items.filter((r) => !r.deleted).sort(compareManual);
-  const moving = live.find((r) => r.id === id);
-  const target = live.find((r) => r.id === targetId);
-  if (!moving || !target || moving === target) return false;
-
-  // First time (or if numbers collide): number the whole list in its current order so there is something to slot between.
-  const unnumbered = live.some((r, i) => !Number.isFinite(r.sortOrder) || (i > 0 && r.sortOrder <= live[i - 1].sortOrder));
-  if (unnumbered) renumberManual(live);
-
-  const rest = live.filter((r) => r !== moving);
-  const at = rest.indexOf(target) + (placeAfter ? 1 : 0);
-  const prev = rest[at - 1];
-  const next = rest[at];
-  let value;
-  if (prev && next) value = (prev.sortOrder + next.sortOrder) / 2;
-  else if (prev) value = prev.sortOrder + MANUAL_GAP;
-  else value = next.sortOrder - MANUAL_GAP;
-
-  const before = structuredClone(moving);
-  if (prev && next && !(value > prev.sortOrder && value < next.sortOrder)) {
-    // The gap between the neighbours is used up: renumber the whole list with the record in its new place (no Undo step).
-    rest.splice(at, 0, moving);
-    renumberManual(rest);
-    saveCollection(cfg.key, items);
-    cfg.render();
-    return true;
-  }
-  moving.sortOrder = value;
-  stampSync(moving);
-  saveCollection(cfg.key, items);
-  recordUndo(name, id, before, structuredClone(moving));
-  cfg.render();
-  return true;
-}
-
-// Moves a record one place up (-1) or down (+1) among the rows currently on screen, then puts keyboard focus back
-// on its handle. `selector` finds the rows, `attr` is the data attribute holding the record id.
-function moveByStep(name, id, direction, list, selector, attr, focusSelector) {
-  const rows = [...list.querySelectorAll(selector)];
-  const index = rows.findIndex((row) => row.getAttribute(attr) === id);
-  const neighbour = rows[index + direction];
-  if (index < 0 || !neighbour) return false;
-  const moved = moveManual(name, id, neighbour.getAttribute(attr), direction > 0);
-  if (moved && focusSelector) {
-    const again = [...list.querySelectorAll(selector)].find((row) => row.getAttribute(attr) === id);
-    const control = again && again.querySelector(focusSelector);
-    if (control) control.focus();
-  }
-  return moved;
-}
-
-// Drag a row by its handle (touch, pen or mouse) to a new place: a line shows where it will land, and the move
-// happens when you let go. The arrow keys on a focused handle do the same one step at a time.
-function enableDragReorder(listId, name, selector, attr) {
-  const list = document.getElementById(listId);
-  let drag = null;
-  const clearMarks = () => list.querySelectorAll('.drop-before, .drop-after').forEach((row) => row.classList.remove('drop-before', 'drop-after'));
-  const finish = (apply) => {
-    if (!drag) return;
-    const { row, target, after } = drag;
-    drag = null;
-    row.classList.remove('dragging');
-    clearMarks();
-    if (apply && target) moveManual(name, row.getAttribute(attr), target.getAttribute(attr), after);
-  };
-  list.addEventListener('pointerdown', (e) => {
-    const handle = e.target.closest('.drag-handle');
-    if (!handle) return;
-    const row = handle.closest(selector);
-    drag = { row, target: null, after: false };
-    row.classList.add('dragging');
-    try { handle.setPointerCapture(e.pointerId); } catch { /* the drag still works without capture */ }
-    e.preventDefault();
-  });
-  list.addEventListener('pointermove', (e) => {
-    if (!drag) return;
-    clearMarks();
-    const over = document.elementFromPoint(e.clientX, e.clientY);
-    const row = over && over.closest(selector);
-    if (row && row !== drag.row && list.contains(row)) {
-      const box = row.getBoundingClientRect();
-      drag.target = row;
-      drag.after = e.clientY > box.top + box.height / 2;
-      row.classList.add(drag.after ? 'drop-after' : 'drop-before');
-    } else {
-      drag.target = null;
-    }
-  });
-  list.addEventListener('pointerup', () => finish(true));
-  list.addEventListener('pointercancel', () => finish(false));
-  list.addEventListener('keydown', (e) => {
-    if (!e.target.classList.contains('drag-handle') || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
-    e.preventDefault();
-    const row = e.target.closest(selector);
-    moveByStep(name, row.getAttribute(attr), e.key === 'ArrowUp' ? -1 : 1, list, selector, attr, '.drag-handle');
-  });
 }
 
 // ---- Journal (dreams + therapy sessions) ----
@@ -5485,7 +2830,7 @@ document.getElementById('therapy-summary-copy').addEventListener('click', async 
 document.addEventListener('keydown', (e) => {
   const overlay = document.querySelector('.summary-overlay:not([hidden])');
   if (!overlay) return;
-  if (e.key === 'Escape') { (overlay.id === 'health-summary' ? closeHealthSummary : closeTherapySummary)(); return; }
+  if (e.key === 'Escape') { closeTherapySummary(); return; }
   if (e.key !== 'Tab') return;
   const focusable = [...overlay.querySelectorAll('select, button:not(:disabled)')];
   if (focusable.length === 0) return;
@@ -5613,10 +2958,6 @@ const SEARCH_MIN_LENGTH = 2;
 const SEARCH_SOURCES = [
   { tab: 'books', label: 'Books', inputId: 'books-search-input', items: () => books, title: (b) => b.title, fields: (b) => [b.title, b.author] },
   { tab: 'recipes', label: 'Recipes', inputId: 'recipes-search-input', items: () => recipes, title: (r) => r.title, fields: (r) => [r.title, r.category, ...(r.ingredients || []), ...(r.steps || []), r.notes] },
-  { tab: 'medications', label: 'Medications', inputId: 'medications-search-input', items: () => medications, title: (m) => m.name, fields: (m) => [m.name, m.dosage, m.frequency, m.prescribingDoctor, m.notes] },
-  { tab: 'diagnoses', label: 'Diagnoses', inputId: 'diagnoses-search-input', items: () => diagnoses, title: (d) => d.condition, fields: (d) => [d.condition, d.provider, d.notes] },
-  { tab: 'todo', label: 'To-Do', inputId: 'todo-search-input', items: () => todos, title: (t) => (t.completed ? `${t.task} (done)` : t.task), fields: (t) => [t.task] },
-  { tab: 'shopping', label: 'Shopping List', inputId: 'shopping-search-input', items: () => shoppingItems, title: (s) => s.item, fields: (s) => [s.item, s.category, s.quantity] },
   { tab: 'notes', label: 'Notes', inputId: 'notes-search-input', items: () => notes, title: (n) => n.title || '(untitled note)', fields: (n) => [n.title, n.body] },
   { tab: 'resume', label: 'Resume & Portfolio', inputId: 'resume-search-input', items: () => links, title: (l) => l.label, fields: (l) => [l.label, l.url, l.notes] },
 ];
@@ -5827,126 +3168,24 @@ document.getElementById('global-search-input').addEventListener('keydown', (e) =
 // shopping renderers (the lists Home reads) rather than at every mutation. Only the Customize
 // Home choices (applyHomePanelChoices) are stored, on this device.
 
-// How many days ahead Home looks for things that are "due soon".
-const HOME_DUE_SOON_DAYS = 7;
-
-// Splits open to-dos into overdue and due within the next week, each ordered by due date.
-function computeHomeTodos(nonDeletedTodos) {
-  const overdue = nonDeletedTodos
-    .filter((t) => !t.completed && isTodoOverdue(t))
-    .sort(compareByField((t) => t.dueDate, 1, { text: false }));
-
-  // Local-date math on both sides (isTodoOverdue also uses todayKey()), so the overdue and
-  // due-soon buckets split on the same boundary (a UTC date would call today's to-dos overdue in the evening).
-  const dueSoonThroughKey = shiftDateKey(todayKey(), HOME_DUE_SOON_DAYS);
-
-  const dueSoon = nonDeletedTodos
-    .filter((t) => !t.completed && t.dueDate && !isTodoOverdue(t) && t.dueDate <= dueSoonThroughKey)
-    .sort(compareByField((t) => t.dueDate, 1, { text: false }));
-
-  return { overdue, dueSoon };
-}
-
-// The sentences for the Home "This week" panel (empty when there is nothing to say). "Finished" and "bought"
-// go by the day the record was last saved, which is when it was ticked off unless it was edited afterwards.
-function weekSummaryLines() {
-  const today = todayKey();
-  const since = shiftDateKey(today, -6); // the last seven days, today included
-  const sinceStamp = new Date(`${since}T00:00:00`).toISOString();
-  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
-  const lines = [];
-
-  const liveWeights = weights.filter((w) => !w.deleted);
-  if (liveWeights.length > 0) {
-    const days = new Set(liveWeights.filter((w) => w.date >= since && w.date <= today).map((w) => w.date)).size;
-    lines.push(`Weighed in ${days} of the last 7 days`);
-  }
-  const finished = todos.filter((x) => !x.deleted && x.completed && String(x.updatedAt || '') >= sinceStamp).length;
-  if (finished > 0) lines.push(`${plural(finished, 'to-do', 'to-dos')} finished`);
-  const bought = shoppingItems.filter((i) => !i.deleted && i.checked && String(i.updatedAt || '') >= sinceStamp).length;
-  if (bought > 0) lines.push(`${plural(bought, 'shopping item', 'shopping items')} bought`);
-
-  const refillDays = medications.filter((m) => !m.deleted && isRealDateKey(m.refillDate)).map((m) => daysUntilDateKey(m.refillDate));
-  const soon = refillDays.filter((d) => d >= 0 && d <= 7).length;
-  const late = refillDays.filter((d) => d < 0).length;
-  if (soon > 0) lines.push(`${plural(soon, 'refill', 'refills')} coming up in the next 7 days`);
-  if (late > 0) lines.push(`${plural(late, 'refill is', 'refills are')} overdue`);
-  return lines;
-}
-
-// Draws a tiny trend line (no axes) into an <svg viewBox="0 0 120 32"> from a list of numbers.
-function drawSparkline(svg, values) {
-  svg.innerHTML = '';
-  if (values.length < 2) return;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = max - min || 1; // a flat line sits in the middle instead of dividing by zero
-  const points = values.map((v, i) => `${(i / (values.length - 1)) * 116 + 2},${30 - ((v - min) / range) * 28 + (max === min ? -13 : 0)}`);
-  svg.appendChild(svgEl('polyline', { points: points.join(' ') }));
-}
-
-// How many unchecked shopping items Home lists before saying "+ N more".
-const HOME_SHOPPING_SHOWN = 6;
-
-// Plain-English timing for Home rows, e.g. "today", "tomorrow", "in 4 days", "2 days ago".
-function whenLabel(days) {
-  if (days < 0) return `${-days} day${days === -1 ? '' : 's'} ago`;
-  if (days === 0) return 'today';
-  if (days === 1) return 'tomorrow';
-  return `in ${days} days`;
-}
-
-// Medications whose refill date is overdue or within the next week, soonest first.
-function computeHomeRefills(nonDeletedMeds) {
-  return nonDeletedMeds
-    .filter((m) => m.refillDate && daysUntilDateKey(m.refillDate) <= HOME_DUE_SOON_DAYS)
-    .sort(compareByField((m) => m.refillDate, 1, { text: false }));
-}
-
 // Books marked "currently reading", ordered by author.
 function computeCurrentlyReading(nonDeletedBooks) {
   return nonDeletedBooks.filter((b) => b.status === 'currently_reading').sort(BOOK_SORTS.author_asc);
 }
 
-// Redraws the whole Home dashboard: backup nudges, search results, this week's to-dos and
-// refills, weigh-in, shopping, weight trend, pinned recipes and the books being read.
+// Redraws the Home dashboard: backup nudges, search results and the books being read. (The to-do list, shopping
+// list, refills, weight and pinned recipes that used to show here moved to other apps.)
 function renderHome() {
-  // Gather what to show.
   renderBackupNotes();
   renderGlobalSearch(); // keep any open search results in step with the data
-  const nonDeletedTodos = todos.filter((t) => !t.deleted);
-  const nonDeletedBooks = books.filter((b) => !b.deleted);
+  const currentlyReading = computeCurrentlyReading(books.filter((b) => !b.deleted));
 
-  const { overdue: overdueTodos, dueSoon: dueSoonTodos } = computeHomeTodos(nonDeletedTodos);
-  const currentlyReading = computeCurrentlyReading(nonDeletedBooks);
-  const homeRefills = computeHomeRefills(medications.filter((m) => !m.deleted));
-
-  const actionableCount = overdueTodos.length + dueSoonTodos.length + homeRefills.length;
-
-  // Grab the panels and clear their lists before refilling them.
   const statsEl = document.getElementById('home-stats');
   const emptyEl = document.getElementById('home-empty-state');
-  const todoPanel = document.getElementById('home-todo-panel');
   const readingPanel = document.getElementById('home-reading-panel');
-  const todoList = document.getElementById('home-todo-list');
   const readingList = document.getElementById('home-reading-list');
-
-  const refillsPanel = document.getElementById('home-refills-panel');
-  const refillsList = document.getElementById('home-refills-list');
-  const weighPanel = document.getElementById('home-weigh-panel');
-  const shoppingPanel = document.getElementById('home-shopping-panel');
-  const shoppingList = document.getElementById('home-shopping-list');
-  const weightPanel = document.getElementById('home-weight-panel');
-  const weekPanel = document.getElementById('home-week-panel');
-  const weekList = document.getElementById('home-week-list');
-  const recipesPanel = document.getElementById('home-recipes-panel');
-  const recipesList = document.getElementById('home-recipes-list');
-
-  todoList.innerHTML = '';
   readingList.innerHTML = '';
-  refillsList.innerHTML = '';
-  shoppingList.innerHTML = '';
-  recipesList.innerHTML = '';
+  statsEl.hidden = true;
 
   // One Home row: a button (filled in by buildContent) that jumps to the tab.
   function makeHomeRow(onClick, buildContent) {
@@ -5961,153 +3200,25 @@ function renderHome() {
     return li;
   }
 
-  // To-dos: overdue ones first, then those due soon; otherwise show the "all clear" message.
-  if (actionableCount > 0) {
-    statsEl.textContent = `${actionableCount} thing${actionableCount === 1 ? '' : 's'} ` +
-      `need${actionableCount === 1 ? 's' : ''} your attention this week.`;
-    statsEl.hidden = false;
-    emptyEl.hidden = true;
-    todoPanel.hidden = overdueTodos.length + dueSoonTodos.length === 0;
-
-    [...overdueTodos, ...dueSoonTodos].forEach((todo) => {
-      todoList.appendChild(makeHomeRow(() => goToTab('todo'), (btn) => {
-        const task = document.createElement('span');
-        task.className = 'todo-task';
-        task.textContent = todo.task;
-        const due = document.createElement('span');
-        due.className = 'todo-due';
-        due.textContent = todo.dueDate;
-        due.classList.toggle('overdue', isTodoOverdue(todo));
-        btn.append(task, due);
-      }));
-    });
-  } else {
-    statsEl.hidden = true;
-    emptyEl.hidden = false;
-    todoPanel.hidden = true;
-  }
-
-  // Medication refills.
-  refillsPanel.hidden = homeRefills.length === 0;
-  homeRefills.forEach((med) => {
-    refillsList.appendChild(makeHomeRow(() => goToTab('medications'), (btn) => {
-      const name = document.createElement('strong');
-      name.className = 'med-name';
-      name.textContent = med.name;
-      const due = document.createElement('span');
-      const days = daysUntilDateKey(med.refillDate);
-      due.className = days < 0 ? 'bill-due overdue' : 'bill-due';
-      const word = isEquipment(med) ? 'replacement' : 'refill';
-      due.textContent = days < 0 ? `${word} overdue (${med.refillDate})` : `${word} ${whenLabel(days)}`;
-      if (!isEquipment(med) && med.refillsLeft === 0) due.textContent += ' \u00b7 no refills left';
-      btn.append(name, due);
-    }));
-  });
-
-  // Weigh-in: shown until a weight is saved for today, with a box to save it right here.
-  weighPanel.hidden = weights.some((w) => !w.deleted && w.date === todayKey());
-
-  // Shopping: what is still unchecked (the first few), so the list is one glance away.
-  const toBuy = shoppingItems.filter((i) => !i.deleted && !i.checked);
-  shoppingPanel.hidden = toBuy.length === 0;
-  toBuy.slice(0, HOME_SHOPPING_SHOWN).forEach((item) => {
-    shoppingList.appendChild(makeHomeRow(() => goToTab('shopping'), (btn) => {
-      const name = document.createElement('span');
-      name.className = 'shopping-item-name';
-      name.textContent = item.quantity ? `${item.item} (${item.quantity})` : item.item;
-      btn.append(name);
-    }));
-  });
-  if (toBuy.length > HOME_SHOPPING_SHOWN) {
-    shoppingList.appendChild(makeHomeRow(() => goToTab('shopping'), (btn) => {
-      btn.textContent = `+ ${toBuy.length - HOME_SHOPPING_SHOWN} more`;
-    }));
-  }
-
-  // Weight trend: the latest weight, how it moved this week (or this month), and a small line of recent entries.
-  const trendPoints = weightEntriesForChart(weights, 0);
-  weightPanel.hidden = trendPoints.length < 2;
-  if (!weightPanel.hidden) {
-    const latest = trendPoints[trendPoints.length - 1];
-    const week = weightChangeOver(weights, 7);
-    const month = week ? null : weightChangeOver(weights, 30);
-    const found = week || month;
-    const span = week ? 'the last 7 days' : 'the last 30 days';
-    let words = '';
-    if (found) words = found.change === 0 ? ` \u2014 no change over ${span}` : ` \u2014 ${found.change < 0 ? 'down' : 'up'} ${Math.abs(found.change).toFixed(1)} ${WEIGHT_UNIT} over ${span}`;
-    document.getElementById('home-weight-text').textContent = `${formatWeight(latest.weight)}${words}`;
-    drawSparkline(document.getElementById('home-weight-spark'), trendPoints.slice(-14).map((w) => w.weight));
-  }
-
-  // This week: a few plain-English numbers about the last seven days.
-  weekList.innerHTML = '';
-  const weekLines = weekSummaryLines();
-  weekPanel.hidden = weekLines.length === 0;
-  weekLines.forEach((line) => {
-    const item = document.createElement('li');
-    item.textContent = line;
-    weekList.appendChild(item);
-  });
-
-  // Pinned recipes: tap to open Cook mode (or the Recipes tab when the recipe has no steps yet).
-  const pinned = recipes.filter((r) => !r.deleted && r.pinned);
-  recipesPanel.hidden = pinned.length === 0;
-  pinned.forEach((recipe) => {
-    const hasSteps = (recipe.steps || []).length > 0;
-    recipesList.appendChild(makeHomeRow(() => (hasSteps ? openCookMode(recipe.id) : goToTab('recipes')), (btn) => {
-      const title = document.createElement('strong');
-      title.className = 'recipe-title';
-      title.textContent = recipe.title;
-      const hint = document.createElement('span');
-      hint.className = 'book-author';
-      hint.textContent = hasSteps ? 'Cook mode' : '';
-      btn.append(title, hint);
-    }));
-  });
-
-  // The "all caught up" message only makes sense when nothing at all is waiting on Home. A panel the
-  // user switched off in Customize doesn't count (it is hidden by applyHomePanelChoices at the end).
-  const switchedOff = loadHiddenHomePanels();
-  const weighShows = !weighPanel.hidden && !switchedOff.has('home-weigh-panel');
-  const shoppingShows = !shoppingPanel.hidden && !switchedOff.has('home-shopping-panel');
-  if (weighShows || shoppingShows) emptyEl.hidden = true;
-
   // Books currently being read.
-  if (currentlyReading.length > 0) {
-    readingPanel.hidden = false;
-    currentlyReading.forEach((book) => {
-      readingList.appendChild(makeHomeRow(() => goToTab('books'), (btn) => {
-        const title = document.createElement('strong');
-        title.className = 'book-title';
-        title.textContent = book.title;
-        const author = document.createElement('span');
-        author.className = 'book-author';
-        author.textContent = book.author || '';
-        btn.append(title, author);
-      }));
-    });
-  } else {
-    readingPanel.hidden = true;
-  }
+  readingPanel.hidden = currentlyReading.length === 0;
+  currentlyReading.forEach((book) => {
+    readingList.appendChild(makeHomeRow(() => goToTab('books'), (btn) => {
+      const title = document.createElement('strong');
+      title.className = 'book-title';
+      title.textContent = book.title;
+      const author = document.createElement('span');
+      author.className = 'book-author';
+      author.textContent = book.author || '';
+      btn.append(title, author);
+    }));
+  });
+
+  // The "all caught up" message shows when no panel has anything to say.
+  emptyEl.hidden = currentlyReading.length > 0;
 
   applyHomePanelChoices();
 }
-
-// Home "Weigh in" box: saves today's weight without opening the Weight tab.
-document.getElementById('home-weigh-form').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const input = document.getElementById('home-weigh-input');
-  const errorEl = document.getElementById('home-weigh-error');
-  const result = addWeight({ date: todayKey(), value: input.value, note: '' });
-  if (!result.ok) {
-    errorEl.textContent = result.error;
-    errorEl.hidden = false;
-    return;
-  }
-  errorEl.hidden = true;
-  input.value = '';
-  renderHome(); // today now has a weight, so this box goes away
-});
 
 // ---- Device Sync ----
 // Optional: the app is fully functional offline with no sync configured, and
@@ -6146,11 +3257,6 @@ function saveSyncConfig(config) {
 const SYNC_COLLECTIONS = [
   { name: 'books', label: 'Books', key: BOOKS_KEY, get: () => books, set: (v) => { books = v; }, render: renderBooks, delete: deleteBook, restore: restoreBook },
   { name: 'recipes', label: 'Recipes', key: RECIPES_KEY, get: () => recipes, set: (v) => { recipes = v; }, render: renderRecipes, delete: deleteRecipe, restore: restoreRecipe },
-  { name: 'medications', label: 'Medications', key: MEDICATIONS_KEY, get: () => medications, set: (v) => { medications = v; }, render: renderMedications, delete: deleteMedication, restore: restoreMedication },
-  { name: 'weights', label: 'Weight', key: WEIGHTS_KEY, get: () => weights, set: (v) => { weights = v; }, render: renderWeights, delete: deleteWeight, restore: restoreWeight },
-  { name: 'diagnoses', label: 'Diagnoses', key: DIAGNOSES_KEY, get: () => diagnoses, set: (v) => { diagnoses = v; }, render: renderDiagnoses, delete: deleteDiagnosis, restore: restoreDiagnosis },
-  { name: 'todos', label: 'To-Do', key: TODOS_KEY, get: () => todos, set: (v) => { todos = v; }, render: renderTodos, delete: deleteTodo, restore: restoreTodo },
-  { name: 'shoppingList', label: 'Shopping List', key: SHOPPING_KEY, get: () => shoppingItems, set: (v) => { shoppingItems = v; }, render: renderShoppingList, delete: deleteShoppingItem, restore: restoreShoppingItem },
   { name: 'notes', label: 'Notes', key: NOTES_KEY, get: () => notes, set: (v) => { notes = v; }, render: renderNotes, delete: deleteNote, restore: restoreNote },
   { name: 'links', label: 'Resume', key: LINKS_KEY, get: () => links, set: (v) => { links = v; }, render: renderLinks, delete: deleteLink, restore: restoreLink },
 ];
@@ -6219,7 +3325,6 @@ function applyEntrySnapshot(entry, which) {
 
 // Steps back the most recent change and moves it onto the redo list.
 function undo() {
-  flushMedDateUndo();
   if (undoStack.length === 0) return;
   hideToast();
   const entry = undoStack.pop();
@@ -6238,7 +3343,6 @@ function undo() {
 
 // Re-applies the most recently undone change.
 function redo() {
-  flushMedDateUndo();
   if (redoStack.length === 0) return;
   const entry = redoStack.pop();
   isApplyingHistory = true;
@@ -6755,13 +3859,52 @@ function initSyncUI() {
 // discard a record, treat a byte-for-byte replay as a no-op, and keep both
 // sides on a genuine conflict rather than picking a winner.
 
-// The full backup: everything that syncs, plus the things that only live on this device (the
-// journal and the weight and reading goals), kept under `local` so they stay out of syncing.
+// ---- Lists that moved to other apps (kept, not shown) ----
+// The to-do list, shopping list, medications and equipment, diagnoses and weights now live in Petalkeeper, MealMate
+// and Caregiver Command Center. This app no longer shows them, but it NEVER deletes what it already holds: the
+// records stay in this browser exactly as they were, every Export still includes them in the same place as before
+// (so the other apps can read the file), and Import still merges them back in. The server copy is left alone too.
+const RETIRED_LISTS = [
+  { name: 'todos', key: 'secondMemory.todos.v1', label: 'to-dos' },
+  { name: 'shoppingList', key: 'secondMemory.shoppingList.v1', label: 'shopping items' },
+  { name: 'medications', key: 'secondMemory.medications.v1', label: 'medications and equipment' },
+  { name: 'diagnoses', key: 'secondMemory.diagnoses.v1', label: 'diagnoses' },
+  { name: 'weights', key: 'secondMemory.weights.v1', label: 'weights' },
+];
+// The weight goal was a plain number kept only on this device.
+const RETIRED_WEIGHT_GOAL_KEY = 'secondMemory.weightGoal.v1';
+
+// The records held for a retired list (an empty list when there are none or the stored text is damaged).
+function readRetiredList(key) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+// The stored weight goal as a positive number, or null.
+function readRetiredWeightGoal() {
+  try {
+    const n = Number(JSON.parse(localStorage.getItem(RETIRED_WEIGHT_GOAL_KEY)));
+    return Number.isFinite(n) && n > 0 && n <= 1500 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+// The full backup: everything that syncs, the retired lists (so nothing is lost), plus the things that only live on
+// this device (the journal and the goals), kept under `local` so they stay out of syncing.
 function buildExportPayload() {
   const collections = {};
   SYNC_COLLECTIONS.forEach((c) => { collections[c.name] = c.get(); });
+  RETIRED_LISTS.forEach((r) => {
+    const held = readRetiredList(r.key);
+    if (held.length) collections[r.name] = held;
+  });
   const local = { journal: journalEntries.slice() };
-  const goal = loadWeightGoal();
+  const goal = readRetiredWeightGoal();
   if (goal !== null) local.weightGoal = goal;
   const readingGoals = loadReadingGoals();
   if (Object.keys(readingGoals).length > 0) local.readingGoals = readingGoals;
@@ -6938,24 +4081,14 @@ function setDataIoStatus(text, tone) {
 // not a number throws on every page load).
 function isValidImportRecord(collectionName, rec) {
   if (!rec || typeof rec !== 'object' || typeof rec.id !== 'string' || !rec.id) return false;
-  const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
   const isDate = (v) => isRealDateKey(v);
   const isText = (v) => typeof v === 'string';
   const textOrMissing = (v) => v === undefined || v === null || typeof v === 'string';
   const listOrMissing = (v) => v === undefined || (Array.isArray(v) && v.every((x) => typeof x === 'string'));
   if (collectionName === 'books') return isText(rec.title) && textOrMissing(rec.author) && BOOK_STATUSES.includes(rec.status) && (rec.rating == null || (Number.isInteger(rec.rating) && rec.rating >= 0 && rec.rating <= 5)) && (rec.dateFinished == null || isDate(rec.dateFinished));
   if (collectionName === 'recipes') return isText(rec.title) && listOrMissing(rec.ingredients) && listOrMissing(rec.steps);
-  if (collectionName === 'diagnoses') return isText(rec.condition);
-  if (collectionName === 'todos') return isText(rec.task);
-  if (collectionName === 'shoppingList') return isText(rec.item) && textOrMissing(rec.category) && textOrMissing(rec.quantity);
   if (collectionName === 'notes') return textOrMissing(rec.title) && textOrMissing(rec.body);
   if (collectionName === 'links') return textOrMissing(rec.label) && textOrMissing(rec.url);
-  if (collectionName === 'medications') {
-    const dateOrBlank = (v) => v == null || v === '' || isDate(v); // a bad date would print "undefined NaN" in the summary
-    return isText(rec.name) && (rec.takenDates === undefined || Array.isArray(rec.takenDates))
-      && dateOrBlank(rec.startDate) && dateOrBlank(rec.refillDate) && dateOrBlank(rec.endDate);
-  }
-  if (collectionName === 'weights') return isNum(rec.weight) && rec.weight > 0 && rec.weight <= WEIGHT_MAX && isDate(rec.date);
   return true;
 }
 
@@ -7003,6 +4136,20 @@ function importData(parsed) {
     summaries.push(`${parts.join(', ')} in ${c.label}`);
   });
 
+  // Step 2b: lists that moved to other apps are still merged into the copy this device holds (never shown here).
+  RETIRED_LISTS.forEach((r) => {
+    const rawIncoming = importedCollections[r.name];
+    if (!Array.isArray(rawIncoming) || rawIncoming.length === 0) return;
+    const incoming = rawIncoming.filter((rec) => rec && typeof rec === 'object' && typeof rec.id === 'string' && rec.id);
+    skippedInvalid += rawIncoming.length - incoming.length;
+    const held = readRetiredList(r.key);
+    const result = mergeCollectionFromImport(held, incoming);
+    if (!result.added && !result.updated && !result.duplicated) return;
+    anyChanged = true;
+    saveCollection(r.key, held);
+    summaries.push(`${result.added + result.updated + result.duplicated} ${r.label} kept for the other apps`);
+  });
+
   // Step 3: the journal and goals (only present in a full backup made by this version or later). Lists from
   // older exports that this app no longer has (bills, income, recurringIncome) are ignored and never stored.
   const localPart = parsed && typeof parsed === 'object' && parsed.local && typeof parsed.local === 'object' ? parsed.local : null;
@@ -7015,11 +4162,10 @@ function importData(parsed) {
       }
     }
     // The weight goal is only filled in when this device has none (it never overwrites yours).
-    if (Number.isFinite(localPart.weightGoal) && localPart.weightGoal > 0 && localPart.weightGoal <= WEIGHT_MAX && loadWeightGoal() === null) {
-      saveWeightGoal(localPart.weightGoal);
-      renderWeightChart();
+    if (Number.isFinite(localPart.weightGoal) && localPart.weightGoal > 0 && localPart.weightGoal <= 1500 && readRetiredWeightGoal() === null) {
+      try { localStorage.setItem(RETIRED_WEIGHT_GOAL_KEY, JSON.stringify(localPart.weightGoal)); } catch { /* storage full: not restored */ }
       anyChanged = true;
-      summaries.push('weight goal');
+      summaries.push('weight goal kept for the other apps');
     }
     // The encrypted password vault is only restored onto a device that has none (it never replaces yours).
     const incomingVault = parseVaultBlob(localPart.vault);
@@ -7049,6 +4195,7 @@ function importData(parsed) {
   }
 
   setDataIoStatus(`Import complete — ${summaries.join('; ')}.${skippedNote}`, 'ok');
+  if (typeof updateMovedCard === 'function') updateMovedCard();
 }
 
 document.getElementById('export-data-btn').addEventListener('click', exportData);
@@ -7092,7 +4239,6 @@ function refreshForNewDay() {
   if (now === lastRenderedDayKey) return;
   lastRenderedDayKey = now;
   [
-    renderTodos, renderMedications, renderCalendar, // the first two also redraw Home, so it is not listed again here
     // The reading goal is for "this year", so it must roll over on 1 January too.
     () => renderReadingGoal(books.filter((b) => !b.deleted)),
   ].forEach(safeRender);
@@ -7109,7 +4255,7 @@ document.addEventListener('visibilitychange', () => {
 
 // The build number shown in the Menu. Keep it equal to the number in CACHE_NAME in sw.js
 // (a test checks this), so "which version am I on?" has a one-glance answer.
-const APP_VERSION = 82;
+const APP_VERSION = 83;
 const THEME_KEY = 'secondMemory.theme.v1';
 const THEMES = ['auto', 'light', 'dark'];
 
@@ -7142,391 +4288,18 @@ document.getElementById('theme-btn').addEventListener('click', () => {
 applyTheme(loadTheme());
 document.getElementById('app-version').textContent = `Version ${APP_VERSION}`;
 
-// Quick add on Home: one box that adds a to-do, shopping item or note, then reports what it did.
+// Quick add on Home: one box that adds a note, then reports what it did.
 document.getElementById('quick-add-form').addEventListener('submit', (e) => {
   e.preventDefault();
-  const type = document.getElementById('quick-add-type').value;
   const input = document.getElementById('quick-add-input');
   const status = document.getElementById('quick-add-status');
   const text = input.value.trim();
   if (!text) return;
-  let label;
-  if (type === 'todo') {
-    const parsed = parseDateWords(text);
-    addTodo(parsed ? parsed.text : text, parsed ? parsed.dueDate : '', '');
-    label = parsed ? `your to-dos, due ${formatDateKeyLong(parsed.dueDate)}` : 'your to-dos';
-  }
-  else if (type === 'shopping') { addShoppingItem(text, '', ''); label = 'your shopping list'; }
-  else { addNote('', text); label = 'your notes'; }
+  addNote('', text);
   input.value = '';
-  status.textContent = `Added to ${label}.`;
+  status.textContent = 'Added to your notes.';
   status.hidden = false;
   input.focus();
-});
-
-// ---- Reminders (device notifications) ----
-// Notifications for medication refills and the daily weigh-in. They are made on this device by the
-// app itself (no server, nothing leaves the phone), so they appear while the app is open or in the
-// background, and as soon as it is opened again; a closed app cannot send them. The wording never
-// includes a medication name, so nothing private shows on a lock screen. The on/off choice and the
-// "already told you today" notes stay on this device and are not synced.
-
-const REMINDERS_KEY = 'secondMemory.reminders.v1';
-const DEFAULT_REMINDER_TIME = '09:00'; // when each reminder starts, until changed in the Menu
-const TIME_RE = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
-const REFILL_NOTICE_DAYS = 2; // remind from this many days before the refill date
-const REFILL_OVERDUE_DAYS = 7; // ...and for this many days after it
-const REMINDER_CHECK_MS = 15 * 60 * 1000;
-
-// Minutes since midnight for an "HH:MM" time (a damaged value counts as the default time).
-function minutesOf(time) {
-  const [h, m] = (TIME_RE.test(time) ? time : DEFAULT_REMINDER_TIME).split(':').map(Number);
-  return h * 60 + m;
-}
-
-// Reads { enabled, refills: { medId: lastDayTold }, weighIn: lastDayTold, todosTold: lastDayTold, weighInTime, refillTime, todoTime };
-// damaged data becomes the defaults.
-function loadReminderState() {
-  const blank = { enabled: false, refills: {}, weighIn: '', weighInTime: DEFAULT_REMINDER_TIME, refillTime: DEFAULT_REMINDER_TIME, todoTime: DEFAULT_REMINDER_TIME, todosTold: '' };
-  try {
-    const raw = JSON.parse(localStorage.getItem(REMINDERS_KEY));
-    if (!raw || typeof raw !== 'object') return blank;
-    return {
-      enabled: raw.enabled === true,
-      refills: raw.refills && typeof raw.refills === 'object' && !Array.isArray(raw.refills) ? raw.refills : {},
-      weighIn: typeof raw.weighIn === 'string' ? raw.weighIn : '',
-      weighInTime: TIME_RE.test(raw.weighInTime) ? raw.weighInTime : DEFAULT_REMINDER_TIME,
-      refillTime: TIME_RE.test(raw.refillTime) ? raw.refillTime : DEFAULT_REMINDER_TIME,
-      todoTime: TIME_RE.test(raw.todoTime) ? raw.todoTime : DEFAULT_REMINDER_TIME,
-      todosTold: typeof raw.todosTold === 'string' ? raw.todosTold : '',
-    };
-  } catch {
-    return blank;
-  }
-}
-
-// Saves the state; if storage is unavailable the reminders just work for this visit only.
-function saveReminderState(state) {
-  try { localStorage.setItem(REMINDERS_KEY, JSON.stringify(state)); } catch { /* nothing to save to */ }
-}
-
-// True when this browser can show notifications at all.
-function remindersSupported() {
-  return typeof Notification !== 'undefined';
-}
-
-// The medications that need a refill reminder today: refill date within the next couple of days,
-// today, or up to a week overdue. Soonest first.
-function medicationsNeedingRefillNotice() {
-  return medications
-    .filter((m) => !m.deleted && isRealDateKey(m.refillDate))
-    .filter((m) => {
-      const days = daysUntilDateKey(m.refillDate);
-      return days <= REFILL_NOTICE_DAYS && days >= -REFILL_OVERDUE_DAYS;
-    })
-    .sort(compareByField((m) => m.refillDate, 1, { text: false }));
-}
-
-// True when the weigh-in time has passed and no weight has been recorded for today.
-function weighInDue(now = new Date(), time = loadReminderState().weighInTime) {
-  if (now.getHours() * 60 + now.getMinutes() < minutesOf(time)) return false;
-  const today = todayKey();
-  return !weights.some((w) => !w.deleted && w.date === today);
-}
-
-// Shows one notification. Phones need the service worker to do it; desktops can do it directly.
-async function showReminder(title, body, tag) {
-  const options = { body, tag, icon: './icons/icon-192.png', badge: './icons/icon-192.png' };
-  try {
-    const registration = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration() : null;
-    if (registration) { await registration.showNotification(title, options); return; }
-  } catch { /* no usable service worker here: fall through to the direct way */ }
-  try {
-    new Notification(title, options);
-  } catch { /* the browser refused; try again at the next check */ }
-}
-
-// Looks at today's situation and sends whatever has not been sent yet today. Safe to call often.
-async function checkReminders() {
-  if (!remindersSupported() || Notification.permission !== 'granted') return;
-  const state = loadReminderState();
-  if (!state.enabled) return;
-  const today = todayKey();
-  let changed = false;
-
-  // One refill notice per medication per day, until the refill date is moved or a week has gone by.
-  const nowDate = new Date();
-  const refillTimeReached = nowDate.getHours() * 60 + nowDate.getMinutes() >= minutesOf(state.refillTime);
-  const needing = refillTimeReached ? medicationsNeedingRefillNotice().filter((m) => state.refills[m.id] !== today) : [];
-  if (needing.length > 0) {
-    const overdue = needing.some((m) => daysUntilDateKey(m.refillDate) < 0);
-    const allMeds = needing.every((m) => !isEquipment(m)); // only medications: keep the plain "refill" wording
-    await showReminder(
-      overdue ? (allMeds ? 'Medication refill overdue' : 'Refill or replacement overdue') : (allMeds ? 'Medication refill coming up' : 'Refill or replacement coming up'),
-      needing.length === 1 ? 'Open Second Memory to see which one.' : `${needing.length} ${allMeds ? 'refills' : 'refills or replacements'} need attention.`,
-      'refill'
-    );
-    needing.forEach((m) => { state.refills[m.id] = today; });
-    changed = true;
-  }
-
-  // One to-do nudge per day, once the chosen time has passed and something is due today or overdue.
-  const dueTodos = todos.filter((x) => !x.deleted && !x.completed && isRealDateKey(x.dueDate) && x.dueDate <= today);
-  if (state.todosTold !== today && dueTodos.length > 0 && nowDate.getHours() * 60 + nowDate.getMinutes() >= minutesOf(state.todoTime)) {
-    await showReminder(
-      'To-dos need attention',
-      dueTodos.length === 1 ? 'You have a to-do due today or overdue.' : `You have ${dueTodos.length} to-dos due today or overdue.`,
-      'todos'
-    );
-    state.todosTold = today;
-    changed = true;
-  }
-
-  // One weigh-in nudge per day, and none once today's weight is in.
-  if (state.weighIn !== today && weighInDue(nowDate, state.weighInTime)) {
-    await showReminder('Time to weigh in', 'Add today’s weight in Second Memory.', 'weigh-in');
-    state.weighIn = today;
-    changed = true;
-  }
-
-  if (changed) {
-    // Forget medications that no longer need a notice so this list cannot grow forever.
-    const live = new Set(medicationsNeedingRefillNotice().map((m) => m.id));
-    Object.keys(state.refills).forEach((id) => { if (!live.has(id)) delete state.refills[id]; });
-    saveReminderState(state);
-  }
-}
-
-// Sets the Menu button's label from the saved choice and the browser's permission.
-function updateReminderButton() {
-  const btn = document.getElementById('reminders-btn');
-  if (!remindersSupported()) {
-    btn.textContent = 'Reminders: not supported';
-    btn.disabled = true;
-    return;
-  }
-  const saved = loadReminderState();
-  const on = saved.enabled && Notification.permission === 'granted';
-  document.getElementById('reminder-times').hidden = !on;
-  document.getElementById('weigh-time-input').value = saved.weighInTime;
-  document.getElementById('refill-time-input').value = saved.refillTime;
-  document.getElementById('todo-time-input').value = saved.todoTime;
-  btn.textContent = Notification.permission === 'denied' ? 'Reminders: blocked' : `Reminders: ${on ? 'On' : 'Off'}`;
-}
-
-// The Menu button turns reminders on (asking the browser for permission the first time) or off.
-document.getElementById('reminders-btn').addEventListener('click', async () => {
-  if (!remindersSupported()) return;
-  const status = document.getElementById('reminders-status');
-  const state = loadReminderState();
-  if (state.enabled) {
-    state.enabled = false;
-    saveReminderState(state);
-    status.hidden = true;
-  } else {
-    const permission = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
-    if (permission === 'granted') {
-      state.enabled = true;
-      saveReminderState(state);
-      status.textContent = 'Refill and daily weigh-in reminders are on. They appear while the app is open or in the background.';
-      status.hidden = false;
-    } else {
-      status.textContent = 'Notifications are blocked. Allow them for this site in your browser settings, then try again.';
-      status.hidden = false;
-    }
-  }
-  updateReminderButton();
-  checkReminders();
-});
-
-// Changing a time saves it on this device (a cleared box is ignored) and re-checks straight away.
-[['weigh-time-input', 'weighInTime'], ['refill-time-input', 'refillTime'], ['todo-time-input', 'todoTime']].forEach(([id, field]) => {
-  document.getElementById(id).addEventListener('change', (e) => {
-    if (!TIME_RE.test(e.target.value)) { e.target.value = loadReminderState()[field]; return; }
-    const state = loadReminderState();
-    state[field] = e.target.value;
-    // A new time starts the day over, so the reminder can still go out today if it is now later than the new time.
-    if (field === 'weighInTime') state.weighIn = '';
-    else if (field === 'todoTime') state.todosTold = '';
-    else state.refills = {};
-    saveReminderState(state);
-    checkReminders();
-  });
-});
-
-// Check once at startup, every 15 minutes while open, and whenever the app comes back to the front
-// (timers are paused in the background, so the return is what catches a phone waking up).
-updateReminderButton();
-checkReminders();
-setInterval(checkReminders, REMINDER_CHECK_MS);
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') checkReminders();
-});
-
-// ---- Health summary ----
-// One printable page for a doctor: current medications, diagnoses, and weight. The journal is
-// never included. The page is built as plain sections so the same data makes both the on-screen
-// sheet and the "Copy text" version.
-
-// Builds the summary: [{ title, empty, entries: [{ head, lines: [] }] }].
-function buildHealthSummaryData() {
-  const today = todayKey();
-  const sections = [];
-
-  // Medications you are taking now (no end date), by name.
-  const meds = medications.filter((m) => !m.deleted && !m.endDate)
-    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
-  sections.push({
-    title: 'Medications',
-    empty: 'No current medications recorded.',
-    entries: meds.map((m) => {
-      const lines = [];
-      const how = [m.dosage, m.frequency].filter(Boolean).join(', ');
-      if (how) lines.push(how);
-      if (m.prescribingDoctor) lines.push(`Prescribed by ${m.prescribingDoctor}`);
-      if (m.pharmacy) lines.push(`${isEquipment(m) ? 'Supplier' : 'Pharmacy'}: ${m.pharmacy}`);
-      if (!isEquipment(m) && Number.isInteger(m.refillsLeft)) lines.push(`Refills left: ${m.refillsLeft}`);
-      if (isRealDateKey(m.startDate)) lines.push(`Started ${formatDateKeyLong(m.startDate)}`);
-      if (isRealDateKey(m.refillDate)) lines.push(`Next refill ${formatDateKeyLong(m.refillDate)}`);
-      if (m.notes) lines.push(m.notes);
-      return { head: isEquipment(m) ? `${m.name} (equipment)` : m.name, lines };
-    }),
-  });
-
-  // Diagnoses, alphabetical by condition.
-  const diags = diagnoses.filter((d) => !d.deleted)
-    .sort((a, b) => String(a.condition || '').localeCompare(String(b.condition || ''), undefined, { sensitivity: 'base' }));
-  sections.push({
-    title: 'Diagnoses',
-    empty: 'No diagnoses recorded.',
-    entries: diags.map((d) => {
-      const lines = [];
-      if (d.dateDiagnosed) lines.push(`Diagnosed ${isRealDateKey(d.dateDiagnosed) ? formatDateKeyLong(d.dateDiagnosed) : d.dateDiagnosed}`);
-      if (d.provider) lines.push(`Provider: ${d.provider}`);
-      if (d.notes) lines.push(d.notes);
-      return { head: d.condition, lines };
-    }),
-  });
-
-  // Weight: the four figures, the goal, the 30-day change and the last five entries.
-  const live = weights.filter((w) => !w.deleted);
-  const stats = computeWeightStats(live); // null when there are no entries
-  const weightLines = [];
-  if (stats) {
-    weightLines.push(`Most recent: ${formatWeight(stats.recent.weight)} on ${formatDateKeyLong(stats.recent.date)}`);
-    weightLines.push(`Oldest: ${formatWeight(stats.oldest.weight)} on ${formatDateKeyLong(stats.oldest.date)}`);
-    weightLines.push(`Highest: ${formatWeight(stats.highest.weight)} on ${formatDateKeyLong(stats.highest.date)}`);
-    weightLines.push(`Lowest: ${formatWeight(stats.lowest.weight)} on ${formatDateKeyLong(stats.lowest.date)}`);
-    const goal = loadWeightGoal();
-    if (goal !== null) weightLines.push(`Goal: ${formatWeight(goal)}`);
-    const trend = weightChangeLast30(live);
-    if (trend) weightLines.push(`Change over the last 30 days: ${trend.change > 0 ? '+' : ''}${trend.change.toFixed(1)} ${WEIGHT_UNIT}`);
-    // Oldest-first from the chart helper, so the last five reversed are the newest five, newest first.
-    const recent = weightEntriesForChart(live, 0).slice(-5).reverse()
-      .map((w) => `${formatDateKeyLong(w.date)}: ${formatWeight(w.weight)}`);
-    weightLines.push(`Recent entries: ${recent.join('; ')}`);
-  }
-  sections.push({ title: 'Weight', empty: 'No weights recorded.', entries: stats ? [{ head: '', lines: weightLines }] : [] });
-
-  return { prepared: today, sections };
-}
-
-// The plain-text version of the summary, for "Copy text".
-function buildHealthSummaryText(data) {
-  const out = ['Health summary', `Prepared ${formatDateKeyLong(data.prepared)}`, ''];
-  data.sections.forEach((s) => {
-    out.push(s.title.toUpperCase());
-    if (s.entries.length === 0) out.push(s.empty);
-    s.entries.forEach((e) => {
-      if (e.head) out.push(e.head);
-      e.lines.forEach((l) => out.push(e.head ? `  ${l}` : l));
-    });
-    out.push('');
-  });
-  return out.join('\n').trim();
-}
-
-// Fills the on-screen sheet.
-function renderHealthSummary() {
-  const body = document.getElementById('health-summary-body');
-  const data = buildHealthSummaryData();
-  body.innerHTML = '';
-  const title = document.createElement('h2');
-  title.id = 'health-summary-title';
-  title.textContent = 'Health summary';
-  const meta = document.createElement('p');
-  meta.className = 'summary-meta';
-  meta.textContent = `Prepared ${formatDateKeyLong(data.prepared)}`;
-  body.append(title, meta);
-  data.sections.forEach((s) => {
-    const h = document.createElement('h3');
-    h.textContent = s.title;
-    body.appendChild(h);
-    if (s.entries.length === 0) {
-      const none = document.createElement('p');
-      none.className = 'summary-meta';
-      none.textContent = s.empty;
-      body.appendChild(none);
-    }
-    s.entries.forEach((e) => {
-      const wrap = document.createElement('div');
-      wrap.className = 'summary-session';
-      if (e.head) {
-        const name = document.createElement('strong');
-        name.textContent = e.head;
-        wrap.appendChild(name);
-      }
-      const list = document.createElement('ul');
-      e.lines.forEach((l) => {
-        const li = document.createElement('li');
-        li.textContent = l;
-        list.appendChild(li);
-      });
-      wrap.appendChild(list);
-      body.appendChild(wrap);
-    });
-  });
-}
-
-// Shows a short message on the sheet (such as "Copied"); an empty message hides it.
-function setHealthSummaryStatus(text) {
-  const el = document.getElementById('health-summary-status');
-  el.textContent = text;
-  el.hidden = !text;
-}
-
-// Opens the sheet and moves focus into it.
-function openHealthSummary() {
-  setHealthSummaryStatus('');
-  renderHealthSummary();
-  document.getElementById('health-summary').hidden = false;
-  document.body.classList.add('summary-open');
-  document.getElementById('health-summary-close').focus();
-}
-
-// Closes the sheet and gives focus back to the button that opened it.
-function closeHealthSummary() {
-  document.getElementById('health-summary').hidden = true;
-  document.body.classList.remove('summary-open');
-  document.getElementById('health-summary-btn').focus();
-}
-
-document.getElementById('health-summary-btn').addEventListener('click', openHealthSummary);
-document.getElementById('health-summary-close').addEventListener('click', closeHealthSummary);
-document.getElementById('health-summary-print').addEventListener('click', () => window.print());
-document.getElementById('health-summary-copy').addEventListener('click', async () => {
-  try {
-    await navigator.clipboard.writeText(buildHealthSummaryText(buildHealthSummaryData()));
-    setHealthSummaryStatus('Copied. Paste it into a message or note.');
-  } catch {
-    // Clipboard access can be blocked: select the text so Copy works by hand.
-    const range = document.createRange();
-    range.selectNodeContents(document.getElementById('health-summary-body'));
-    const selection = window.getSelection();
-    selection.removeAllRanges();
-    selection.addRange(range);
-    setHealthSummaryStatus('Your browser blocked copying. The summary is selected: press Ctrl+C (or Cmd+C).');
-  }
 });
 
 // ---- App lock ----
@@ -7620,10 +4393,8 @@ function clearAppLock() {
 function lockNow() {
   if (!loadLock()) return;
   lockVault(); // the password vault locks with the app
-  // Close anything showing private details first (summaries, cook mode, the lock settings dialog).
-  if (!document.getElementById('health-summary').hidden) closeHealthSummary();
+  // Close anything showing private details first (the therapy summary, the lock settings dialog).
   if (!document.getElementById('therapy-summary').hidden) closeTherapySummary();
-  if (cookState) closeCookMode();
   if (!document.getElementById('lock-setup').hidden) closeLockSetup();
   document.documentElement.setAttribute('data-locked', '1');
   const input = document.getElementById('lock-pin-input');
@@ -7785,55 +4556,11 @@ document.querySelectorAll('details.add-dropdown').forEach((details) => {
   });
 });
 
-// Swipe on a touch screen: right checks an item off (or back on), left deletes it (the toast offers Undo).
-// Only touch and pen count, only mostly-sideways moves of 80px or more, and never when the swipe starts on a
-// button or box. The CSS gives these rows touch-action: pan-y so the browser leaves sideways moves to us.
-const SWIPE_MIN_PX = 80;
-function enableSwipe(listId, itemSelector, idKey, onRight, onLeft) {
-  const list = document.getElementById(listId);
-  let start = null;
-  list.addEventListener('pointerdown', (e) => {
-    if (e.pointerType === 'mouse') return;
-    const row = e.target.closest(itemSelector);
-    start = row && !e.target.closest('button, input, select, textarea, a, form')
-      ? { row, id: row.dataset[idKey], x: e.clientX, y: e.clientY }
-      : null;
-  });
-  list.addEventListener('pointermove', (e) => {
-    if (!start) return;
-    const dx = e.clientX - start.x;
-    if (Math.abs(dx) > Math.abs(e.clientY - start.y)) start.row.style.transform = `translateX(${Math.max(-120, Math.min(120, dx * 0.6))}px)`;
-  });
-  const finish = (e, cancelled) => {
-    if (!start) return;
-    const { row, id, x, y } = start;
-    start = null;
-    row.style.transform = '';
-    if (cancelled) return;
-    const dx = e.clientX - x;
-    if (Math.abs(dx) < SWIPE_MIN_PX || Math.abs(dx) < Math.abs(e.clientY - y) * 2) return;
-    if (dx > 0) onRight(id); else onLeft(id);
-  };
-  list.addEventListener('pointerup', (e) => finish(e, false));
-  list.addEventListener('pointercancel', (e) => finish(e, true));
-}
-enableSwipe('todo-list', '.todo-item', 'todoId',
-  (id) => { const todo = todos.find((x) => x.id === id); if (todo) toggleTodoCompleted(id, !todo.completed); },
-  (id) => deleteTodo(id));
-enableSwipe('shopping-list', '.shopping-item', 'shoppingId',
-  (id) => { const item = shoppingItems.find((x) => x.id === id); if (item) toggleShoppingChecked(id, !item.checked); },
-  (id) => deleteShoppingItem(id));
-
-enableDragReorder('todo-list', 'todos', '.todo-item', 'data-todo-id');
-enableDragReorder('shopping-list', 'shoppingList', '.shopping-item', 'data-shopping-id');
-
 // Customize Home: which panels you want to see (the rest stay hidden even when they have something to show).
 // HOME_PANEL_CHOICES is read by renderHome (through applyHomePanelChoices), so no Home redraw may run
 // before this line; the first one is in the Init block below.
 const HOME_PANELS_KEY = 'secondMemory.homePanels.v1';
 const HOME_PANEL_CHOICES = [
-  ['home-todo-panel', 'To-Do'], ['home-refills-panel', 'Medication refills'], ['home-weigh-panel', 'Weigh in'],
-  ['home-weight-panel', 'Weight'], ['home-week-panel', 'This week'], ['home-recipes-panel', 'Pinned recipes'], ['home-shopping-panel', 'Still to buy'],
   ['home-reading-panel', 'Currently reading'],
 ];
 
@@ -8529,13 +5256,12 @@ document.addEventListener('visibilitychange', () => {
 
 // ---- Init ----
 // First draw of every screen, then the sync controls and the service worker. Home is not drawn here
-// directly: renderBooks, renderTodos, renderWeights and others each end by calling renderHome.
+// directly: renderBooks and others each end by calling renderHome.
 // This block goes last on purpose: it needs every const and let above, and using one before its
 // line has run would throw.
 
 [
-  renderBooks, renderRecipes, renderMedications, renderDiagnoses, renderWeights, renderJournal,
-  renderTodos, renderShoppingList, renderNotes, renderLinks,
+  renderBooks, renderRecipes, renderJournal, renderNotes, renderLinks,
 ].forEach(safeRender);
 updateUndoRedoButtons();
 setActiveTab(loadUiState().activeTab || 'home');
@@ -8545,13 +5271,11 @@ initSyncUI();
 // One short tour, shown in two places: a card on Home until you dismiss it (first run), and Menu > Help any time.
 
 const HELP_TIPS = [
-  'Quick add: type on Home to add a to-do, shopping item or note. Put a date in words for a to-do, like "pay rent friday" or "call mom tomorrow".',
-  'The bar at the bottom jumps to Home, To-Do, Shopping and Notes; Menu has everything else, including Undo.',
-  'On To-Do and Shopping, swipe a row right to check it off and left to delete it. A bar then offers Undo.',
-  'Choose "Sort: My order" to put to-dos, shopping and recipes in your own order: drag the handle, or use the arrow keys on it.',
-  'Calendar shows to-do due dates, refills and weigh-ins by month. Home shows this week at a glance, and you can hide panels with Customize Home.',
-  'Menu > Reminders sends notices for refills, your daily weigh-in and to-dos due, while the app is open or in the background.',
+  'Quick add: type on Home to add a note.',
+  'The bar at the bottom jumps to your most-used screens; Menu has everything else, including Undo.',
+  'This app keeps your books, recipes, journal, notes, passwords and resume links. Hide Home panels with Customize Home.',
   'Sync: enter the same passphrase on each device (Menu) and your lists stay up to date on their own. The server may need up to a minute to wake.',
+  'Your to-do list, shopping list, calendar, medications, diagnoses and weight now live in Petalkeeper, MealMate and Caregiver Command Center. What you had here is still stored on this device and is included every time you use Export data.',
   'Back up now and then (Menu > Export data). The journal is private and lives only on this device, so back it up separately.',
   'Menu > Settings check shows what is set up and what needs a look. Menu > Update now loads the newest version.',
 ];
@@ -8579,6 +5303,21 @@ document.getElementById('welcome-dismiss').addEventListener('click', () => {
   try { localStorage.setItem(WELCOME_SEEN_KEY, '1'); } catch { /* not saved: it will show again next visit */ }
   updateWelcomeCard();
 });
+// The "lists moved" notice: shown on Home until dismissed, but only on a device that still holds some of those lists.
+const MOVED_SEEN_KEY = 'secondMemory.movedNoticeSeen.v1';
+function updateMovedCard() {
+  let seen = false;
+  try { seen = localStorage.getItem(MOVED_SEEN_KEY) === '1'; } catch { /* treated as not seen */ }
+  const holdsRetired = RETIRED_LISTS.some((r) => readRetiredList(r.key).length > 0) || readRetiredWeightGoal() !== null;
+  document.getElementById('moved-card').hidden = seen || !holdsRetired;
+}
+document.getElementById('moved-dismiss').addEventListener('click', () => {
+  try { localStorage.setItem(MOVED_SEEN_KEY, '1'); } catch { /* not saved: it will show again next visit */ }
+  updateMovedCard();
+});
+document.getElementById('moved-export').addEventListener('click', exportData);
+updateMovedCard();
+
 fillTipList(document.getElementById('welcome-list'), WELCOME_TIPS_SHOWN); // the card is short; Menu > Help has the rest
 fillTipList(document.getElementById('help-list'));
 updateWelcomeCard();
@@ -8692,8 +5431,6 @@ function addAgeRow(list, title, days, dueDays, actionLabel, action) {
 async function renderSettingsCheck() {
   const list = document.getElementById('settings-check-list');
   const rows = document.createElement('ul'); // built off-screen first: the offline check below is async
-  const state = loadReminderState();
-
   if (!loadSyncConfig()) addCheckRow(rows, 'info', 'Sync', 'not set up, so your data stays on this device only');
   else {
     addAgeRow(rows, 'Last sync', daysSinceBackup(LAST_SYNC_AT_KEY), SYNC_STALE_DAYS, 'Sync now', runSync);
@@ -8705,11 +5442,6 @@ async function renderSettingsCheck() {
   if (hasAnyData) addAgeRow(rows, 'Backup file', daysSinceBackup(EXPORT_AT_KEY), EXPORT_DUE_DAYS, 'Back up now', exportData);
   else addCheckRow(rows, 'info', 'Backup file', 'nothing to back up yet');
   if (journalEntries.length > 0) addAgeRow(rows, 'Journal backup', daysSinceBackup(JOURNAL_BACKUP_AT_KEY), JOURNAL_BACKUP_DUE_DAYS, 'Back up journal', downloadJournalBackup);
-
-  if (!remindersSupported()) addCheckRow(rows, 'info', 'Reminders', 'not supported in this browser');
-  else if (Notification.permission === 'denied') addCheckRow(rows, 'warn', 'Reminders', 'blocked in your browser settings');
-  else if (state.enabled && Notification.permission === 'granted') addCheckRow(rows, 'ok', 'Reminders', `on (weigh-in ${state.weighInTime}, refills ${state.refillTime}, to-dos ${state.todoTime})`);
-  else addCheckRow(rows, 'info', 'Reminders', 'off', 'Turn on', () => document.getElementById('reminders-btn').click());
 
   if (!loadVaultBlob()) addCheckRow(rows, 'info', 'Password vault', 'not created');
   else {

@@ -12,8 +12,8 @@ check('page text has no coursework wording', !/coursework|degree|deadline/i.test
 
 // ---- Budget moved to its own app and must stay out of this one ----
 check('no Budget tab, section, banner or sync lists', !document.querySelector('[data-tab="budget"], #budget-collection, #reminder-banner, #home-bills-panel, #budget-card-template, #recurring-income-card-template') && !TABS.includes('budget')
-  && SYNC_COLLECTIONS.length === 9 && !SYNC_COLLECTIONS.some((c) => ['bills', 'income', 'recurringIncome'].includes(c.name)), SYNC_COLLECTIONS.map((c) => c.name).join());
-check('a Second Memory export has no bills, income or recurring income', (() => { const keys = Object.keys(buildExportPayload().collections); return keys.length === 9 && !keys.includes('bills') && !keys.includes('income') && !keys.includes('recurringIncome') && !('paydaySettings' in buildExportPayload().local); })());
+  && SYNC_COLLECTIONS.length === 4 && !SYNC_COLLECTIONS.some((c) => ['bills', 'income', 'recurringIncome'].includes(c.name)), SYNC_COLLECTIONS.map((c) => c.name).join());
+check('a Second Memory export has no bills, income or recurring income', (() => { const keys = Object.keys(buildExportPayload().collections); return keys.length === 4 && !keys.includes('bills') && !keys.includes('income') && !keys.includes('recurringIncome') && !('paydaySettings' in buildExportPayload().local); })());
 
 // ---- every tab opens exactly its own section ----
 for (const t of TABS) {
@@ -27,11 +27,6 @@ check('an unknown saved tab falls back to Home', (() => { setActiveTab('coursewo
 const specs = [
   ['books', () => books, 'books-add-form', { 'books-title-input': 'TBook', 'books-author-input': 'Auth' }],
   ['recipes', () => recipes, 'recipes-add-form', { 'recipes-title-input': 'TRecipe', 'recipes-ingredients-input': 'a\nb', 'recipes-steps-input': '1\n2' }],
-  ['medications', () => medications, 'medications-add-form', { 'medications-name-input': 'TMed', 'medications-refill-input': dk(2) }],
-  ['weight', () => weights, 'weight-add-form', { 'weight-date-input': dk(0), 'weight-value-input': '150.5' }],
-  ['diagnoses', () => diagnoses, 'diagnoses-add-form', { 'diagnoses-condition-input': 'TDiag' }],
-  ['todo', () => todos, 'todo-add-form', { 'todo-task-input': 'TTodo', 'todo-due-input': dk(1) }],
-  ['shopping', () => shoppingItems, 'shopping-add-form', { 'shopping-item-input': 'TShop', 'shopping-category-input': 'Dairy' }],
   ['notes', () => notes, 'notes-add-form', { 'notes-title-input': 'TNote', 'notes-body-input': 'body' }],
   ['resume', () => links, 'resume-add-form', { 'resume-label-input': 'TLink', 'resume-url-input': 'example.com' }],
 ];
@@ -45,7 +40,7 @@ for (const [tab, arr, form, fill] of specs) {
 }
 
 // ---- edit: open, cancel, save closes the form and keeps the data ----
-for (const t of ['books', 'recipes', 'medications', 'weight', 'diagnoses', 'todo', 'shopping', 'notes', 'resume']) {
+for (const t of ['books', 'recipes', 'notes', 'resume']) {
   nav(t);
   const sec = $(t + '-collection');
   const openForm = () => [...sec.querySelectorAll('form')].find((f) => !f.hidden && /edit-form/.test(f.className));
@@ -61,8 +56,7 @@ for (const t of ['books', 'recipes', 'medications', 'weight', 'diagnoses', 'todo
 }
 
 // ---- delete, undo, redo ----
-const delSpecs = [['books', () => books], ['recipes', () => recipes], ['medications', () => medications], ['weight', () => weights],
-  ['diagnoses', () => diagnoses], ['todo', () => todos], ['shopping', () => shoppingItems], ['notes', () => notes], ['resume', () => links]];
+const delSpecs = [['books', () => books], ['recipes', () => recipes], ['notes', () => notes], ['resume', () => links]];
 for (const [t, arr] of delSpecs) {
   nav(t);
   const before = live(arr());
@@ -76,7 +70,7 @@ for (const [t, arr] of delSpecs) {
   check(t + ': delete, undo, redo, undo', afterDelete === before - 1 && afterUndo === before && afterRedo === before - 1 && live(arr()) === before,
     [before, afterDelete, afterUndo, afterRedo, live(arr())].join(' > '));
 }
-check('undo tooltip names what it would undo', (() => { addShoppingItem('Tooltip item', '', ''); return /Tooltip item/.test($('undo-btn').title); })());
+check('undo tooltip names what it would undo', (() => { addNote('Tooltip item', 'body'); return /Tooltip item/.test($('undo-btn').title); })());
 
 // ---- sort, search and filter chips never throw ----
 // No check() here on purpose: a throw would crash the suite (reported as "suite crashed"), and the
@@ -96,9 +90,6 @@ const evil = '<img src=x onerror="window.__xss=1">';
 nav('books'); set('books-title-input', evil); set('books-author-input', evil); $('books-add-form').requestSubmit();
 nav('recipes'); set('recipes-title-input', evil); set('recipes-ingredients-input', evil); $('recipes-add-form').requestSubmit();
 nav('notes'); set('notes-title-input', evil); set('notes-body-input', evil); $('notes-add-form').requestSubmit();
-nav('todo'); set('todo-task-input', evil); $('todo-add-form').requestSubmit();
-nav('shopping'); set('shopping-item-input', evil); $('shopping-add-form').requestSubmit();
-nav('medications'); set('medications-name-input', evil); $('medications-add-form').requestSubmit();
 nav('home'); await sleep(200);
 check('hostile text does not run', window.__xss === 0);
 check('hostile text does not become page elements', document.querySelectorAll('img[src="x"]').length === 0);
@@ -135,6 +126,42 @@ check('import rejects impossible dates', !isRealDateKey('2026-02-30') && !isReal
 let renderOk = true;
 try { renderHome(); } catch { renderOk = false; }
 check('app still renders after a bad import', renderOk);
+
+// ---- lists that moved to other apps are kept, shown nowhere, exported and imported ----
+const oldRecord = (extra) => ({ dateAdded: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', deviceId: 'x', deleted: false, version: 1, ...extra });
+const RETIRED_SAMPLE = {
+  todos: [oldRecord({ id: 'r-todo', task: 'Old to-do', completed: false, dueDate: dk(1), repeat: 'weekly' })],
+  shoppingList: [oldRecord({ id: 'r-shop', item: 'Old item', quantity: '2', category: 'Dairy', checked: false })],
+  medications: [oldRecord({ id: 'r-med', name: 'Old med', kind: 'equipment', refillDate: dk(3), refillEveryDays: 90 })],
+  diagnoses: [oldRecord({ id: 'r-dx', condition: 'Old condition' })],
+  weights: [oldRecord({ id: 'r-wt', date: dk(-1), weight: 150.5 })],
+};
+check('no retired list is a tab, a section or part of syncing', RETIRED_LISTS.every((r) => !SYNC_COLLECTIONS.some((c) => c.name === r.name)) && !document.querySelector('#todo-collection, #shopping-collection, #medications-collection, #diagnoses-collection, #weight-collection, #calendar-collection'));
+check('nothing is held for them to begin with', RETIRED_LISTS.every((r) => readRetiredList(r.key).length === 0) && !('todos' in buildExportPayload().collections));
+updateMovedCard();
+check('with nothing held, there is no "lists moved" notice', $('moved-card').hidden);
+importData({ collections: RETIRED_SAMPLE, local: { weightGoal: 140 } });
+check('importing an older export keeps every retired list on this device', RETIRED_LISTS.every((r) => readRetiredList(r.key).length === 1 && readRetiredList(r.key)[0].id === RETIRED_SAMPLE[r.name][0].id));
+check('the stored records are exactly as they were (nothing dropped or reshaped)', RETIRED_LISTS.every((r) => JSON.stringify(readRetiredList(r.key)) === JSON.stringify(RETIRED_SAMPLE[r.name])));
+check('the weight goal is kept', readRetiredWeightGoal() === 140);
+check('a device that holds moved lists shows the notice on Home, naming the apps and offering Export', !$('moved-card').hidden && /Petalkeeper/.test($('moved-card').textContent) && /MealMate/.test($('moved-card').textContent) && /Caregiver/.test($('moved-card').textContent) && !!$('moved-export'));
+$('moved-dismiss').click();
+check('Got it hides the notice and remembers', $('moved-card').hidden && localStorage.getItem('secondMemory.movedNoticeSeen.v1') === '1');
+const keptExport = JSON.parse(JSON.stringify(buildExportPayload()));
+check('an export carries the retired lists in the same place as before, so the other apps can read it', RETIRED_LISTS.every((r) => keptExport.collections[r.name] && keptExport.collections[r.name][0].id === RETIRED_SAMPLE[r.name][0].id) && keptExport.local.weightGoal === 140);
+importData(keptExport); importData(keptExport);
+check('importing that export again changes nothing', RETIRED_LISTS.every((r) => JSON.stringify(readRetiredList(r.key)) === JSON.stringify(RETIRED_SAMPLE[r.name])));
+const edited = JSON.parse(JSON.stringify(keptExport));
+edited.collections.todos[0].task = 'Old to-do (edited elsewhere)'; edited.collections.todos[0].updatedAt = '2026-02-01T00:00:00.000Z'; edited.collections.todos[0].version = 2;
+edited.collections.todos.push(oldRecord({ id: 'r-todo-2', task: 'Second to-do', completed: true }));
+edited.local.weightGoal = 99;
+importData(edited);
+check('a newer copy updates a held record and a new record is added', readRetiredList(RETIRED_LISTS[0].key).length === 2 && readRetiredList(RETIRED_LISTS[0].key)[0].task.includes('edited elsewhere'));
+check('an imported weight goal never replaces the one already here', readRetiredWeightGoal() === 140);
+importData({ collections: { todos: [{ id: '', task: 'no id' }, null, 5] } });
+check('records with no id are skipped, not stored', readRetiredList(RETIRED_LISTS[0].key).length === 2);
+check('the held lists never reach the screen', !/Old to-do|Old item|Old med|Old condition/.test(document.body.innerText));
+check('the searchable lists no longer include them', runGlobalSearch('Old', false).every((g) => !/Medication|Diagnos|To-Do|Shopping/.test(g.source.label)));
 
 // ---- one broken render never takes the page down ----
 let survived = true;

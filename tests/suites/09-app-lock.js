@@ -1,33 +1,4 @@
-// The health summary sheet and the app lock (PIN screen).
-
-// ================= health summary =================
-// Sample records: two medications (one stopped, one deleted), two diagnoses and two weights.
-const base0 = { dateAdded: new Date().toISOString(), updatedAt: new Date().toISOString(), deviceId: 'test', deleted: false, version: 0 };
-medications.length = 0; diagnoses.length = 0; weights.length = 0;
-medications.push({ ...base0, id: 'hm1', name: 'Zyrtec', dosage: '10mg', frequency: 'daily', prescribingDoctor: 'Dr. Lee', startDate: dk(-90), endDate: null, refillDate: dk(10), notes: 'with food' });
-medications.push({ ...base0, id: 'hm2', name: 'Old pill', dosage: '', frequency: '', prescribingDoctor: '', startDate: null, endDate: dk(-5), refillDate: null, notes: '' });
-medications.push({ ...base0, id: 'hm3', name: 'Deleted pill', dosage: '', frequency: '', prescribingDoctor: '', startDate: null, endDate: null, refillDate: null, notes: '', deleted: true });
-diagnoses.push({ ...base0, id: 'hd1', condition: 'Asthma', dateDiagnosed: dk(-400), provider: 'Dr. Kim', notes: '' });
-diagnoses.push({ ...base0, id: 'hd2', condition: 'Migraine', dateDiagnosed: null, provider: '', notes: 'weekly' });
-weights.push({ ...base0, id: 'hw1', date: dk(-40), weight: 190, note: '' }, { ...base0, id: 'hw2', date: dk(0), weight: 184, note: '' });
-nav('home');
-$('health-summary-btn').click(); await sleep(30);
-const sheet = $('health-summary-body').textContent;
-check('the sheet opens', !$('health-summary').hidden && document.body.classList.contains('summary-open'));
-check('it lists the medication you take, with doctor and refill', /Zyrtec/.test(sheet) && /Prescribed by Dr\. Lee/.test(sheet) && /Next refill/.test(sheet), sheet);
-check('it leaves out stopped and deleted medications', !/Old pill/.test(sheet) && !/Deleted pill/.test(sheet));
-check('diagnoses are listed alphabetically', sheet.indexOf('Asthma') > -1 && sheet.indexOf('Asthma') < sheet.indexOf('Migraine'));
-check('it shows the weight figures and the 30-day change', /Most recent: 184\.0 lb/.test(sheet) && /Oldest: 190\.0 lb/.test(sheet) && /Change over the last 30 days/.test(sheet), sheet);
-check('the journal is never in it', !/journal/i.test(sheet));
-const text = buildHealthSummaryText(buildHealthSummaryData());
-check('the copy-text version has the same sections', /^Health summary/.test(text) && /MEDICATIONS/.test(text) && /DIAGNOSES/.test(text) && /WEIGHT/.test(text));
-document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-check('Esc closes the sheet', $('health-summary').hidden && !document.body.classList.contains('summary-open'));
-medications.length = 0; diagnoses.length = 0; weights.length = 0;
-$('health-summary-btn').click(); await sleep(30);
-check('an empty app says so for each section', /No current medications/.test($('health-summary-body').textContent) && /No diagnoses/.test($('health-summary-body').textContent) && /No weights/.test($('health-summary-body').textContent));
-$('health-summary-close').click();
-check('Close closes the sheet', $('health-summary').hidden);
+// The app lock (PIN screen).
 
 // ================= app lock =================
 const waitFor = async (condition, ms = 8000) => { const start = Date.now(); while (!condition() && Date.now() - start < ms) await sleep(30); }; // wait for something slow (the PIN hash) instead of guessing a delay
@@ -83,13 +54,7 @@ const erased = wipeDeviceData();
 check('forgot-PIN wipes only the app data, nothing else', erased >= 1 && localStorage.getItem('secondMemory.testKey.v1') === null && localStorage.getItem('unrelated') === 'keep');
 localStorage.removeItem('unrelated');
 
-// ================= review fixes: import, summary and lock pause =================
-check('the import check refuses a medication with an impossible date', !isValidImportRecord('medications', { id: 'm', name: 'x', startDate: 'soon' }) && !isValidImportRecord('medications', { id: 'm', name: 'x', refillDate: '2024-13-40' }) && isValidImportRecord('medications', { id: 'm', name: 'x', startDate: null, refillDate: '', endDate: '2024-05-01' }));
-medications.length = 0;
-medications.push({ ...base0, id: 'hm9', name: 'Odd dates', dosage: '', frequency: '', prescribingDoctor: '', startDate: 'garbage', endDate: null, refillDate: 'nope', notes: '' });
-const oddSummary = buildHealthSummaryText(buildHealthSummaryData());
-check('the summary never prints "undefined" or "NaN" for a damaged medication date', /Odd dates/.test(oddSummary) && !/undefined|NaN/.test(oddSummary), oddSummary);
-medications.length = 0;
+// ================= review fixes: lock pause =================
 localStorage.setItem('secondMemory.lockTries.v1', JSON.stringify({ fails: 2, until: Date.now() + 10 * 3600 * 1000 }));
 lockBlockedUntil = 0; lockFailures = 0;
 restoreLockTries();

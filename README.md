@@ -1,9 +1,15 @@
 # Second Memory
 
-A personal, local-first organizer — books, recipes, medications, diagnoses, a
-weight tracker, a to-do list, a shopping list, notes, resume & portfolio
-links, and a private journal, all in one place. (The authoritative current list of sections
-lives in the `TABS` constant in `app.js`.)
+A personal, local-first organizer — books, recipes, notes, resume & portfolio links,
+an encrypted password vault and a private journal, all in one place. (The authoritative
+current list of sections lives in the `TABS` constant in `app.js`.)
+
+> **Lists that moved to other apps (version 83).** The to-do list, shopping list, calendar,
+> medications and equipment, diagnoses, weight tracker and health summary now live in
+> **Petalkeeper** (to-dos and calendar), **MealMate** (shopping list) and **Caregiver Command
+> Center** (medications, equipment, diagnoses and weight). Recipes stay here, without the cooking
+> extras (scaling, cook mode, pinning, sharing, printing, the sideways row, "My order").
+> **Nothing was deleted.** See [RETIRED_LISTS.md](RETIRED_LISTS.md).
 
 ## Use it now
 
@@ -18,12 +24,11 @@ empty "wake up" request, with no data and no passphrase).
 
 ## What else is in the app
 
-- **Home:** needs-attention panels, search across every list, quick add (to-do, shopping item or note), and a printable **Health summary** (medications, diagnoses, weight; never the journal), recent searches, and a first-run welcome card.
-- **Medications and medical equipment:** each entry is a medication or a piece of equipment (a CPAP mask, test strips, tubing...) that is replaced on a schedule. Track the pharmacy or supplier, refills left (with a warning to ask for a new prescription at zero), the next refill or replacement date, and the last pickup. One "Picked up refill" / "Replaced" button moves the date out by the remembered number of days (30, 60, 90, 6 months, 1 year, or any number you type) and uses up a refill. Home, the Calendar, reminders and the Health summary all cover both. **Reminders** (Menu): device notifications for upcoming refills, a daily weigh-in nudge and to-dos due, each at a time you choose, shown while the app is open or in the background (no server involved; a fully closed app cannot send them). **Diagnoses:** one simple list, no status columns. **Recipes:** a row of cards you scroll sideways with arrows, pinning, scaled amounts and **Cook mode** (big steps, screen stays on); every Add form is a dropdown. **Weight:** chart, goal line and 30-day change. **Books:** a yearly reading goal. **To-do and Shopping:** repeating and snoozable to-dos, a shopping list grouped by category with Buy again chips and a Share button, swipe on a phone (right ticks, left deletes), tap a name to edit it in place, and dates in plain words ("pay rent friday", "call mom tomorrow", "renew in 2 weeks", "oct 20"). **Recipes** also have Share and Print. **Journal:** a prompt of the day and "this day last year".
+- **Home:** search across every list, quick add (a note), the books you are reading (hide panels with Customize Home), recent searches, a first-run welcome card, and a notice about the lists that moved to other apps.
+- **Books:** owned/read/unread/want-to-buy shelves, ratings, finished dates and a yearly reading goal. **Recipes:** title, category, ingredients, steps and notes, with search, category chips and three sorts; the Add form is a dropdown. **Notes**, **Resume & Portfolio** links and the **Journal** (a prompt of the day and "this day last year", a therapy summary).
 - **Undo:** deleting shows an Undo bar for a few seconds; the Undo and Redo buttons also work for other changes.
-- **Calendar:** one month at a time with dots for to-do due dates, refill dates and weigh-ins; tap a day to see what is on it. **Home** also has a "This week" summary. **Sort: My order** (to-dos, shopping, recipes): drag the handle, or use the arrow keys on it; recipes use move buttons.
 - **Passwords:** an encrypted password vault. You choose a master password (at least 10 characters); everything is encrypted on the device with the browser's built-in Web Crypto (PBKDF2-SHA256, 600,000 rounds, then AES-256-GCM), so nothing readable is ever stored. The vault is **never synced** and never searched, summarised or put in Undo. It locks itself after 3 idle minutes, after a minute out of sight, and with the app lock. It has a password generator, a Show / Copy button per entry (a copied password is cleared from the clipboard after 30 seconds) and an export of the still-encrypted file. **If you forget the master password the passwords cannot be recovered.**
-- **Menu:** Theme (Auto, Light, Dark), Text size, High contrast, Reminders, a **Settings check** (what is set up and what needs a look), **History** (recent changes with Undo), **Help** (a short tour), **Auto-sync**, **Update now** (reloads onto the newest version), **App lock** (a PIN; it hides the app but does not encrypt the data, and if you forget it the only way back in is to erase that device), and the app version. These settings stay on the device.
+- **Menu:** Theme (Auto, Light, Dark), Text size, High contrast, a **Settings check** (what is set up and what needs a look), **History** (recent changes with Undo), **Help** (a short tour), **Auto-sync**, **Update now** (reloads onto the newest version), **App lock** (a PIN; it hides the app but does not encrypt the data, and if you forget it the only way back in is to erase that device), and the app version. These settings stay on the device.
 
 ## Syncing between devices (optional)
 

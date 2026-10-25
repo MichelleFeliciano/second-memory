@@ -54,15 +54,6 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
               Home
             </button>
           </li>
-          <li>
-            <button type="button" class="nav-item" data-tab="calendar">
-              <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
-                <path d="M12 2C7 2 3 6 3 11c0 5 4 9 9 11 5-2 9-6 9-11 0-5-4-9-9-9z" fill="none" stroke="currentColor" stroke-width="1.6"/>
-                <path d="M12 4v16" stroke="currentColor" stroke-width="1.4"/>
-              </svg>
-              Calendar
-            </button>
-          </li>
         </ul>
       </li>
       <li class="nav-divider"><div class="leaf-divider" aria-hidden="true"></div></li>
@@ -94,63 +85,12 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         <p class="nav-group-label">Personal</p>
         <ul class="nav-group-items">
           <li>
-            <button type="button" class="nav-item" data-tab="todo">
-              <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
-                <path d="M12 2C7 2 3 6 3 11c0 5 4 9 9 11 5-2 9-6 9-11 0-5-4-9-9-9z" fill="none" stroke="currentColor" stroke-width="1.6"/>
-                <path d="M12 4v16" stroke="currentColor" stroke-width="1.4"/>
-              </svg>
-              To-Do
-            </button>
-          </li>
-          <li>
-            <button type="button" class="nav-item" data-tab="shopping">
-              <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
-                <path d="M12 2C7 2 3 6 3 11c0 5 4 9 9 11 5-2 9-6 9-11 0-5-4-9-9-9z" fill="none" stroke="currentColor" stroke-width="1.6"/>
-                <path d="M12 4v16" stroke="currentColor" stroke-width="1.4"/>
-              </svg>
-              Shopping List
-            </button>
-          </li>
-          <li>
             <button type="button" class="nav-item" data-tab="notes">
               <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
                 <path d="M12 2C7 2 3 6 3 11c0 5 4 9 9 11 5-2 9-6 9-11 0-5-4-9-9-9z" fill="none" stroke="currentColor" stroke-width="1.6"/>
                 <path d="M12 4v16" stroke="currentColor" stroke-width="1.4"/>
               </svg>
               Notes
-            </button>
-          </li>
-        </ul>
-      </li>
-      <li class="nav-divider"><div class="leaf-divider" aria-hidden="true"></div></li>
-      <li class="nav-group">
-        <p class="nav-group-label">Health</p>
-        <ul class="nav-group-items">
-          <li>
-            <button type="button" class="nav-item" data-tab="medications">
-              <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
-                <path d="M12 2C7 2 3 6 3 11c0 5 4 9 9 11 5-2 9-6 9-11 0-5-4-9-9-9z" fill="none" stroke="currentColor" stroke-width="1.6"/>
-                <path d="M12 4v16" stroke="currentColor" stroke-width="1.4"/>
-              </svg>
-              Medications
-            </button>
-          </li>
-          <li>
-            <button type="button" class="nav-item" data-tab="diagnoses">
-              <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
-                <path d="M12 2C7 2 3 6 3 11c0 5 4 9 9 11 5-2 9-6 9-11 0-5-4-9-9-9z" fill="none" stroke="currentColor" stroke-width="1.6"/>
-                <path d="M12 4v16" stroke="currentColor" stroke-width="1.4"/>
-              </svg>
-              Diagnoses
-            </button>
-          </li>
-          <li>
-            <button type="button" class="nav-item" data-tab="weight">
-              <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
-                <path d="M12 2C7 2 3 6 3 11c0 5 4 9 9 11 5-2 9-6 9-11 0-5-4-9-9-9z" fill="none" stroke="currentColor" stroke-width="1.6"/>
-                <path d="M12 4v16" stroke="currentColor" stroke-width="1.4"/>
-              </svg>
-              Weight
             </button>
           </li>
           <li>
@@ -224,23 +164,15 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
       <p class="sync-status-text data-io-status" id="data-io-status" role="status" hidden></p>
     </div>
 
-    <!-- Menu footer: Theme, App lock, Reminders, Text size and Contrast buttons (labels filled by app.js) and the app version. -->
+    <!-- Menu footer: Theme, App lock, Text size and Contrast buttons (labels filled by app.js) and the app version. -->
     <div class="data-io">
       <div class="data-io-buttons">
         <button type="button" id="theme-btn" class="data-io-btn">Theme: Auto</button>
         <button type="button" id="lock-btn" class="data-io-btn">App lock: Off</button>
         <button type="button" id="lock-now-btn" class="data-io-btn" hidden>Lock now</button>
-        <button type="button" id="reminders-btn" class="data-io-btn">Reminders: Off</button>
         <button type="button" id="text-size-btn" class="data-io-btn">Text size: Normal</button>
         <button type="button" id="contrast-btn" class="data-io-btn">Contrast: Normal</button>
         <button type="button" id="autosync-btn" class="data-io-btn">Auto-sync: On</button>
-      </div>
-      <p class="sync-status-text data-io-status" id="reminders-status" role="status" hidden></p>
-      <!-- When the reminders go out each day; shown while Reminders is on. -->
-      <div class="reminder-times" id="reminder-times" hidden>
-        <label>Weigh-in reminder <input type="time" id="weigh-time-input" value="09:00" aria-label="Weigh-in reminder time"></label>
-        <label>Refill reminder <input type="time" id="refill-time-input" value="09:00" aria-label="Refill reminder time"></label>
-        <label>To-do reminder <input type="time" id="todo-time-input" value="09:00" aria-label="To-do reminder time"></label>
       </div>
       <!-- The last changes made in this visit, each with an Undo that also undoes the newer ones. -->
       <details class="settings-check" id="history-box">
@@ -252,7 +184,7 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         <summary>Help</summary>
         <ul class="tip-list" id="help-list"></ul>
       </details>
-      <!-- A short checklist of what is set up (sync, backups, reminders, lock, offline); built by renderSettingsCheck when opened. -->
+      <!-- A short checklist of what is set up (sync, backups, lock, offline); built by renderSettingsCheck when opened. -->
       <details class="settings-check" id="settings-check">
         <summary>Settings check</summary>
         <ul class="settings-check-list" id="settings-check-list"></ul>
@@ -265,7 +197,7 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
 
   <!-- Main content: the reminder banner, then one <section> per tab. Only the active one is visible. -->
   <main class="content">
-    <!-- Home tab: search-everything box, quick add, then today panels (to-dos, refills, weigh-in, weight, pinned recipes, still to buy, reading). Filled by renderHome; the Customize list hides panels. -->
+    <!-- Home tab: search-everything box, quick add, then the books being read. Filled by renderHome; the Customize list hides panels. -->
     <section class="collection" id="home-collection" hidden>
       <div class="collection-toolbar">
         <h2>Home</h2>
@@ -279,6 +211,14 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         <button type="button" id="welcome-dismiss">Got it</button>
       </section>
 
+      <!-- Shown on Home (until dismissed) when this device still holds lists that moved to other apps. -->
+      <section class="welcome-card" id="moved-card" aria-labelledby="moved-title" hidden>
+        <h3 id="moved-title">Some lists moved to other apps</h3>
+        <p>Your to-do list, shopping list, calendar, medications, diagnoses and weight now live in Petalkeeper, MealMate and Caregiver Command Center. Nothing was deleted: it is still stored on this device and is included every time you use Export data, so you can bring it into those apps.</p>
+        <button type="button" id="moved-export">Export data now</button>
+        <button type="button" id="moved-dismiss">Got it</button>
+      </section>
+
       <div class="global-search">
         <input type="search" id="global-search-input" placeholder="Search everything…" aria-label="Search everything">
         <div class="chip-row" id="global-search-recent" aria-label="Recent searches" hidden></div>
@@ -286,19 +226,12 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         <div id="global-search-results" role="region" aria-label="Search results" aria-live="polite" hidden></div>
       </div>
 
-      <!-- Quick add: drop a to-do, shopping item or note in without opening its tab. -->
+      <!-- Quick add: drop a note in without opening its tab. -->
       <form class="quick-add" id="quick-add-form">
-        <select id="quick-add-type" aria-label="What to add">
-          <option value="todo">To-do</option>
-          <option value="shopping">Shopping item</option>
-          <option value="note">Note</option>
-        </select>
         <input type="text" id="quick-add-input" placeholder="Add something…" aria-label="Text to add" required>
         <button type="submit">Add</button>
         <p class="quick-add-status" id="quick-add-status" role="status" hidden></p>
       </form>
-
-      <p class="home-actions"><button type="button" class="journal-summary-btn" id="health-summary-btn">Health summary</button></p>
 
       <p class="stats-line" id="home-stats"></p>
       <div id="home-backup-notes" hidden></div>
@@ -307,39 +240,6 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
       </p>
 
       <div class="columns" id="home-widgets">
-        <div class="column" id="home-todo-panel" hidden>
-          <h3>To-Do</h3>
-          <ul class="card-list" id="home-todo-list"></ul>
-        </div>
-        <div class="column" id="home-refills-panel" hidden>
-          <h3>Medication Refills</h3>
-          <ul class="card-list" id="home-refills-list"></ul>
-        </div>
-        <div class="column" id="home-weigh-panel" hidden>
-          <h3>Weigh in</h3>
-          <form class="home-weigh-form add-form" id="home-weigh-form" novalidate>
-            <input type="number" id="home-weigh-input" min="0.1" max="1500" step="any" placeholder="Today's weight (lb)" aria-label="Today's weight in pounds">
-            <button type="submit">Save</button>
-          </form>
-          <p class="form-error" id="home-weigh-error" role="alert" hidden></p>
-        </div>
-        <div class="column" id="home-weight-panel" hidden>
-          <h3>Weight</h3>
-          <p class="weight-trend" id="home-weight-text"></p>
-          <svg class="home-sparkline" id="home-weight-spark" viewBox="0 0 120 32" role="img" aria-label="Recent weights"></svg>
-        </div>
-        <div class="column" id="home-week-panel" hidden>
-          <h3>This week</h3>
-          <ul class="week-list" id="home-week-list"></ul>
-        </div>
-        <div class="column" id="home-recipes-panel" hidden>
-          <h3>Pinned recipes</h3>
-          <ul class="card-list" id="home-recipes-list"></ul>
-        </div>
-        <div class="column" id="home-shopping-panel" hidden>
-          <h3>Still to buy</h3>
-          <ul class="card-list" id="home-shopping-list"></ul>
-        </div>
         <div class="column" id="home-reading-panel" hidden>
           <h3>Currently Reading</h3>
           <ul class="card-list" id="home-reading-list"></ul>
@@ -351,34 +251,6 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         <summary>Customize Home</summary>
         <div class="home-customize-list" id="home-customize-list"></div>
       </details>
-    </section>
-
-    <!-- Calendar tab: one month at a time with a dot for each to-do due date, refill date and weigh-in.
-         Tapping a day lists what is on it. Built by renderCalendar. -->
-    <section class="collection" id="calendar-collection" hidden>
-      <div class="collection-toolbar">
-        <h2>Calendar</h2>
-      </div>
-      <div class="calendar-controls">
-        <button type="button" id="calendar-prev" aria-label="Previous month">&#8249;</button>
-        <h3 id="calendar-title" aria-live="polite"></h3>
-        <button type="button" id="calendar-next" aria-label="Next month">&#8250;</button>
-        <button type="button" id="calendar-today">Today</button>
-      </div>
-      <table class="calendar-table" aria-labelledby="calendar-title">
-        <thead>
-          <tr>
-            <th scope="col" abbr="Sunday">Sun</th><th scope="col" abbr="Monday">Mon</th><th scope="col" abbr="Tuesday">Tue</th><th scope="col" abbr="Wednesday">Wed</th><th scope="col" abbr="Thursday">Thu</th><th scope="col" abbr="Friday">Fri</th><th scope="col" abbr="Saturday">Sat</th>
-          </tr>
-        </thead>
-        <tbody id="calendar-body"></tbody>
-      </table>
-      <p class="calendar-legend">
-        <span><i class="dot dot-todo"></i> To-do due</span>
-        <span><i class="dot dot-refill"></i> Refill</span>
-        <span><i class="dot dot-weight"></i> Weighed in</span>
-      </p>
-      <div class="calendar-detail" id="calendar-detail" aria-live="polite"></div>
     </section>
 
     <!-- Books tab: add form and one column per reading status. Cards come from books-card-template via renderBooks. -->
@@ -467,7 +339,7 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
       <p class="empty-state" id="books-empty-state" hidden>No books yet — add your first one above.</p>
     </section>
 
-    <!-- Recipes tab: an "Add a recipe" dropdown, category chips and a row of recipe cards you scroll sideways (arrows or swipe). Cards come from recipes-card-template via renderRecipes. -->
+    <!-- Recipes tab: an "Add a recipe" dropdown, category chips and the recipe cards. Cards come from recipes-card-template via renderRecipes. -->
     <section class="collection" id="recipes-collection" hidden>
       <div class="collection-toolbar toolbar-leaf">
         <h2>Recipes</h2>
@@ -476,7 +348,6 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
           <option value="date_added_asc">Sort: Date Added (Oldest first)</option>
           <option value="date_added_desc">Sort: Date Added (Newest first)</option>
           <option value="title_asc">Sort: Title (A–Z)</option>
-          <option value="manual">Sort: My order</option>
         </select>
       </div>
 
@@ -494,56 +365,9 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
 
       <div class="chip-row" id="recipes-category-filters"></div>
 
-      <div class="carousel">
-        <button type="button" class="carousel-arrow" id="recipes-prev" aria-label="Previous recipes">&#8249;</button>
-        <ul class="card-list carousel-track" id="recipes-list" tabindex="0" aria-label="Recipes, scroll sideways"></ul>
-        <button type="button" class="carousel-arrow" id="recipes-next" aria-label="Next recipes">&#8250;</button>
-      </div>
+      <ul class="card-list" id="recipes-list" aria-label="Recipes"></ul>
 
       <p class="empty-state" id="recipes-empty-state" hidden>No recipes yet — add your first one above.</p>
-    </section>
-
-    <!-- Medications tab: add form and list with start and refill dates. Cards come from medications-card-template via renderMedications. -->
-    <section class="collection" id="medications-collection" hidden>
-      <div class="collection-toolbar">
-        <h2>Medications</h2>
-        <input type="search" id="medications-search-input" placeholder="Search medications…" aria-label="Search medications">
-        <select id="medications-sort-input" aria-label="Sort medications">
-          <option value="name_asc">Sort: Name (A–Z)</option>
-          <option value="start_date_desc">Sort: Start Date (Newest first)</option>
-          <option value="start_date_asc">Sort: Start Date (Oldest first)</option>
-        </select>
-      </div>
-
-      <details class="add-dropdown">
-      <summary>Add a medication</summary>
-      <form id="medications-add-form" class="add-form add-form-stacked">
-        <select id="medications-kind-input" aria-label="Type">
-          <option value="medication">Medication</option>
-          <option value="equipment">Medical equipment (replaced on a schedule)</option>
-        </select>
-        <input type="text" id="medications-name-input" placeholder="Name" required aria-label="Medication name">
-        <input type="text" id="medications-dosage-input" placeholder="Dosage (e.g. 10mg)" aria-label="Medication dosage">
-        <input type="text" id="medications-frequency-input" placeholder="Frequency (e.g. twice daily)" aria-label="Medication frequency">
-        <input type="text" id="medications-doctor-input" placeholder="Prescribing doctor" aria-label="Prescribing doctor">
-        <input type="text" id="medications-pharmacy-input" placeholder="Pharmacy or supplier (optional)" aria-label="Pharmacy or supplier">
-        <label class="date-field">Start date
-          <input type="date" id="medications-start-input" min="1990-01-01" max="2100-12-31" aria-label="Start date">
-        </label>
-        <label class="date-field">Next refill date
-          <input type="date" id="medications-refill-input" min="1990-01-01" max="2100-12-31" aria-label="Next refill date">
-        </label>
-        <input type="number" id="medications-refills-left-input" min="0" max="99" placeholder="Refills left (optional)" aria-label="Refills left">
-        <input type="number" id="medications-every-input" min="1" max="365" placeholder="Refill or replace every N days (optional)" aria-label="Refill or replace every N days">
-        <textarea id="medications-notes-input" placeholder="Notes (optional)" aria-label="Medication notes" rows="2"></textarea>
-        <p class="form-error" id="medications-form-error" hidden></p>
-        <button type="submit">Add medication</button>
-      </form>
-      </details>
-
-      <ul class="card-list flat-list" id="medications-list"></ul>
-
-      <p class="empty-state" id="medications-empty-state" hidden>No medications yet — add your first one above.</p>
     </section>
 
     <!-- Journal tab: private, device-only entries (never synced). A step-by-step wizard for new entries,
@@ -620,178 +444,6 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
       <input type="file" id="journal-import-file" accept="application/json" hidden>
       <p class="sync-status-text" id="journal-backup-last"></p>
       <p class="sync-status-text" id="journal-backup-status" role="status" hidden></p>
-    </section>
-
-    <!-- Weight tab: four headline figures (renderWeightStats), add form, and history. Cards come from weight-card-template via renderWeights. -->
-    <section class="collection" id="weight-collection" hidden>
-      <div class="collection-toolbar">
-        <h2>Weight</h2>
-      </div>
-
-      <div class="weight-stats" id="weight-stats">
-        <div class="weight-stat" data-stat="oldest">
-          <span class="weight-stat-label">Oldest</span>
-          <strong class="weight-stat-value">&mdash;</strong>
-          <span class="weight-stat-date"></span>
-        </div>
-        <div class="weight-stat" data-stat="highest">
-          <span class="weight-stat-label">Highest</span>
-          <strong class="weight-stat-value">&mdash;</strong>
-          <span class="weight-stat-date"></span>
-        </div>
-        <div class="weight-stat" data-stat="lowest">
-          <span class="weight-stat-label">Lowest</span>
-          <strong class="weight-stat-value">&mdash;</strong>
-          <span class="weight-stat-date"></span>
-        </div>
-        <div class="weight-stat" data-stat="recent">
-          <span class="weight-stat-label">Most recent</span>
-          <strong class="weight-stat-value">&mdash;</strong>
-          <span class="weight-stat-date"></span>
-        </div>
-      </div>
-
-      <!-- Weight over time: a line chart with an optional goal line and a "last 30 days" change. Drawn by renderWeightChart. -->
-      <div class="weight-chart-box" id="weight-chart-box">
-        <div class="weight-chart-toolbar">
-          <div class="chip-row weight-range-row" id="weight-range-row" role="group" aria-label="Chart range">
-            <button type="button" class="chip chip-active" data-range="all">All</button>
-            <button type="button" class="chip" data-range="90">90 days</button>
-            <button type="button" class="chip" data-range="30">30 days</button>
-          </div>
-        </div>
-        <svg class="weight-chart" id="weight-chart" viewBox="0 0 600 260" role="img" aria-label="Weight over time"></svg>
-        <p class="weight-trend" id="weight-trend"></p>
-        <form class="weight-goal-form" id="weight-goal-form" novalidate>
-          <label for="weight-goal-input">Goal weight (lb)</label>
-          <input type="number" id="weight-goal-input" min="0.1" max="1500" step="any" placeholder="Optional" aria-label="Goal weight in pounds">
-          <button type="submit">Save goal</button>
-          <button type="button" id="weight-goal-clear">Clear</button>
-        </form>
-        <p class="form-error" id="weight-goal-error" hidden></p>
-      </div>
-
-      <details class="add-dropdown">
-      <summary>Add a weight</summary>
-      <form id="weight-add-form" class="add-form add-form-stacked">
-        <label class="date-field">Date
-          <input type="date" id="weight-date-input" required aria-label="Date weighed">
-        </label>
-        <input type="number" id="weight-value-input" placeholder="Weight (lb)" min="0.1" max="1500" step="any" required aria-label="Weight in pounds">
-        <input type="text" id="weight-note-input" placeholder="Note (optional)" aria-label="Note">
-        <p class="form-error" id="weight-form-error" hidden></p>
-        <button type="submit">Add weight</button>
-      </form>
-      </details>
-
-      <h3 class="subsection-heading">History</h3>
-      <ul class="card-list flat-list" id="weight-list"></ul>
-      <p class="empty-state" id="weight-empty-state" hidden>No weights yet &mdash; add your first one above.</p>
-    </section>
-
-    <!-- Diagnoses tab: add form and one flat list of diagnoses. Cards come from diagnoses-card-template via renderDiagnoses. -->
-    <section class="collection" id="diagnoses-collection" hidden>
-      <div class="collection-toolbar">
-        <h2>Diagnoses</h2>
-        <input type="search" id="diagnoses-search-input" placeholder="Search diagnoses…" aria-label="Search diagnoses">
-        <select id="diagnoses-sort-input" aria-label="Sort diagnoses">
-          <option value="condition_asc">Sort: Condition (A–Z)</option>
-          <option value="date_diagnosed_desc">Sort: Date Diagnosed (Newest first)</option>
-          <option value="date_diagnosed_asc">Sort: Date Diagnosed (Oldest first)</option>
-        </select>
-      </div>
-
-      <details class="add-dropdown">
-      <summary>Add a diagnosis</summary>
-      <form id="diagnoses-add-form" class="add-form add-form-stacked">
-        <input type="text" id="diagnoses-condition-input" placeholder="Condition" required aria-label="Condition name">
-        <label class="date-field">Date diagnosed
-          <input type="date" id="diagnoses-date-input" aria-label="Date diagnosed">
-        </label>
-        <input type="text" id="diagnoses-provider-input" placeholder="Diagnosing provider" aria-label="Diagnosing provider">
-        <textarea id="diagnoses-notes-input" placeholder="Notes (optional)" aria-label="Diagnosis notes" rows="2"></textarea>
-        <button type="submit">Add diagnosis</button>
-      </form>
-      </details>
-
-      <ul class="card-list flat-list" id="diagnoses-list"></ul>
-
-      <p class="empty-state" id="diagnoses-empty-state" hidden>No diagnoses yet — add your first one above.</p>
-    </section>
-
-    <!-- To-Do tab: add form (with optional repeat), done/not-done chips and a flat list. Cards come from todo-card-template via renderTodos. -->
-    <section class="collection" id="todo-collection" hidden>
-      <div class="collection-toolbar toolbar-leaf">
-        <h2>To-Do</h2>
-        <input type="search" id="todo-search-input" placeholder="Search tasks…" aria-label="Search to-dos">
-        <select id="todo-sort-input" aria-label="Sort to-dos">
-          <option value="due_date_asc">Sort: Due Date (Soonest first)</option>
-          <option value="manual">Sort: My order</option>
-          <option value="due_date_desc">Sort: Due Date (Latest first)</option>
-          <option value="date_added_desc">Sort: Date Added (Newest first)</option>
-          <option value="date_added_asc">Sort: Date Added (Oldest first)</option>
-        </select>
-      </div>
-
-      <form id="todo-add-form" class="add-form">
-        <input type="text" id="todo-task-input" placeholder="Task" required aria-label="Task">
-        <label class="date-field">Due date
-          <input type="date" id="todo-due-input" aria-label="Due date">
-        </label>
-        <select id="todo-repeat-input" aria-label="Repeat">
-          <option value="">Doesn't repeat</option>
-          <option value="daily">Repeats every day</option>
-          <option value="weekly">Repeats every week</option>
-          <option value="monthly">Repeats every month</option>
-        </select>
-        <button type="submit">Add to-do</button>
-      </form>
-
-      <div class="chip-row" id="todo-completed-filters"></div>
-
-      <ul class="card-list flat-list" id="todo-list"></ul>
-
-      <p class="empty-state" id="todo-empty-state" hidden>No to-dos yet — add your first one above.</p>
-    </section>
-
-    <!-- Shopping List tab: add form, category and checked chips, flat list. Cards come from shopping-card-template via renderShoppingList. -->
-    <section class="collection" id="shopping-collection" hidden>
-      <div class="collection-toolbar toolbar-leaf">
-        <h2>Shopping List</h2>
-        <input type="search" id="shopping-search-input" placeholder="Search items…" aria-label="Search shopping list">
-        <select id="shopping-sort-input" aria-label="Sort shopping list">
-          <option value="date_added_asc">Sort: Date Added (Oldest first)</option>
-          <option value="date_added_desc">Sort: Date Added (Newest first)</option>
-          <option value="item_asc">Sort: Item (A–Z)</option>
-          <option value="manual">Sort: My order</option>
-        </select>
-      </div>
-
-      <form id="shopping-add-form" class="add-form">
-        <input type="text" id="shopping-item-input" placeholder="Item" required aria-label="Item">
-        <input type="text" id="shopping-quantity-input" placeholder="Quantity (optional)" aria-label="Quantity">
-        <input type="text" id="shopping-category-input" placeholder="Category (optional)" aria-label="Category">
-        <button type="submit">Add item</button>
-      </form>
-
-      <!-- Share the list as text (share sheet, else copied to the clipboard). -->
-      <p class="share-row">
-        <button type="button" class="share-btn" id="shopping-share-btn">Share list</button>
-        <span class="share-status" id="shopping-share-status" role="status"></span>
-      </p>
-
-      <!-- Things bought before that are not on the list now; one tap puts them back (renderBuyAgain). -->
-      <div class="buy-again" id="shopping-buy-again" hidden>
-        <p class="buy-again-label">Buy again</p>
-        <div class="chip-row" id="shopping-buy-again-chips"></div>
-      </div>
-
-      <div class="chip-row" id="shopping-category-filters"></div>
-      <div class="chip-row" id="shopping-checked-filters"></div>
-
-      <ul class="card-list flat-list" id="shopping-list"></ul>
-
-      <p class="empty-state" id="shopping-empty-state" hidden>Your shopping list is empty — add an item above.</p>
     </section>
 
     <!-- Notes tab: add form and a list of note previews. Cards come from notes-card-template via renderNotes. -->
@@ -984,13 +636,6 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
       </div>
       <div class="recipe-section recipe-ingredients-section" hidden>
         <h4>Ingredients</h4>
-        <div class="recipe-scale" role="group" aria-label="Scale the amounts">
-          <span class="recipe-scale-label">Scale:</span>
-          <button type="button" class="chip" data-scale="0.5">&frac12;&times;</button>
-          <button type="button" class="chip" data-scale="1">1&times;</button>
-          <button type="button" class="chip" data-scale="2">2&times;</button>
-          <button type="button" class="chip" data-scale="3">3&times;</button>
-        </div>
         <ul class="recipe-ingredients scroll-block"></ul>
       </div>
       <div class="recipe-section recipe-steps-section" hidden>
@@ -999,20 +644,9 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
       </div>
       <p class="recipe-notes" hidden></p>
       <div class="recipe-actions">
-        <button type="button" class="move-btn move-earlier-btn" aria-label="Move recipe earlier" hidden>&#9664;</button>
-        <button type="button" class="move-btn move-later-btn" aria-label="Move recipe later" hidden>&#9654;</button>
-        <button type="button" class="pin-btn" aria-pressed="false">Pin</button>
-        <button type="button" class="cook-mode-btn" hidden>Cook mode</button>
-        <button type="button" class="share-recipe-btn">Share</button>
-        <button type="button" class="print-recipe-btn">Print</button>
-        <button type="button" class="add-to-shopping-btn" hidden>Add to shopping list</button>
         <button type="button" class="edit-btn">Edit</button>
         <button type="button" class="delete-btn" aria-label="Delete recipe">Delete</button>
       </div>
-      <p class="recipe-shop-status" role="status" hidden>
-        <span class="recipe-shop-status-text"></span>
-        <button type="button" class="recipe-open-shopping">View shopping list</button>
-      </p>
     </div>
     <form class="recipe-edit-form" hidden>
       <input type="text" class="recipe-edit-title" placeholder="Title" required aria-label="Edit recipe title">
@@ -1024,188 +658,6 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         <button type="submit">Save</button>
         <button type="button" class="cancel-btn">Cancel</button>
       </div>
-    </form>
-  </li>
-</template>
-
-<!-- One medication on the Medications tab (renderMedications). -->
-<template id="medications-card-template">
-  <li class="med-card">
-    <div class="med-view">
-      <div class="med-info">
-        <strong class="med-name"></strong>
-        <span class="med-kind badge" hidden>Equipment</span>
-        <span class="med-field med-dosage-field" hidden><span class="field-label">Dosage:</span> <span class="med-dosage"></span></span>
-        <span class="med-field med-frequency-field" hidden><span class="field-label">Frequency:</span> <span class="med-frequency"></span></span>
-        <span class="med-field med-doctor-field" hidden><span class="field-label">Prescriber:</span> <span class="med-doctor"></span></span>
-        <span class="med-field med-pharmacy-field" hidden><span class="field-label">Pharmacy:</span> <span class="med-pharmacy"></span></span>
-        <span class="med-field med-refills-field" hidden><span class="field-label">Refills left:</span> <span class="med-refills-left"></span></span>
-        <span class="med-field med-last-field" hidden><span class="field-label med-last-label">Last picked up:</span> <span class="med-last"></span></span>
-      </div>
-      <div class="med-dates">
-        <label class="date-field">Start date
-          <input type="date" class="med-start-date" min="1990-01-01" max="2100-12-31" aria-label="Start date">
-          <small class="unknown-hint" hidden>unknown</small>
-        </label>
-        <label class="date-field"><span class="med-refill-label">Next refill date</span>
-          <input type="date" class="med-refill-date" min="1990-01-01" max="2100-12-31" aria-label="Next refill date">
-          <small class="refill-hint" hidden></small>
-        </label>
-        <p class="form-error med-date-error" hidden></p>
-      </div>
-      <p class="med-notes" hidden></p>
-      <!-- "Picked up refill" moves the refill date forward by the remembered number of days. -->
-      <div class="refill-pickup">
-        <button type="button" class="refill-picked-btn">Picked up refill</button>
-        <button type="button" class="refill-change-btn" hidden>Change days</button>
-        <div class="refill-interval" hidden>
-          <span class="refill-interval-label">Picked up &mdash; refills every:</span>
-          <button type="button" class="chip" data-days="30" data-for="both">30 days</button>
-          <button type="button" class="chip" data-days="60" data-for="med">60 days</button>
-          <button type="button" class="chip" data-days="90" data-for="both">90 days</button>
-          <button type="button" class="chip" data-days="180" data-for="equip">6 months</button>
-          <button type="button" class="chip" data-days="365" data-for="equip">1 year</button>
-          <input type="number" class="refill-custom-days" min="1" max="365" placeholder="days" aria-label="Number of days">
-          <button type="button" class="chip refill-custom-go">Set</button>
-        </div>
-      </div>
-      <div class="med-actions">
-        <button type="button" class="edit-btn">Edit</button>
-        <button type="button" class="delete-btn" aria-label="Delete medication">Delete</button>
-      </div>
-    </div>
-    <form class="med-edit-form" hidden>
-      <select class="med-edit-kind" aria-label="Edit type">
-        <option value="medication">Medication</option>
-        <option value="equipment">Medical equipment (replaced on a schedule)</option>
-      </select>
-      <input type="text" class="med-edit-name" placeholder="Name" required aria-label="Edit medication name">
-      <input type="text" class="med-edit-dosage" placeholder="Dosage (e.g. 10mg)" aria-label="Edit medication dosage">
-      <input type="text" class="med-edit-frequency" placeholder="Frequency (e.g. twice daily)" aria-label="Edit medication frequency">
-      <input type="text" class="med-edit-doctor" placeholder="Prescribing doctor" aria-label="Edit prescribing doctor">
-      <input type="text" class="med-edit-pharmacy" placeholder="Pharmacy or supplier (optional)" aria-label="Edit pharmacy or supplier">
-      <input type="number" class="med-edit-refills-left" min="0" max="99" placeholder="Refills left (optional)" aria-label="Edit refills left">
-      <input type="number" class="med-edit-every" min="1" max="365" placeholder="Refill or replace every N days (optional)" aria-label="Edit refill or replace every N days">
-      <textarea class="med-edit-notes" placeholder="Notes (optional)" aria-label="Edit medication notes" rows="2"></textarea>
-      <p class="form-error med-edit-error" hidden></p>
-      <div class="med-actions">
-        <button type="submit">Save</button>
-        <button type="button" class="cancel-btn">Cancel</button>
-      </div>
-    </form>
-  </li>
-</template>
-
-<!-- One weight entry in the Weight history (renderWeights). -->
-<template id="weight-card-template">
-  <li class="weight-card">
-    <div class="weight-view">
-      <div class="weight-info">
-        <strong class="weight-entry-value"></strong>
-        <span class="weight-entry-date"></span>
-        <span class="weight-entry-note" hidden></span>
-      </div>
-      <div class="weight-actions">
-        <button type="button" class="edit-btn">Edit</button>
-        <button type="button" class="delete-btn" aria-label="Delete weight entry">Delete</button>
-      </div>
-    </div>
-    <form class="weight-edit-form" hidden>
-      <input type="date" class="weight-edit-date" required aria-label="Edit date weighed">
-      <input type="number" class="weight-edit-value" min="0.1" max="1500" step="any" required aria-label="Edit weight in pounds">
-      <input type="text" class="weight-edit-note" placeholder="Note (optional)" aria-label="Edit note">
-      <p class="form-error weight-edit-error" hidden></p>
-      <div class="weight-actions">
-        <button type="submit">Save</button>
-        <button type="button" class="cancel-btn">Cancel</button>
-      </div>
-    </form>
-  </li>
-</template>
-
-<!-- One diagnosis in the Diagnoses list (renderDiagnoses). -->
-<template id="diagnoses-card-template">
-  <li class="diagnosis-card">
-    <div class="diagnosis-view">
-      <div class="diagnosis-info">
-        <strong class="diagnosis-condition"></strong>
-        <span class="diagnosis-date"></span>
-        <span class="diagnosis-provider" hidden></span>
-      </div>
-      <p class="diagnosis-notes" hidden></p>
-      <div class="diagnosis-actions">
-        <button type="button" class="edit-btn">Edit</button>
-        <button type="button" class="delete-btn" aria-label="Delete diagnosis">Delete</button>
-      </div>
-    </div>
-    <form class="diagnosis-edit-form" hidden>
-      <input type="text" class="diagnosis-edit-condition" placeholder="Condition" required aria-label="Edit condition name">
-      <label class="date-field">Date diagnosed
-        <input type="date" class="diagnosis-edit-date" aria-label="Edit date diagnosed">
-      </label>
-      <input type="text" class="diagnosis-edit-provider" placeholder="Diagnosing provider" aria-label="Edit diagnosing provider">
-      <textarea class="diagnosis-edit-notes" placeholder="Notes (optional)" aria-label="Edit diagnosis notes" rows="2"></textarea>
-      <div class="diagnosis-actions">
-        <button type="submit">Save</button>
-        <button type="button" class="cancel-btn">Cancel</button>
-      </div>
-    </form>
-  </li>
-</template>
-
-<!-- One task on the To-Do tab (renderTodos). -->
-<template id="todo-card-template">
-  <li class="todo-item">
-    <div class="todo-view">
-      <button type="button" class="drag-handle" aria-label="Move to-do: drag, or press the up and down arrow keys" hidden>&#8942;&#8942;</button>
-      <label class="todo-check">
-        <input type="checkbox" class="todo-completed-checkbox" aria-label="Mark complete">
-        <span class="todo-task"></span>
-      </label>
-      <span class="todo-due" hidden></span>
-      <span class="todo-repeat badge" hidden></span>
-      <button type="button" class="snooze-btn" data-days="1" aria-label="Snooze until tomorrow" hidden>Tomorrow</button>
-      <button type="button" class="snooze-btn" data-days="7" aria-label="Snooze until next week" hidden>Next week</button>
-      <button type="button" class="edit-btn">Edit</button>
-      <button type="button" class="delete-btn" aria-label="Delete to-do">Delete</button>
-    </div>
-    <form class="todo-edit-form" hidden>
-      <input type="text" class="todo-edit-task" placeholder="Task" required aria-label="Edit task">
-      <label class="date-field">Due date
-        <input type="date" class="todo-edit-due" aria-label="Edit due date">
-      </label>
-      <select class="todo-edit-repeat" aria-label="Edit repeat">
-        <option value="">Doesn't repeat</option>
-        <option value="daily">Repeats every day</option>
-        <option value="weekly">Repeats every week</option>
-        <option value="monthly">Repeats every month</option>
-      </select>
-      <button type="submit">Save</button>
-      <button type="button" class="cancel-btn">Cancel</button>
-    </form>
-  </li>
-</template>
-
-<!-- One item on the Shopping List tab (renderShoppingList). -->
-<template id="shopping-card-template">
-  <li class="shopping-item">
-    <div class="shopping-view">
-      <button type="button" class="drag-handle" aria-label="Move item: drag, or press the up and down arrow keys" hidden>&#8942;&#8942;</button>
-      <label class="shopping-check">
-        <input type="checkbox" class="shopping-checked-checkbox" aria-label="Mark checked">
-        <span class="shopping-item-name"></span>
-      </label>
-      <span class="shopping-quantity" hidden></span>
-      <span class="shopping-category badge" hidden></span>
-      <button type="button" class="edit-btn">Edit</button>
-      <button type="button" class="delete-btn" aria-label="Delete item">Delete</button>
-    </div>
-    <form class="shopping-edit-form" hidden>
-      <input type="text" class="shopping-edit-item" placeholder="Item" required aria-label="Edit item">
-      <input type="text" class="shopping-edit-quantity" placeholder="Quantity (optional)" aria-label="Edit quantity">
-      <input type="text" class="shopping-edit-category" placeholder="Category (optional)" aria-label="Edit category">
-      <button type="submit">Save</button>
-      <button type="button" class="cancel-btn">Cancel</button>
     </form>
   </li>
 </template>
@@ -1282,28 +734,10 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
   </div>
 </div>
 
-<!-- Health summary: medications, diagnoses and weight on one printable page (no journal). Opened from Home;
-     filled by renderHealthSummary. Uses the same sheet styles as the therapy summary. -->
-<div class="summary-overlay" id="health-summary" role="dialog" aria-modal="true" aria-labelledby="health-summary-title" hidden>
-  <div class="summary-sheet">
-    <div class="summary-toolbar summary-no-print">
-      <button type="button" id="health-summary-print" class="summary-btn">Print or save as PDF</button>
-      <button type="button" id="health-summary-copy" class="summary-btn">Copy text</button>
-      <button type="button" id="health-summary-close" class="summary-btn">Close</button>
-    </div>
-    <p class="summary-status summary-no-print" id="health-summary-status" role="status" hidden></p>
-    <div id="health-summary-body" class="summary-body"></div>
-  </div>
-</div>
-
-<!-- Filled by printRecipe and shown only while printing a recipe. -->
-<div id="print-recipe" aria-hidden="true"></div>
-
-<!-- Phone-only bar along the bottom with the four most-used screens and the Menu. -->
+<!-- Phone-only bar along the bottom with the most-used screens and the Menu. -->
 <nav class="bottom-bar" id="bottom-bar" aria-label="Quick tabs">
   <button type="button" data-quick-tab="home">Home</button>
-  <button type="button" data-quick-tab="todo">To-Do</button>
-  <button type="button" data-quick-tab="shopping">Shopping</button>
+  <button type="button" data-quick-tab="recipes">Recipes</button>
   <button type="button" data-quick-tab="notes">Notes</button>
   <button type="button" id="bottom-more">Menu</button>
 </nav>
@@ -1345,27 +779,6 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
       <button type="button" id="lock-setup-cancel">Cancel</button>
     </div>
   </form>
-</div>
-
-<!-- Cook mode: a big, one-step-at-a-time view of a recipe that keeps the screen on while it is open. -->
-<div class="cook-overlay" id="cook-mode" role="dialog" aria-modal="true" aria-labelledby="cook-title" hidden>
-  <div class="cook-sheet">
-    <div class="cook-top">
-      <h2 id="cook-title"></h2>
-      <button type="button" id="cook-close" class="summary-btn">Close</button>
-    </div>
-    <details class="cook-ingredients">
-      <summary>Ingredients</summary>
-      <ul id="cook-ingredients-list"></ul>
-    </details>
-    <p class="cook-progress" id="cook-progress" aria-live="polite"></p>
-    <p class="cook-step" id="cook-step"></p>
-    <div class="cook-nav">
-      <button type="button" id="cook-prev" class="summary-btn">Back</button>
-      <button type="button" id="cook-next" class="summary-btn cook-next">Next</button>
-    </div>
-    <p class="cook-awake" id="cook-awake" hidden>The screen will stay on while this is open.</p>
-  </div>
 </div>
 
 <!-- All app behaviour lives in app.js; it must load last so every element above exists. -->

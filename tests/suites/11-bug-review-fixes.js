@@ -14,8 +14,8 @@ importData({ collections: { books: [{ ...rb, id: 'bk1', title: 'Newer than local
 check('a genuinely newer backup copy is still kept (as a copy, nothing is lost)', books.length === 2 && books.some((b) => b.title === 'Newer than local'));
 
 // ---- import refuses records that would break a screen ----
-check('import refuses text fields that are not text', !isValidImportRecord('medications', { id: 'x', name: null }) && !isValidImportRecord('diagnoses', { id: 'x', condition: null }) && !isValidImportRecord('recipes', { id: 'x', title: 't', ingredients: 'not a list' }) && !isValidImportRecord('books', { id: 'x', title: 't', status: 'nonsense' }) && !isValidImportRecord('todos', { id: 'x' }));
-check('import still accepts normal records', isValidImportRecord('diagnoses', { id: 'x', condition: 'c', status: 'active' }) && isValidImportRecord('recipes', { id: 'x', title: 't', ingredients: ['a'], steps: [] }) && isValidImportRecord('notes', { id: 'x', title: '', body: 'b' }));
+check('import refuses text fields that are not text', !isValidImportRecord('recipes', { id: 'x', title: null }) && !isValidImportRecord('recipes', { id: 'x', title: 't', ingredients: 'not a list' }) && !isValidImportRecord('books', { id: 'x', title: 't', status: 'nonsense' }) && !isValidImportRecord('notes', { id: 'x', title: 5 }));
+check('import still accepts normal records', isValidImportRecord('recipes', { id: 'x', title: 't', ingredients: ['a'], steps: [] }) && isValidImportRecord('notes', { id: 'x', title: '', body: 'b' }));
 
 // ---- a damaged saved list cannot stop the app loading ----
 localStorage.setItem('secondMemory.testlist.v1', JSON.stringify([null, 5, 'x', { id: 'ok' }, [1]]));
@@ -29,45 +29,15 @@ const bk = books[0];
 check('an edit with a future finished date is refused', updateBook(bk.id, { title: 'Changed', author: 'X', dateFinished: dk(9) }) === false);
 check('...and the book is exactly as it was', bk.title === 'Original' && bk.author === 'Auth' && bk.dateFinished === todayKey());
 
-// ---- a weight that rounds to zero is refused ----
-check('0.04 lb is refused (it would be saved as 0.0)', !validateWeightFields({ date: dk(0), value: '0.04' }).ok && validateWeightFields({ date: dk(0), value: '0.05' }).ok === true && validateWeightFields({ date: dk(0), value: '0.05' }).weight === 0.1);
-
-// ---- the shopping list gets the scaled amounts shown on the recipe card ----
-recipes.length = 0; shoppingItems.length = 0;
-recipes.push({ ...rb, id: 'rz1', title: 'Soup', category: '', ingredients: ['1 cup rice', '2 carrots'], steps: ['Boil'], notes: '' });
-addRecipeToShoppingList(recipes[0], 2);
-check('adding a 2x recipe to the shopping list uses the doubled amounts', shoppingItems.some((i) => i.item === '2 cups rice') && shoppingItems.some((i) => i.item === '4 carrots'), JSON.stringify(shoppingItems.map((i) => i.item)));
+// ---- a recipe with no lists ----
+recipes.length = 0;
 check('a recipe with no ingredient or step lists does not break search or the screen', (() => {
+  recipes.push({ ...rb, id: 'rz1', title: 'Other', category: '', notes: '' });
   recipes.push({ ...rb, id: 'rz2', title: 'Bare', category: '', notes: '' });
   nav('recipes'); renderRecipes();
   return matchesRecipeSearch(recipes[1], 'bare') === true;
 })());
 recipes.length = 0; renderRecipes();
-
-// ---- repeating to-dos ----
-check('a monthly task due on the 31st goes to the 28th and then back to the 31st (with the anchor kept)', nextRepeatDate('2099-01-31', 'monthly', 31) === '2099-02-28' && nextRepeatDate('2099-02-28', 'monthly', 31) === '2099-03-31');
-check('the 31st anchor is remembered from one task to the next', (() => {
-  todos.length = 0;
-  addTodo('Rent', '2026-01-31', 'monthly');
-  const t1 = todos[0];
-  return repeatAnchorDay(t1) === 31 && (() => { t1.repeatDay = 31; t1.dueDate = '2026-02-28'; return repeatAnchorDay(t1) === 31; })() && (() => { t1.dueDate = '2026-02-10'; return repeatAnchorDay(t1) === 10; })();
-})());
-check('a daily task years overdue still comes due in the future', nextRepeatDate(dk(-1500), 'daily') === dk(1));
-check('a weekly task years overdue keeps its weekday and is in the future', (() => { const n = nextRepeatDate(dk(-2000), 'weekly'); return n > todayKey() && n <= dk(7) && new Date(n + 'T00:00').getDay() === new Date(dk(-2000) + 'T00:00').getDay(); })());
-todos.length = 0;
-addTodo('Chore', dk(0), 'daily');
-const chore = todos[0];
-toggleTodoCompleted(chore.id, true);
-const child = todos.find((t) => t.id === chore.spawnedId);
-child.task = 'Chore (edited)'; child.updatedAt = new Date(Date.now() + 5000).toISOString();
-toggleTodoCompleted(chore.id, false);
-check('unticking keeps a next task you edited', !child.deleted && child.task === 'Chore (edited)');
-todos.length = 0;
-addTodo('Chore2', dk(0), 'daily');
-toggleTodoCompleted(todos[0].id, true);
-const untouched = todos.find((t) => t.id === todos[0].spawnedId);
-toggleTodoCompleted(todos[0].id, false);
-check('unticking still removes an untouched next task', untouched.deleted === true);
 
 // ---- journal safety ----
 journalEntries.length = 0; localStorage.removeItem('secondMemory.journalDeleted.v1');
@@ -101,15 +71,6 @@ journalEntries.push({ id: 't1', type: 'therapy', date: dk(-1), answers: { topics
 check('two same-day sessions, one without a saved time, sort without error', therapySessions(5).length === 2);
 journalEntries.length = 0;
 
-// ---- diagnoses are one list with no status ----
-diagnoses.length = 0;
-diagnoses.push({ ...rb, id: 'dg1', condition: 'Odd one', dateDiagnosed: null, provider: '', notes: '' });
-nav('diagnoses'); renderDiagnoses();
-check('a diagnosis with no status shows in the list, with no Move menu', document.querySelectorAll('#diagnoses-list .diagnosis-card').length === 1 && !document.querySelector('#diagnoses-list .move-select') && !document.querySelector('#diagnoses-collection .column'));
-check('and the health summary lists it with no status line', (() => { const text = buildHealthSummaryText(buildHealthSummaryData()); return /Odd one/.test(text) && !/Status:/.test(text); })());
-check('import accepts a diagnosis with no status', isValidImportRecord('diagnoses', { id: 'x', condition: 'c' }));
-diagnoses.length = 0;
-
 // ---- app lock ----
 const idle = async () => { for (let i = 0; i < 80 && lockChecking; i++) await sleep(50); await sleep(40); }; // wait for a PIN check to finish (it takes longer on a slow phone)
 localStorage.removeItem('secondMemory.lockTries.v1');
@@ -122,9 +83,9 @@ check('the wrong-try pause is saved, so reloading the page cannot skip it', save
 lockBlockedUntil = 0; lockFailures = 0; saveLockTries();
 set('lock-pin-input', '8642'); $('lock-form').requestSubmit(); await idle();
 check('the right PIN unlocks and resets the saved tries', !document.documentElement.hasAttribute('data-locked') && JSON.parse(localStorage.getItem('secondMemory.lockTries.v1')).fails === 0);
-nav('home');
-$('health-summary-btn').click();
+nav('journal');
+$('therapy-summary-btn').click();
 lockNow();
-check('locking closes the health summary so it cannot be read or printed', $('health-summary').hidden && !document.body.classList.contains('summary-open'));
+check('locking closes the therapy summary so it cannot be read or printed', $('therapy-summary').hidden && !document.body.classList.contains('summary-open'));
 set('lock-pin-input', '8642'); $('lock-form').requestSubmit(); await idle();
 clearAppLock();

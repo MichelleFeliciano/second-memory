@@ -43,16 +43,14 @@ Serve the project folder first (<code>python -m http.server</code>) and open <co
 const SUITES = [
   ['Core: tabs, lists, edit, delete, undo, import/export', 'suites/01-core.js'],
   ['Journal: entries, timeline, search, trends, summary, backup', 'suites/03-journal.js'],
-  ['To-dos, recipes and search everything', 'suites/04-todos-recipes-search.js'],
+  ['Search everything', 'suites/04-search-everything.js'],
   ['Sync client: manual sync, indicator, in-flight edits', 'suites/05-sync-client.js'],
-  ['Weight: stats, validation, edit, undo', 'suites/06-weight.js'],
   ['Menu extras: theme, version, quick add, sync reminder', 'suites/07-extras.js'],
-  ['Medications: refill and weigh-in reminders', 'suites/08-medications.js'],
-  ['Health summary and app lock', 'suites/09-summary-and-lock.js'],
-  // (suite 10 keeps its old "bills" file name on purpose; it now holds books, recipes and journal checks. There is no suite 02.)
-  ['Reading goal, recipe scaling, cook mode, journal prompt', 'suites/10-bills-books-recipes-journal.js'],
-  ['Bug-review regressions: import, journal, repeats, weight, lock', 'suites/11-bug-review-fixes.js'],
-  ['Second review regressions: repeats, scaling, forms, journal', 'suites/12-second-review-fixes.js'],
+  ['App lock', 'suites/09-app-lock.js'],
+  // (There is no suite 02, 06 or 08: Budget, Weight and Medications moved to other apps.)
+  ['Reading goal, plain recipes, journal prompt', 'suites/10-books-recipes-journal.js'],
+  ['Bug-review regressions: import, journal, lock', 'suites/11-bug-review-fixes.js'],
+  ['Second review regressions: forms, journal, sync, updates, help', 'suites/12-second-review-fixes.js'],
   ['Password vault: encryption, locking, backup', 'suites/13-password-vault.js'],
 ];
 
