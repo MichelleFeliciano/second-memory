@@ -1,12 +1,24 @@
-name: Tests
+name: Tests and deploy
 
-# Runs on every push and pull request. The browser tests open tests/tests.html in headless Chrome and wait for the
-# page title to become "OK n/n" (every check passed) or "FAIL ..." (something failed). To make a failed test BLOCK the
-# live site, set the repository's Pages source to "GitHub Actions" and deploy from this workflow (see README,
-# "Tests run before deploy").
+# Every push and pull request runs the tests. A push to main then publishes the app to GitHub Pages, but ONLY if
+# every test passed: the "deploy" job needs the "tests" job, so a failed test leaves the live site on its old version.
+# The browser tests open tests/tests.html in headless Chrome and wait for the page title to become "OK n/n"
+# (every check passed) or "FAIL ..." (something failed).
 on:
   push:
   pull_request:
+  workflow_dispatch: # lets the owner re-run a deploy from the Actions tab
+
+# Needed by the deploy job to publish to Pages.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; a newer push replaces one that is still waiting.
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
   tests:
@@ -29,3 +41,24 @@ jobs:
           done
           echo "Final page title: $title"
           case "$title" in OK\ *) exit 0 ;; *) exit 1 ;; esac
+
+  deploy:
+    needs: tests # a failed test stops here, so nothing is published
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Collect only the files the app needs
+        run: |
+          mkdir _site
+          cp index.html app.js style.css sw.js manifest.json _site/
+          cp -r icons _site/icons
+          touch _site/.nojekyll
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

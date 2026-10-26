@@ -129,4 +129,4 @@ it can use the app's own functions and variables directly. To add a check, add a
 
 ## Tests run before deploy
 
-`.github/workflows/tests.yml` runs the Python tests and the browser tests (headless Chrome opening `tests/tests.html`, which must end with a title starting `OK`) on every push and pull request. To make a failed test **block** the live site, change the repository's Pages source to **GitHub Actions** and add a deploy job that needs the `tests` job; until then the workflow reports failures but GitHub Pages still publishes straight from the branch.
+`.github/workflows/tests.yml` runs the Python tests and the browser tests (headless Chrome opening `tests/tests.html`, which must end with a title starting `OK`) on every push and pull request. A push to `main` then publishes the app (only `index.html`, `app.js`, `style.css`, `sw.js`, `manifest.json` and `icons/`) to GitHub Pages through the `deploy` job, which **needs the tests to pass**: a failed test leaves the live site on its previous version. The repository's Pages source is set to **GitHub Actions** for this. To redeploy by hand, open the Actions tab, choose the workflow and press **Run workflow**.
