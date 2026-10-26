@@ -180,6 +180,14 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
       </div>
       <input type="file" id="import-file-input" accept="application/json" hidden>
       <p class="sync-status-text data-io-status" id="data-io-status" role="status" hidden></p>
+      <!-- "Check first": what a chosen file would add, shown before anything is saved. -->
+      <div class="import-preview" id="import-preview" role="region" aria-label="Import preview" hidden>
+        <p id="import-preview-text"></p>
+        <div class="import-preview-buttons">
+          <button type="button" id="import-preview-go">Import</button>
+          <button type="button" id="import-preview-cancel">Cancel</button>
+        </div>
+      </div>
     </div>
 
     <!-- Menu footer: Theme, App lock, Text size and Contrast buttons (labels filled by app.js) and the app version. -->
@@ -192,6 +200,16 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
         <button type="button" id="contrast-btn" class="data-io-btn">Contrast: Normal</button>
         <button type="button" id="autosync-btn" class="data-io-btn">Auto-sync: On</button>
       </div>
+      <!-- Everything deleted lately, each with a Restore button (deletes are never permanent until the vault or a backup says so). -->
+      <details class="settings-check" id="deleted-box">
+        <summary>Recently deleted</summary>
+        <ul class="settings-check-list" id="deleted-list"></ul>
+      </details>
+      <!-- What changed in each version. -->
+      <details class="settings-check" id="whatsnew-box">
+        <summary>What's new</summary>
+        <div id="whatsnew-list"></div>
+      </details>
       <!-- The last changes made in this visit, each with an Undo that also undoes the newer ones. -->
       <details class="settings-check" id="history-box">
         <summary>History</summary>
@@ -807,6 +825,9 @@ try { if (localStorage.getItem('secondMemory.lock.v1')) document.documentElement
   <span>A new version is ready.</span>
   <button type="button" id="update-banner-btn">Update now</button>
 </div>
+
+<!-- Shown while the device has no connection. -->
+<div class="offline-note" id="offline-note" role="status" hidden>You're offline. Everything still works; syncing waits until you're back online.</div>
 
 <!-- Short message with an Undo button after a delete; shown by showToast. -->
 <div class="toast" id="toast" role="status" aria-live="polite" hidden>

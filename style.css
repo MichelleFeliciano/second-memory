@@ -2295,3 +2295,32 @@ html[data-text="larger"] { font-size: 125%; }
   color: var(--text);
   font: inherit;
 }
+
+/* ===== 37. What's new, import preview, offline note ===== */
+
+.import-preview { margin: 8px 0; padding: 10px 12px; border: 1px solid var(--accent); border-radius: 14px; font-size: 0.85rem; white-space: pre-line; }
+.import-preview[hidden] { display: none; }
+.import-preview p { margin: 0 0 8px; }
+.import-preview-buttons { display: flex; gap: 8px; }
+.import-preview-buttons button { padding: 4px 14px; border: 1px solid var(--border); border-radius: 13px; background: transparent; color: var(--text); cursor: pointer; }
+#import-preview-go { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); font-weight: 600; }
+
+#whatsnew-list { font-size: 0.85rem; margin-top: 8px; }
+#whatsnew-list h4 { margin: 10px 0 2px; font-size: 0.9rem; }
+#whatsnew-list ul { margin: 0; padding-left: 18px; }
+#deleted-list button { padding: 3px 10px; }
+
+.offline-note {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 60;
+  padding: 6px 12px;
+  background: var(--accent-2);
+  color: var(--bg);
+  text-align: center;
+  font-size: 0.85rem;
+}
+.offline-note[hidden] { display: none; }
+html[data-locked] .offline-note { visibility: hidden; }

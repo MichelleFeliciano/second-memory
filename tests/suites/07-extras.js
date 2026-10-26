@@ -15,7 +15,7 @@ check('a damaged saved theme means Auto', loadTheme() === 'auto');
 localStorage.removeItem('secondMemory.theme.v1');
 
 // ---- version label ----
-check('the Menu shows the version', $('app-version').textContent === 'Version ' + APP_VERSION && Number.isInteger(APP_VERSION));
+check('the Menu shows the version', $('app-version').textContent.startsWith('Version ' + APP_VERSION) && Number.isInteger(APP_VERSION));
 
 // ---- quick add on Home ----
 nav('home');

@@ -50,15 +50,15 @@ function loadCollection(key) {
 
 // Shown when the browser refuses to save (storage full, blocked, or private mode).
 // Without this the change would stay on screen and quietly vanish on reload.
-function reportStorageProblem() {
+function reportStorageProblem(message) {
   if (document.getElementById('storage-warning')) return;
   const box = document.createElement('div');
   box.id = 'storage-warning';
   box.className = 'storage-warning';
   box.setAttribute('role', 'alert');
   const text = document.createElement('span');
-  text.textContent = "Couldn't save: this browser's storage is full or blocked. Your latest change is only on " +
-    'screen and will be lost if you close or reload. Use Export data, then free up space.';
+  text.textContent = message || ("Couldn't save: this browser's storage is full or blocked. Your latest change is only on " +
+    'screen and will be lost if you close or reload. Use Export data, then free up space.');
   const close = document.createElement('button');
   close.type = 'button';
   close.textContent = 'Dismiss';
@@ -4300,7 +4300,7 @@ function buildExportPayload() {
   if (Object.keys(readingGoals).length > 0) local.readingGoals = readingGoals;
   const vault = loadVaultBlob();
   if (vault) local.vault = vault; // still encrypted: a backup file never holds a readable password
-  return { collections, local };
+  return { format: 'second-memory-export', formatVersion: EXPORT_FORMAT_VERSION, appVersion: APP_VERSION, exportedAt: new Date().toISOString(), collections, local };
 }
 
 // Today's date as YYYY-MM-DD for backup file names.
@@ -4496,6 +4496,11 @@ function safeRender(fn) {
 // Merges a parsed backup file into the app without ever discarding local data, then reports
 // what happened (new, updated, merged-as-duplicates, skipped) under the Import button.
 function importData(parsed) {
+  // A file from a newer layout than this app knows could be misread: ask to update first.
+  if (parsed && typeof parsed === 'object' && Number.isFinite(parsed.formatVersion) && parsed.formatVersion > EXPORT_FORMAT_VERSION) {
+    setDataIoStatus('Import stopped: that file was made by a newer version of the app. Use Menu, then Update now, and try again.', 'failed');
+    return;
+  }
   // Step 1: make sure the file looks like an export.
   const importedCollections = extractImportCollections(parsed);
   if (!importedCollections) {
@@ -4610,7 +4615,7 @@ document.getElementById('import-file-input').addEventListener('change', (e) => {
       setDataIoStatus('Import failed — that file is not valid JSON.', 'failed');
       return;
     }
-    importData(parsed);
+    showImportPreview(parsed); // "Check first": nothing is saved until you confirm
   };
   reader.onerror = () => {
     setDataIoStatus('Import failed — could not read that file.', 'failed');
@@ -4647,7 +4652,22 @@ document.addEventListener('visibilitychange', () => {
 
 // The build number shown in the Menu. Keep it equal to the number in CACHE_NAME in sw.js
 // (a test checks this), so "which version am I on?" has a one-glance answer.
-const APP_VERSION = 84;
+const APP_VERSION = 85;
+const APP_UPDATED = '2026-10-26'; // the day this version was made (shown next to the version number)
+// What changed, newest first, for Menu > What's new. Add an entry here with every version (a test checks the top one matches APP_VERSION).
+const CHANGES = [
+  { version: 85, date: '2026-10-26', notes: ['What\u2019s new, last-updated date, Check-first import, recently deleted, storage-space and offline notes.', 'Backup files now say which format and app version made them.'] },
+  { version: 84, date: '2026-10-26', notes: ['Facts, custom Lists, and a \u201cLend\u201d note on books.'] },
+  { version: 83, date: '2026-10-25', notes: ['To-dos, shopping, calendar, medications, diagnoses and weight moved to the other apps. Nothing was deleted; it is still stored and in backups.'] },
+  { version: 82, date: '2026-10-23', notes: ['Medical equipment replacement and better refill tracking (now in the other apps).'] },
+  { version: 81, date: '2026-10-17', notes: ['Password vault, encrypted on this device and never synced.'] },
+  { version: 80, date: '2026-10-16', notes: ['Automatic sync, dates in plain words, recipe share and print, Help, recent searches, edit in place, History.'] },
+  { version: 79, date: '2026-10-15', notes: ['Calendar, \u201cThis week\u201d on Home, drag to reorder, Settings check.'] },
+  { version: 78, date: '2026-10-15', notes: ['\u201cUpdate now\u201d button and the new-version banner.'] },
+  { version: 77, date: '2026-10-14', notes: ['A full review: several bug fixes, clearer comments, updated README.'] },
+  { version: 74, date: '2026-10-14', notes: ['Undo bar after deleting, phone bottom bar, text size.'] },
+];
+const EXPORT_FORMAT_VERSION = 2; // bump when the backup file layout changes in a way older apps cannot read
 const THEME_KEY = 'secondMemory.theme.v1';
 const THEMES = ['auto', 'light', 'dark'];
 
@@ -4678,7 +4698,7 @@ document.getElementById('theme-btn').addEventListener('click', () => {
   applyTheme(THEMES[(THEMES.indexOf(loadTheme()) + 1) % THEMES.length]);
 });
 applyTheme(loadTheme());
-document.getElementById('app-version').textContent = `Version ${APP_VERSION}`;
+document.getElementById('app-version').textContent = `Version ${APP_VERSION} \u00b7 updated ${formatDateKeyLong(APP_UPDATED)}`;
 
 // Quick add on Home: one box that adds a note, then reports what it did.
 document.getElementById('quick-add-form').addEventListener('submit', (e) => {
@@ -5659,6 +5679,140 @@ updateUndoRedoButtons();
 setActiveTab(loadUiState().activeTab || 'home');
 initSyncUI();
 
+// ---- Import preview ("Check first") ----
+// After choosing a backup file the app shows what it would add, and saves nothing until you press Import.
+
+// Counts what a parsed backup would add, per list: new records, records already here, and unreadable ones.
+// Returns { lines, anyNew } or null if the file does not look like a backup.
+function describeImport(parsed) {
+  const collections = extractImportCollections(parsed);
+  if (!collections) return null;
+  const lines = [];
+  let anyNew = false;
+  const countList = (label, incoming, existingIds, isValid) => {
+    const raw = Array.isArray(incoming) ? incoming : [];
+    const valid = raw.filter(isValid);
+    const fresh = valid.filter((rec) => !existingIds.has(rec.id)).length;
+    const here = valid.length - fresh;
+    const unreadable = raw.length - valid.length;
+    if (!fresh && !here && !unreadable) return;
+    if (fresh) anyNew = true;
+    lines.push(`${label}: ${fresh} new, ${here} already here${unreadable ? `, ${unreadable} unreadable (will be skipped)` : ''}`);
+  };
+  SYNC_COLLECTIONS.forEach((c) => countList(c.label, collections[c.name], new Set(c.get().map((r) => r.id)), (rec) => isValidImportRecord(c.name, rec)));
+  RETIRED_LISTS.forEach((r) => countList(`Kept for the other apps (${r.label})`, collections[r.name], new Set(readRetiredList(r.key).map((x) => x && x.id)), (rec) => isValidImportRecord(r.name, rec)));
+  const local = parsed.local && typeof parsed.local === 'object' ? parsed.local : null;
+  if (local && Array.isArray(local.journal)) {
+    countList('Journal', local.journal, new Set(journalEntries.map((e) => e.id)), (e) => e && typeof e === 'object' && typeof e.id === 'string');
+  }
+  if (local && parseVaultBlob(local.vault) && !loadVaultBlob()) { lines.push('Password vault: will be restored (still encrypted)'); anyNew = true; }
+  return { lines, anyNew };
+}
+
+// Shows the preview with Import and Cancel (a file that is not a backup gets the usual failure message instead).
+function showImportPreview(parsed) {
+  const info = describeImport(parsed);
+  if (!info || (parsed && Number.isFinite(parsed.formatVersion) && parsed.formatVersion > EXPORT_FORMAT_VERSION)) { importData(parsed); return; }
+  const box = document.getElementById('import-preview');
+  const text = document.getElementById('import-preview-text');
+  const version = parsed.appVersion ? ` (made by version ${parsed.appVersion})` : '';
+  text.textContent = info.lines.length
+    ? `This file${version} would add:\n${info.lines.join('\n')}\nNothing is overwritten; records already here are skipped.`
+    : `This file${version} has nothing to add.`;
+  box.hidden = false;
+  document.getElementById('import-preview-go').onclick = () => { box.hidden = true; importData(parsed); };
+  document.getElementById('import-preview-cancel').onclick = () => { box.hidden = true; setDataIoStatus('Import cancelled. Nothing was changed.', 'ok'); };
+}
+
+// ---- What's new ----
+
+// Fills Menu > What's new from CHANGES.
+function renderWhatsNew() {
+  const box = document.getElementById('whatsnew-list');
+  box.innerHTML = '';
+  CHANGES.forEach((entry) => {
+    const heading = document.createElement('h4');
+    heading.textContent = `Version ${entry.version} \u00b7 ${formatDateKeyLong(entry.date)}`;
+    const list = document.createElement('ul');
+    entry.notes.forEach((note) => { const li = document.createElement('li'); li.textContent = note; list.appendChild(li); });
+    box.append(heading, list);
+  });
+}
+renderWhatsNew();
+
+// After an update, say so once (never on the very first visit).
+const LAST_SEEN_VERSION_KEY = 'secondMemory.lastSeenVersion.v1';
+function announceUpdate() {
+  let seen = null;
+  try { seen = Number(localStorage.getItem(LAST_SEEN_VERSION_KEY)); localStorage.setItem(LAST_SEEN_VERSION_KEY, String(APP_VERSION)); } catch { return; }
+  if (Number.isFinite(seen) && seen > 0 && seen < APP_VERSION) showToast(`Updated to version ${APP_VERSION}. See Menu, then What's new.`, false);
+}
+announceUpdate();
+
+// ---- Recently deleted ----
+
+// Every deleted record across the synced lists, newest first (at most 30).
+function recentlyDeleted() {
+  const rows = [];
+  SYNC_COLLECTIONS.forEach((c) => c.get().filter((r) => r.deleted).forEach((r) => rows.push({ c, r })));
+  return rows.sort((a, b) => String(b.r.updatedAt || '').localeCompare(String(a.r.updatedAt || ''))).slice(0, 30);
+}
+
+// Builds the list with a Restore button on each row.
+function renderRecentlyDeleted() {
+  const list = document.getElementById('deleted-list');
+  list.innerHTML = '';
+  const rows = recentlyDeleted();
+  if (rows.length === 0) {
+    const none = document.createElement('li');
+    none.textContent = 'Nothing deleted lately.';
+    list.appendChild(none);
+    return;
+  }
+  rows.forEach(({ c, r }) => {
+    const li = document.createElement('li');
+    const name = r[RECORD_LABEL_FIELD[c.name]] || '(untitled)';
+    const text = document.createElement('span');
+    text.textContent = `${c.label}: ${name}`;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'check-action';
+    btn.textContent = 'Restore';
+    btn.addEventListener('click', () => { c.restore(r.id); renderRecentlyDeleted(); });
+    li.append(text, btn);
+    list.appendChild(li);
+  });
+}
+document.getElementById('deleted-box').addEventListener('toggle', (e) => { if (e.target.open) renderRecentlyDeleted(); });
+
+// ---- Storage space and offline note ----
+
+// How full the browser's storage is, 0 to 1, or null when the browser cannot say.
+async function storageFullness() {
+  try {
+    if (!navigator.storage || !navigator.storage.estimate) return null;
+    const { usage, quota } = await navigator.storage.estimate();
+    return quota > 0 ? usage / quota : null;
+  } catch {
+    return null;
+  }
+}
+
+// Warns (once) when the storage is 80% full or more.
+async function checkStorageSpace() {
+  const ratio = await storageFullness();
+  if (ratio !== null && ratio >= 0.8) reportStorageProblem(`Your browser storage is ${Math.round(ratio * 100)}% full. Use Export data to keep a copy, then free up space, or new changes may not save.`);
+}
+checkStorageSpace();
+
+// Shows the "You're offline" bar while there is no connection.
+function updateOfflineNote() {
+  document.getElementById('offline-note').hidden = navigator.onLine !== false;
+}
+window.addEventListener('online', updateOfflineNote);
+window.addEventListener('offline', updateOfflineNote);
+updateOfflineNote();
+
 // ---- Help and welcome ----
 // One short tour, shown in two places: a card on Home until you dismiss it (first run), and Menu > Help any time.
 
@@ -5834,6 +5988,9 @@ async function renderSettingsCheck() {
   if (hasAnyData) addAgeRow(rows, 'Backup file', daysSinceBackup(EXPORT_AT_KEY), EXPORT_DUE_DAYS, 'Back up now', exportData);
   else addCheckRow(rows, 'info', 'Backup file', 'nothing to back up yet');
   if (journalEntries.length > 0) addAgeRow(rows, 'Journal backup', daysSinceBackup(JOURNAL_BACKUP_AT_KEY), JOURNAL_BACKUP_DUE_DAYS, 'Back up journal', downloadJournalBackup);
+
+  const fullness = await storageFullness();
+  if (fullness !== null) addCheckRow(rows, fullness >= 0.8 ? 'warn' : 'ok', 'Storage', `${Math.round(fullness * 100)}% of what the browser allows is used`);
 
   if (!loadVaultBlob()) addCheckRow(rows, 'info', 'Password vault', 'not created');
   else {

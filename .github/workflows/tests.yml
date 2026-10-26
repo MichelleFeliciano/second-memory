@@ -1,0 +1,23 @@
+name: Tests
+
+# Runs on every push and pull request. The browser tests open tests/tests.html in headless Chrome and read the
+# page title ("OK n/n" means every check passed). To make a failed test BLOCK the live site, set the repository's
+# Pages source to "GitHub Actions" and deploy from this workflow (see README, "Tests run before deploy").
+on:
+  push:
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python tests (sync server and the app's files)
+        run: python -m unittest discover -s tests
+      - name: Browser tests (headless Chrome)
+        run: |
+          python -m http.server 5190 &
+          sleep 2
+          google-chrome --headless=new --no-sandbox --disable-gpu --virtual-time-budget=120000 --dump-dom "http://localhost:5190/tests/tests.html" > result.html
+          grep -o "<title>[^<]*</title>" result.html
+          grep -q "<title>OK " result.html
