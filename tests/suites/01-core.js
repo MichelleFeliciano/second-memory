@@ -12,8 +12,8 @@ check('page text has no coursework wording', !/coursework|degree|deadline/i.test
 
 // ---- Budget moved to its own app and must stay out of this one ----
 check('no Budget tab, section, banner or sync lists', !document.querySelector('[data-tab="budget"], #budget-collection, #reminder-banner, #home-bills-panel, #budget-card-template, #recurring-income-card-template') && !TABS.includes('budget')
-  && SYNC_COLLECTIONS.length === 4 && !SYNC_COLLECTIONS.some((c) => ['bills', 'income', 'recurringIncome'].includes(c.name)), SYNC_COLLECTIONS.map((c) => c.name).join());
-check('a Second Memory export has no bills, income or recurring income', (() => { const keys = Object.keys(buildExportPayload().collections); return keys.length === 4 && !keys.includes('bills') && !keys.includes('income') && !keys.includes('recurringIncome') && !('paydaySettings' in buildExportPayload().local); })());
+  && SYNC_COLLECTIONS.length === 6 && !SYNC_COLLECTIONS.some((c) => ['bills', 'income', 'recurringIncome'].includes(c.name)), SYNC_COLLECTIONS.map((c) => c.name).join());
+check('a Second Memory export has no bills, income or recurring income', (() => { const keys = Object.keys(buildExportPayload().collections); return keys.length === 6 && !keys.includes('bills') && !keys.includes('income') && !keys.includes('recurringIncome') && !('paydaySettings' in buildExportPayload().local); })());
 
 // ---- every tab opens exactly its own section ----
 for (const t of TABS) {

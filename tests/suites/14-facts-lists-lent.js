@@ -1,0 +1,105 @@
+// Quick facts, custom lists, and the "lent to" note on books.
+const stamp0 = new Date().toISOString();
+const base = { dateAdded: stamp0, updatedAt: stamp0, deviceId: 'test', deleted: false, version: 0 };
+
+// ---- the new lists sync, export and import like the others ----
+check('Facts and Lists are synced lists', ['facts', 'customLists'].every((n) => SYNC_COLLECTIONS.some((c) => c.name === n)) && TABS.includes('facts') && TABS.includes('lists'));
+check('both screens open on their own', (() => { nav('facts'); const a = !$('facts-collection').hidden; nav('lists'); return a && !$('lists-collection').hidden; })());
+
+// ---- Facts ----
+facts.length = 0; nav('facts'); renderFacts();
+check('an empty Facts screen says so', !$('facts-empty-state').hidden);
+set('facts-label-input', ''); set('facts-value-input', '8.5'); $('facts-add-form').requestSubmit();
+check('a fact needs a label', facts.length === 0 && !$('facts-form-error').hidden);
+set('facts-label-input', 'Shoe size'); set('facts-value-input', ''); $('facts-add-form').requestSubmit();
+check('and a value', facts.length === 0 && /answer/i.test($('facts-form-error').textContent));
+set('facts-label-input', 'Shoe size'); set('facts-value-input', '8.5'); $('facts-add-form').requestSubmit();
+set('facts-label-input', 'Car plate'); set('facts-value-input', 'ABC 123'); $('facts-add-form').requestSubmit();
+check('facts are added and listed A to Z', facts.length === 2 && [...document.querySelectorAll('#facts-list .fact-label')].map((e) => e.textContent).join('|') === 'Car plate|Shoe size' && $('facts-empty-state').hidden && $('facts-label-input').value === '');
+set('facts-search-input', 'shoe'); $('facts-search-input').dispatchEvent(new Event('input'));
+check('the search filters by label or value', document.querySelectorAll('#facts-list .fact-card').length === 1);
+set('facts-search-input', '123'); $('facts-search-input').dispatchEvent(new Event('input'));
+check('(and by the value)', document.querySelectorAll('#facts-list .fact-card').length === 1 && /Car plate/.test($('facts-list').textContent));
+set('facts-search-input', ''); $('facts-search-input').dispatchEvent(new Event('input'));
+const realClip = navigator.clipboard; let clip = null;
+Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (s) => { clip = s; } } });
+document.querySelector('#facts-list .fact-card .fact-copy').click(); await sleep(30);
+check('Copy puts the value on the clipboard', clip === 'ABC 123' && /Copied/.test($('toast-text').textContent));
+Object.defineProperty(navigator, 'clipboard', { configurable: true, value: realClip }); hideToast();
+document.querySelector('#facts-list .fact-value').click();
+const fbox = document.querySelector('#facts-list input.inline-edit'); fbox.value = 'XYZ 999'; fbox.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+check('tapping the value edits it in place', facts.find((f) => f.label === 'Car plate').value === 'XYZ 999');
+check('a blank value is refused', setFactField(facts[0].id, 'value', '   ') === false && setFactField(facts[0].id, 'other', 'x') === false);
+undo(); await sleep(30);
+check('and the edit can be undone', facts.find((f) => f.label === 'Car plate').value === 'ABC 123');
+document.querySelector('#facts-list .fact-delete').click();
+check('Delete removes it and offers Undo', facts.filter((f) => !f.deleted).length === 1 && !$('toast').hidden);
+$('toast-undo').click(); await sleep(30);
+check('Undo brings it back', facts.filter((f) => !f.deleted).length === 2);
+check('the global search finds facts', runGlobalSearch('plate', false).some((g) => /Facts/.test(g.source.label)));
+check('imports accept facts and refuse damaged ones', isValidImportRecord('facts', { id: 'x', label: 'a', value: 'b' }) && !isValidImportRecord('facts', { id: 'x', label: 5 }));
+check('facts travel in a backup', buildExportPayload().collections.facts.length === 2);
+facts.length = 0; renderFacts();
+
+// ---- Lists ----
+customLists.length = 0; nav('lists'); renderCustomLists();
+check('an empty Lists screen says so', !$('lists-empty-state').hidden);
+set('lists-name-input', '  '); $('lists-add-form').requestSubmit();
+check('a list needs a name', customLists.length === 0 && !$('lists-form-error').hidden);
+set('lists-name-input', 'Packing'); $('lists-add-form').requestSubmit();
+set('lists-name-input', 'Gift ideas'); $('lists-add-form').requestSubmit();
+check('lists are created and shown A to Z', customLists.length === 2 && [...document.querySelectorAll('#lists-list .custom-list-head h3')].map((e) => e.textContent).join('|') === 'Gift ideas|Packing');
+const packing = () => customLists.find((l) => l.name === 'Packing');
+const cardOf = (name) => { const list = customLists.find((l) => l.name === name && !l.deleted); return list ? document.querySelector('#lists-list [data-list-id="' + list.id + '"]') : null; };
+const addTo = (name, text) => { const input = cardOf(name).querySelector('.custom-add-input'); input.value = text; cardOf(name).querySelector('.custom-add').requestSubmit(); };
+addTo('Packing', 'Toothbrush'); addTo('Packing', 'Charger'); addTo('Packing', '   ');
+check('items are added, blanks ignored, and the count shows', packing().items.length === 2 && /0 of 2 done/.test(cardOf('Packing').textContent));
+cardOf('Packing').querySelector('.custom-item input').click();
+check('ticking an item sinks it to the bottom and updates the count', packing().items.filter((i) => i.done).length === 1 && /1 of 2 done/.test(cardOf('Packing').textContent) && cardOf('Packing').querySelector('.custom-item:last-child').classList.contains('is-done'));
+check('Clear done only shows when something is done, and removes those items', !cardOf('Packing').querySelector('.custom-clear').hidden && (cardOf('Packing').querySelector('.custom-clear').click(), packing().items.length === 1 && cardOf('Packing').querySelector('.custom-clear').hidden));
+cardOf('Packing').querySelector('.custom-item-text').click();
+const ibox = cardOf('Packing').querySelector('input.inline-edit'); ibox.value = 'Phone charger'; ibox.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+check('tapping an item edits it in place', packing().items[0].text === 'Phone charger');
+cardOf('Packing').querySelector('h3').click();
+const nbox = cardOf('Packing').querySelector('input.inline-edit'); nbox.value = 'Trip packing'; nbox.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+check('tapping the name renames the list', customLists.some((l) => l.name === 'Trip packing'));
+undo(); await sleep(30); undo(); await sleep(30);
+check('each change was one undo step', !!packing() && packing().items[0].text === 'Charger', JSON.stringify(customLists.map((l) => [l.name, l.items.map((i) => i.text)])));
+cardOf('Packing').querySelector('.custom-item-remove').click();
+check('the cross removes an item', packing().items.length === 0 && /empty/.test(cardOf('Packing').textContent));
+cardOf('Packing').querySelector('.custom-add-input').value = 'half typed';
+addTo('Gift ideas', 'Book');
+check('half-typed text in another list survives a redraw, and the added box is emptied', cardOf('Packing').querySelector('.custom-add-input').value === 'half typed' && cardOf('Gift ideas').querySelector('.custom-add-input').value === '' && customLists.find((l) => l.name === 'Gift ideas').items.length === 1);
+cardOf('Packing').querySelector('.custom-delete').click();
+check('Delete list removes it with an Undo bar', !customLists.find((l) => l.name === 'Packing' && !l.deleted) && !$('toast').hidden);
+$('toast-undo').click(); await sleep(30);
+check('Undo brings the list back', !!cardOf('Packing'));
+check('a damaged item list is cleaned, not fatal', (() => { customLists.push({ ...base, id: 'dmg', name: 'Damaged', items: [null, { text: 5 }, { text: 'ok', done: 'yes' }, 'x'] }); renderCustomLists(); const c = cardOf('Damaged'); return !!c && c.querySelectorAll('.custom-item').length === 1 && itemsOf(customLists.find((l) => l.id === 'dmg'))[0].done === false; })());
+check('imports accept lists and refuse damaged ones', isValidImportRecord('customLists', { id: 'x', name: 'a', items: [] }) && !isValidImportRecord('customLists', { id: 'x', name: 'a', items: 'no' }));
+check('lists travel in a backup', buildExportPayload().collections.customLists.length === 3);
+check('an unknown list id or item id changes nothing', toggleCustomItem('nope', 'x') === false && addCustomItem('nope', 'x') === false);
+customLists.length = 0; renderCustomLists();
+
+// ---- Lent to ----
+books.length = 0;
+books.push({ ...base, id: 'lb1', title: 'Dune', author: 'Herbert', status: 'owned_read', rating: null });
+nav('books'); renderBooks();
+const bookCard = () => document.querySelector('#books-collection .book-card');
+check('a book card has a Lend button and no lent note', bookCard().querySelector('.lend-btn').textContent === 'Lend' && bookCard().querySelector('.book-lent').hidden);
+bookCard().querySelector('.lend-btn').click();
+check('Lend opens a name box', !bookCard().querySelector('.lend-row').hidden);
+bookCard().querySelector('.lend-input').value = '   '; bookCard().querySelector('.lend-save').click();
+check('a blank name lends nothing', !books[0].lentTo);
+bookCard().querySelector('.lend-btn').click();
+bookCard().querySelector('.lend-input').value = 'Sam'; bookCard().querySelector('.lend-save').click();
+check('saving records who has it and today\'s date, and shows it', books[0].lentTo === 'Sam' && books[0].lentDate === todayKey() && /Lent to Sam on/.test(bookCard().querySelector('.book-lent').textContent) && bookCard().querySelector('.lend-btn').textContent === 'Returned');
+undo(); await sleep(30);
+check('lending can be undone', !books[0].lentTo && bookCard().querySelector('.lend-btn').textContent === 'Lend');
+redo(); await sleep(30);
+set('books-search-input', 'sam'); $('books-search-input').dispatchEvent(new Event('input'));
+check('searching a friend\'s name finds the book', document.querySelectorAll('#books-collection .book-card').length === 1);
+set('books-search-input', ''); $('books-search-input').dispatchEvent(new Event('input'));
+bookCard().querySelector('.lend-btn').click();
+check('Returned clears it', !books[0].lentTo && books[0].lentDate === null && bookCard().querySelector('.book-lent').hidden && bookCard().querySelector('.lend-btn').textContent === 'Lend');
+check('returning a book that is not lent does nothing', returnBook('lb1') === false && lendBook('nope', 'x') === false);
+books.length = 0; renderBooks();

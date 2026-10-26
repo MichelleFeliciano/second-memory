@@ -419,7 +419,7 @@ function recordUndo(collectionName, id, before, after) {
 
 const UI_STORAGE_KEY = 'secondMemory.ui.v1';
 // Every screen id; each has a matching "<id>-collection" section and a sidebar button.
-const TABS = ['home', 'passwords', 'books', 'recipes', 'journal', 'notes', 'resume'];
+const TABS = ['home', 'passwords', 'books', 'recipes', 'journal', 'notes', 'facts', 'lists', 'resume'];
 
 // Reads the saved screen state (which tab was open), tolerating missing or damaged data.
 function loadUiState() {
@@ -608,7 +608,7 @@ function updateBook(id, fields) {
 // True if the search text appears in the book's title or author (an empty search matches all).
 function matchesBookSearch(book, term) {
   if (!term) return true;
-  const haystack = `${book.title} ${book.author || ''}`.toLowerCase();
+  const haystack = `${book.title} ${book.author || ''} ${book.lentTo || ''}`.toLowerCase(); // searching a friend's name finds what you lent them
   return haystack.includes(term.toLowerCase());
 }
 
@@ -624,6 +624,36 @@ const BOOK_SORTS = {
 };
 
 // Fills in the count summary at the top of the Books screen.
+// "Lent to": who has borrowed a book and since when (both optional fields on the book). Lending and getting it back
+// are each one undoable change.
+function lendBook(id, person) {
+  const book = books.find((b) => b.id === id);
+  const name = String(person || '').trim();
+  if (!book || !name) return false;
+  const before = structuredClone(book);
+  book.lentTo = name;
+  book.lentDate = todayKey();
+  stampSync(book);
+  saveCollection(BOOKS_KEY, books);
+  recordUndo('books', id, before, structuredClone(book));
+  renderBooks();
+  return true;
+}
+
+// The book came back.
+function returnBook(id) {
+  const book = books.find((b) => b.id === id);
+  if (!book || !book.lentTo) return false;
+  const before = structuredClone(book);
+  book.lentTo = '';
+  book.lentDate = null;
+  stampSync(book);
+  saveCollection(BOOKS_KEY, books);
+  recordUndo('books', id, before, structuredClone(book));
+  renderBooks();
+  return true;
+}
+
 function renderBooksStats(nonDeletedBooks) {
   const el = document.getElementById('books-stats');
   if (!el) return;
@@ -788,6 +818,23 @@ function renderBooks() {
         finishedEl.textContent = `Finished ${formatDateKeyLong(book.dateFinished)}`;
         finishedEl.hidden = false;
       }
+      // Lent to: a line under the book, and one button that lends it (asking who) or marks it returned.
+      const lentEl = node.querySelector('.book-lent');
+      const lendBtn = node.querySelector('.lend-btn');
+      const lendRow = node.querySelector('.lend-row');
+      const lendInput = node.querySelector('.lend-input');
+      if (book.lentTo) {
+        lentEl.textContent = `Lent to ${book.lentTo}${isRealDateKey(book.lentDate) ? ` on ${formatDateKeyLong(book.lentDate)}` : ''}`;
+        lentEl.hidden = false;
+        lendBtn.textContent = 'Returned';
+        lendBtn.addEventListener('click', () => returnBook(book.id));
+      } else {
+        lendBtn.addEventListener('click', () => { lendRow.hidden = !lendRow.hidden; if (!lendRow.hidden) lendInput.focus(); });
+        const saveLend = () => lendBook(book.id, lendInput.value);
+        node.querySelector('.lend-save').addEventListener('click', saveLend);
+        lendInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); saveLend(); } });
+      }
+
       // The finished-date box only exists in the edit form of books on a read shelf.
       const finishedField = node.querySelector('.book-edit-finished-field');
       const showFinished = READ_STATUSES.includes(book.status);
@@ -1643,6 +1690,346 @@ document.getElementById('resume-search-input').addEventListener('input', renderL
 document.getElementById('resume-sort-input').addEventListener('change', (e) => {
   selectedLinksSort = e.target.value;
   renderLinks();
+});
+
+// ---- Edit in place ----
+// Tap a name or value to change it right there: the text becomes a box; Enter or leaving the box saves, Escape cancels.
+
+// Swaps `span` for a text box holding `current`; `save(newText)` is called only if the text really changed.
+function startInlineEdit(span, current, save) {
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'inline-edit';
+  input.value = current;
+  input.setAttribute('aria-label', 'Edit text');
+  let finished = false;
+  const finish = (apply) => {
+    if (finished) return;
+    finished = true;
+    const value = input.value.trim();
+    if (apply && value && value !== current) save(value); // saving redraws the list, which replaces this box
+    else input.replaceWith(span);
+  };
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+    else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+  });
+  input.addEventListener('blur', () => finish(true));
+  span.replaceWith(input);
+  input.focus();
+  input.select();
+}
+
+// Makes a text element clickable for in-place editing.
+function makeInlineEditable(span, current, save) {
+  span.title = 'Tap to edit';
+  span.addEventListener('click', (e) => {
+    e.preventDefault();
+    startInlineEdit(span, current, save);
+  });
+}
+
+// ---- Facts ----
+// Short things you keep having to look up. Tap a label or value to change it in place.
+
+const FACTS_KEY = 'secondMemory.facts.v1';
+
+let facts = migrateSyncFields(loadCollection(FACTS_KEY), FACTS_KEY, getDeviceId());
+
+// Adds a fact; both the label and the value are required.
+function addFact(label, value) {
+  const trimmedLabel = String(label || '').trim();
+  const trimmedValue = String(value || '').trim();
+  if (!trimmedLabel) return { ok: false, error: 'Enter what it is (the label).' };
+  if (!trimmedValue) return { ok: false, error: 'Enter the answer.' };
+  const now = new Date().toISOString();
+  const fact = { id: makeId(), label: trimmedLabel, value: trimmedValue, dateAdded: now, updatedAt: now, deviceId: getDeviceId(), deleted: false, version: 0 };
+  facts.push(fact);
+  saveCollection(FACTS_KEY, facts);
+  recordUndo('facts', fact.id, null, structuredClone(fact));
+  renderFacts();
+  return { ok: true };
+}
+
+// Changes a fact's label or value (a blank is refused).
+function setFactField(id, field, text) {
+  const fact = facts.find((f) => f.id === id);
+  const trimmed = String(text || '').trim();
+  if (!fact || !trimmed || (field !== 'label' && field !== 'value')) return false;
+  const before = structuredClone(fact);
+  fact[field] = trimmed;
+  stampSync(fact);
+  saveCollection(FACTS_KEY, facts);
+  recordUndo('facts', id, before, structuredClone(fact));
+  renderFacts();
+  return true;
+}
+
+// Soft-deletes a fact (a tombstone, so syncing can tell it was deleted).
+function deleteFact(id) {
+  const fact = facts.find((f) => f.id === id);
+  if (!fact) return;
+  const before = structuredClone(fact);
+  fact.deleted = true;
+  stampSync(fact);
+  saveCollection(FACTS_KEY, facts);
+  recordUndo('facts', id, before, structuredClone(fact));
+  renderFacts();
+}
+
+// Brings a deleted fact back (used by undo).
+function restoreFact(id) {
+  const fact = facts.find((f) => f.id === id);
+  if (!fact || !fact.deleted) return;
+  const before = structuredClone(fact);
+  fact.deleted = false;
+  stampSync(fact);
+  saveCollection(FACTS_KEY, facts);
+  recordUndo('facts', id, before, structuredClone(fact));
+  renderFacts();
+}
+
+// Redraws the Facts screen: the matching facts, A to Z.
+function renderFacts() {
+  const term = document.getElementById('facts-search-input').value.trim().toLowerCase();
+  const list = document.getElementById('facts-list');
+  const live = facts.filter((f) => !f.deleted);
+  list.innerHTML = '';
+  live
+    .filter((f) => !term || `${f.label || ''} ${f.value || ''}`.toLowerCase().includes(term))
+    .sort((a, b) => String(a.label || '').localeCompare(String(b.label || ''), undefined, { sensitivity: 'base' }))
+    .forEach((fact) => {
+      const li = document.createElement('li');
+      li.className = 'fact-card';
+      li.dataset.factId = fact.id;
+      const label = document.createElement('span');
+      label.className = 'fact-label';
+      label.textContent = fact.label || '';
+      const value = document.createElement('p');
+      value.className = 'fact-value';
+      value.textContent = fact.value || '';
+      makeInlineEditable(label, fact.label || '', (text) => setFactField(fact.id, 'label', text));
+      makeInlineEditable(value, fact.value || '', (text) => setFactField(fact.id, 'value', text));
+      const actions = document.createElement('div');
+      actions.className = 'fact-actions';
+      const copy = document.createElement('button');
+      copy.type = 'button';
+      copy.className = 'fact-copy';
+      copy.textContent = 'Copy';
+      copy.addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(fact.value || ''); showToast(`Copied ${fact.label}.`, false); } catch { showToast('Could not copy.', false); }
+      });
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'fact-delete';
+      remove.textContent = 'Delete';
+      remove.addEventListener('click', () => deleteFact(fact.id));
+      actions.append(copy, remove);
+      li.append(label, value, actions);
+      list.appendChild(li);
+    });
+  document.getElementById('facts-empty-state').hidden = live.length !== 0;
+}
+
+document.getElementById('facts-add-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const labelInput = document.getElementById('facts-label-input');
+  const valueInput = document.getElementById('facts-value-input');
+  const errorEl = document.getElementById('facts-form-error');
+  const result = addFact(labelInput.value, valueInput.value);
+  errorEl.textContent = result.ok ? '' : result.error;
+  errorEl.hidden = result.ok;
+  if (!result.ok) return;
+  labelInput.value = '';
+  valueInput.value = '';
+});
+document.getElementById('facts-search-input').addEventListener('input', renderFacts);
+
+// ---- Custom lists ----
+// Your own named lists. Each list is one record holding its items ({ id, text, done }), so a list syncs, exports and
+// undoes as a whole; ticked items sink to the bottom.
+
+const CUSTOM_LISTS_KEY = 'secondMemory.customLists.v1';
+
+let customLists = migrateSyncFields(loadCollection(CUSTOM_LISTS_KEY), CUSTOM_LISTS_KEY, getDeviceId());
+
+// A list's items, with anything damaged dropped and every field forced to the right type.
+function itemsOf(list) {
+  return (Array.isArray(list.items) ? list.items : [])
+    .filter((it) => it && typeof it === 'object' && typeof it.text === 'string' && it.text.trim())
+    .map((it) => ({ id: typeof it.id === 'string' && it.id ? it.id : makeId(), text: it.text, done: it.done === true }));
+}
+
+// Makes a new empty list; a blank name is refused.
+function addCustomList(name) {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) return { ok: false, error: 'Give the list a name.' };
+  const now = new Date().toISOString();
+  const list = { id: makeId(), name: trimmed, items: [], dateAdded: now, updatedAt: now, deviceId: getDeviceId(), deleted: false, version: 0 };
+  customLists.push(list);
+  saveCollection(CUSTOM_LISTS_KEY, customLists);
+  recordUndo('customLists', list.id, null, structuredClone(list));
+  renderCustomLists();
+  return { ok: true };
+}
+
+// Runs `change(list, items)` on a list, saves it as one undoable edit and redraws. Returns false if the list is missing.
+function changeCustomList(id, change) {
+  const list = customLists.find((l) => l.id === id && !l.deleted);
+  if (!list) return false;
+  const before = structuredClone(list);
+  const items = itemsOf(list);
+  change(list, items);
+  list.items = items;
+  stampSync(list);
+  saveCollection(CUSTOM_LISTS_KEY, customLists);
+  recordUndo('customLists', id, before, structuredClone(list));
+  renderCustomLists();
+  return true;
+}
+
+// The edits a list card offers.
+function addCustomItem(listId, text) {
+  const trimmed = String(text || '').trim();
+  return !!trimmed && changeCustomList(listId, (list, items) => { items.push({ id: makeId(), text: trimmed, done: false }); });
+}
+function toggleCustomItem(listId, itemId) {
+  return changeCustomList(listId, (list, items) => { const it = items.find((x) => x.id === itemId); if (it) it.done = !it.done; });
+}
+function renameCustomItem(listId, itemId, text) {
+  const trimmed = String(text || '').trim();
+  return !!trimmed && changeCustomList(listId, (list, items) => { const it = items.find((x) => x.id === itemId); if (it) it.text = trimmed; });
+}
+function removeCustomItem(listId, itemId) {
+  return changeCustomList(listId, (list, items) => { const at = items.findIndex((x) => x.id === itemId); if (at >= 0) items.splice(at, 1); });
+}
+function clearDoneCustomItems(listId) {
+  return changeCustomList(listId, (list, items) => { for (let i = items.length - 1; i >= 0; i--) if (items[i].done) items.splice(i, 1); });
+}
+function renameCustomList(listId, name) {
+  const trimmed = String(name || '').trim();
+  return !!trimmed && changeCustomList(listId, (list) => { list.name = trimmed; });
+}
+
+// Soft-deletes a whole list (a tombstone), and brings it back for undo.
+function deleteCustomList(id) {
+  const list = customLists.find((l) => l.id === id);
+  if (!list) return;
+  const before = structuredClone(list);
+  list.deleted = true;
+  stampSync(list);
+  saveCollection(CUSTOM_LISTS_KEY, customLists);
+  recordUndo('customLists', id, before, structuredClone(list));
+  renderCustomLists();
+}
+function restoreCustomList(id) {
+  const list = customLists.find((l) => l.id === id);
+  if (!list || !list.deleted) return;
+  const before = structuredClone(list);
+  list.deleted = false;
+  stampSync(list);
+  saveCollection(CUSTOM_LISTS_KEY, customLists);
+  recordUndo('customLists', id, before, structuredClone(list));
+  renderCustomLists();
+}
+
+// Redraws every list card. Half-typed text in the "add item" boxes survives the redraw.
+function renderCustomLists() {
+  const root = document.getElementById('lists-list');
+  const typed = {};
+  root.querySelectorAll('.custom-list-card').forEach((card) => { typed[card.dataset.listId] = card.querySelector('.custom-add-input').value; });
+  root.innerHTML = '';
+  const live = customLists.filter((l) => !l.deleted);
+  live.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' })).forEach((list) => {
+    const items = itemsOf(list).sort((a, b) => Number(a.done) - Number(b.done)); // open items first
+    const card = document.createElement('li');
+    card.className = 'custom-list-card';
+    card.dataset.listId = list.id;
+
+    const head = document.createElement('div');
+    head.className = 'custom-list-head';
+    const title = document.createElement('h3');
+    title.textContent = list.name || '(untitled list)';
+    makeInlineEditable(title, list.name || '', (text) => renameCustomList(list.id, text));
+    const count = document.createElement('span');
+    count.className = 'custom-list-count';
+    count.textContent = items.length ? `${items.filter((i) => i.done).length} of ${items.length} done` : 'empty';
+    const clear = document.createElement('button');
+    clear.type = 'button';
+    clear.className = 'custom-clear';
+    clear.textContent = 'Clear done';
+    clear.hidden = !items.some((i) => i.done);
+    clear.addEventListener('click', () => clearDoneCustomItems(list.id));
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'custom-delete';
+    remove.textContent = 'Delete list';
+    remove.addEventListener('click', () => deleteCustomList(list.id));
+    head.append(title, count, clear, remove);
+
+    const ul = document.createElement('ul');
+    ul.className = 'custom-items';
+    items.forEach((item) => {
+      const li = document.createElement('li');
+      li.className = `custom-item${item.done ? ' is-done' : ''}`;
+      li.dataset.itemId = item.id;
+      const label = document.createElement('label');
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = item.done;
+      box.setAttribute('aria-label', `Done: ${item.text}`);
+      box.addEventListener('change', () => toggleCustomItem(list.id, item.id));
+      const text = document.createElement('span');
+      text.className = 'custom-item-text';
+      text.textContent = item.text;
+      makeInlineEditable(text, item.text, (value) => renameCustomItem(list.id, item.id, value));
+      label.append(box, text);
+      const x = document.createElement('button');
+      x.type = 'button';
+      x.className = 'custom-item-remove';
+      x.textContent = '\u2715';
+      x.setAttribute('aria-label', `Remove ${item.text}`);
+      x.addEventListener('click', () => removeCustomItem(list.id, item.id));
+      li.append(label, x);
+      ul.appendChild(li);
+    });
+
+    const add = document.createElement('form');
+    add.className = 'custom-add';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'custom-add-input';
+    input.placeholder = 'Add an item';
+    input.setAttribute('aria-label', `Add an item to ${list.name || 'list'}`);
+    input.autocomplete = 'off';
+    input.value = typed[list.id] || '';
+    const go = document.createElement('button');
+    go.type = 'submit';
+    go.textContent = 'Add';
+    add.append(input, go);
+    add.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const text = input.value;
+      input.value = ''; // cleared first, so the redraw does not put the typed text back
+      if (!addCustomItem(list.id, text)) { input.value = text; return; }
+      const again = document.querySelector(`#lists-list [data-list-id="${list.id}"] .custom-add-input`);
+      if (again) again.focus(); // ready for the next item
+    });
+
+    card.append(head, ul, add);
+    root.appendChild(card);
+  });
+  document.getElementById('lists-empty-state').hidden = live.length !== 0;
+}
+
+document.getElementById('lists-add-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const input = document.getElementById('lists-name-input');
+  const errorEl = document.getElementById('lists-form-error');
+  const result = addCustomList(input.value);
+  errorEl.textContent = result.ok ? '' : result.error;
+  errorEl.hidden = result.ok;
+  if (result.ok) input.value = '';
 });
 
 // ---- Date helpers ----
@@ -2958,6 +3345,7 @@ const SEARCH_MIN_LENGTH = 2;
 const SEARCH_SOURCES = [
   { tab: 'books', label: 'Books', inputId: 'books-search-input', items: () => books, title: (b) => b.title, fields: (b) => [b.title, b.author] },
   { tab: 'recipes', label: 'Recipes', inputId: 'recipes-search-input', items: () => recipes, title: (r) => r.title, fields: (r) => [r.title, r.category, ...(r.ingredients || []), ...(r.steps || []), r.notes] },
+  { tab: 'facts', label: 'Facts', inputId: 'facts-search-input', items: () => facts, title: (f) => f.label || '(untitled fact)', fields: (f) => [f.label, f.value] },
   { tab: 'notes', label: 'Notes', inputId: 'notes-search-input', items: () => notes, title: (n) => n.title || '(untitled note)', fields: (n) => [n.title, n.body] },
   { tab: 'resume', label: 'Resume & Portfolio', inputId: 'resume-search-input', items: () => links, title: (l) => l.label, fields: (l) => [l.label, l.url, l.notes] },
 ];
@@ -3259,6 +3647,8 @@ const SYNC_COLLECTIONS = [
   { name: 'recipes', label: 'Recipes', key: RECIPES_KEY, get: () => recipes, set: (v) => { recipes = v; }, render: renderRecipes, delete: deleteRecipe, restore: restoreRecipe },
   { name: 'notes', label: 'Notes', key: NOTES_KEY, get: () => notes, set: (v) => { notes = v; }, render: renderNotes, delete: deleteNote, restore: restoreNote },
   { name: 'links', label: 'Resume', key: LINKS_KEY, get: () => links, set: (v) => { links = v; }, render: renderLinks, delete: deleteLink, restore: restoreLink },
+  { name: 'facts', label: 'Facts', key: FACTS_KEY, get: () => facts, set: (v) => { facts = v; }, render: renderFacts, delete: deleteFact, restore: restoreFact },
+  { name: 'customLists', label: 'Lists', key: CUSTOM_LISTS_KEY, get: () => customLists, set: (v) => { customLists = v; }, render: renderCustomLists, delete: deleteCustomList, restore: restoreCustomList },
 ];
 
 // ---- Undo/redo application mechanics ----
@@ -3358,7 +3748,7 @@ function redo() {
 
 // The field that names a record in each collection (shown in the Undo/Redo tooltips).
 const RECORD_LABEL_FIELD = {
-  books: 'title', recipes: 'title', medications: 'name', diagnoses: 'condition',
+  books: 'title', recipes: 'title', facts: 'label', customLists: 'name', medications: 'name', diagnoses: 'condition',
   todos: 'task', shoppingList: 'item', notes: 'title', links: 'label', weights: 'date',
 };
 
@@ -4089,6 +4479,8 @@ function isValidImportRecord(collectionName, rec) {
   if (collectionName === 'recipes') return isText(rec.title) && listOrMissing(rec.ingredients) && listOrMissing(rec.steps);
   if (collectionName === 'notes') return textOrMissing(rec.title) && textOrMissing(rec.body);
   if (collectionName === 'links') return textOrMissing(rec.label) && textOrMissing(rec.url);
+  if (collectionName === 'facts') return textOrMissing(rec.label) && textOrMissing(rec.value);
+  if (collectionName === 'customLists') return textOrMissing(rec.name) && (rec.items === undefined || Array.isArray(rec.items));
   return true;
 }
 
@@ -4255,7 +4647,7 @@ document.addEventListener('visibilitychange', () => {
 
 // The build number shown in the Menu. Keep it equal to the number in CACHE_NAME in sw.js
 // (a test checks this), so "which version am I on?" has a one-glance answer.
-const APP_VERSION = 83;
+const APP_VERSION = 84;
 const THEME_KEY = 'secondMemory.theme.v1';
 const THEMES = ['auto', 'light', 'dark'];
 
@@ -5261,7 +5653,7 @@ document.addEventListener('visibilitychange', () => {
 // line has run would throw.
 
 [
-  renderBooks, renderRecipes, renderJournal, renderNotes, renderLinks,
+  renderBooks, renderRecipes, renderFacts, renderCustomLists, renderJournal, renderNotes, renderLinks,
 ].forEach(safeRender);
 updateUndoRedoButtons();
 setActiveTab(loadUiState().activeTab || 'home');
@@ -5273,7 +5665,7 @@ initSyncUI();
 const HELP_TIPS = [
   'Quick add: type on Home to add a note.',
   'The bar at the bottom jumps to your most-used screens; Menu has everything else, including Undo.',
-  'This app keeps your books, recipes, journal, notes, passwords and resume links. Hide Home panels with Customize Home.',
+  'This app keeps your books (with a "Lend" note for borrowed ones), recipes, journal, notes, quick facts, your own lists, passwords and resume links. Hide Home panels with Customize Home.',
   'Sync: enter the same passphrase on each device (Menu) and your lists stay up to date on their own. The server may need up to a minute to wake.',
   'Your to-do list, shopping list, calendar, medications, diagnoses and weight now live in Petalkeeper, MealMate and Caregiver Command Center. What you had here is still stored on this device and is included every time you use Export data.',
   'Back up now and then (Menu > Export data). The journal is private and lives only on this device, so back it up separately.',

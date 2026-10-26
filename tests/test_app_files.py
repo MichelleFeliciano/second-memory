@@ -72,7 +72,7 @@ class AppFiles(unittest.TestCase):
         synced = set(re.findall(r"\{ name: '(\w+)', label:", APP))
         retired = set(re.findall(r"\{ name: '(\w+)', key: 'secondMemory\.", APP))
         self.assertEqual(retired, {"todos", "shoppingList", "medications", "diagnoses", "weights"})
-        self.assertEqual(synced, {"books", "recipes", "notes", "links"})
+        self.assertEqual(synced, {"books", "recipes", "notes", "links", "facts", "customLists"})
         server = (ROOT / "sync_server.py").read_text(encoding="utf-8")
         names = set(re.findall(r'"(\w+)"', re.search(r"COLLECTION_NAMES = \[(.*?)\]", server, re.S).group(1)))
         self.assertTrue((synced | retired) <= names, "the server must keep naming every list, moved or not")

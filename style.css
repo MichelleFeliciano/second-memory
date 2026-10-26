@@ -2249,3 +2249,49 @@ html[data-text="larger"] { font-size: 125%; }
 /* The vault's create and unlock forms are .add-form (display: flex), which would override the hidden attribute. */
 .add-form[hidden], #vault-open[hidden] { display: none; }
 
+
+/* ===== 36. Facts, Lists and "lent to" ===== */
+
+.fact-card, .custom-list-card {
+  overflow-wrap: anywhere;
+  border: 1px solid var(--border-soft);
+  border-radius: 18px;
+  padding: 14px 16px;
+  background: var(--bg);
+}
+.fact-label { display: block; color: var(--muted); font-size: 0.85rem; cursor: text; }
+.fact-value { margin: 2px 0 8px; font-size: 1.15rem; font-weight: 600; cursor: text; }
+.fact-actions, .custom-list-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.fact-actions button, .custom-list-head button, .custom-item button, .lend-btn, .lend-save {
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.custom-list-head h3 { margin: 0; flex: 1; cursor: text; }
+.custom-list-count { color: var(--muted); font-size: 0.85rem; }
+.custom-items { list-style: none; margin: 10px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.custom-item { display: flex; align-items: center; gap: 8px; }
+.custom-item label { flex: 1; display: flex; align-items: center; gap: 8px; }
+.custom-item.is-done .custom-item-text { text-decoration: line-through; color: var(--muted); }
+.custom-add { display: flex; gap: 8px; }
+.custom-add input { flex: 1; min-width: 0; }
+.book-lent { display: block; color: var(--accent-2); font-size: 0.85rem; font-weight: 600; }
+.lend-row { display: flex; gap: 8px; margin: 8px 0; }
+.lend-row[hidden] { display: none; }
+.lend-row input { flex: 1; min-width: 0; }
+
+/* The text box that replaces a name or value while you edit it in place. */
+.inline-edit {
+  flex: 1;
+  min-width: 140px;
+  padding: 4px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
