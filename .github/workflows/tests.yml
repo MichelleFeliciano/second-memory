@@ -23,11 +23,7 @@ jobs:
           # The tests run in real time, so poll the open tab's title (Chrome lists it at /json) for up to 3 minutes.
           title=""
           for i in $(seq 1 180); do
-            title=$(curl -s http://localhost:9222/json 2>/dev/null | python3 -c "import sys,json
-try:
-    print(' | '.join(t.get('title','') for t in json.load(sys.stdin)))
-except Exception:
-    print('')")
+            title=$(curl -s http://localhost:9222/json 2>/dev/null | python3 -c "import sys,json; print(' | '.join(t.get('title','') for t in json.load(sys.stdin)))" 2>/dev/null || true)
             case "$title" in OK\ *|FAIL\ *) break ;; esac
             sleep 1
           done
