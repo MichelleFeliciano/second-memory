@@ -1,8 +1,9 @@
 name: Tests
 
-# Runs on every push and pull request. The browser tests open tests/tests.html in headless Chrome and read the
-# page title ("OK n/n" means every check passed). To make a failed test BLOCK the live site, set the repository's
-# Pages source to "GitHub Actions" and deploy from this workflow (see README, "Tests run before deploy").
+# Runs on every push and pull request. The browser tests open tests/tests.html in headless Chrome and wait for the
+# page title to become "OK n/n" (every check passed) or "FAIL ..." (something failed). To make a failed test BLOCK the
+# live site, set the repository's Pages source to "GitHub Actions" and deploy from this workflow (see README,
+# "Tests run before deploy").
 on:
   push:
   pull_request:
@@ -16,8 +17,19 @@ jobs:
         run: python -m unittest discover -s tests
       - name: Browser tests (headless Chrome)
         run: |
-          python -m http.server 5190 &
+          python -m http.server 5190 >/dev/null 2>&1 &
           sleep 2
-          google-chrome --headless=new --no-sandbox --disable-gpu --virtual-time-budget=120000 --dump-dom "http://localhost:5190/tests/tests.html" > result.html
-          grep -o "<title>[^<]*</title>" result.html
-          grep -q "<title>OK " result.html
+          google-chrome --headless=new --no-sandbox --disable-gpu --remote-debugging-port=9222 "http://localhost:5190/tests/tests.html" >/dev/null 2>&1 &
+          # The tests run in real time, so poll the open tab's title (Chrome lists it at /json) for up to 3 minutes.
+          title=""
+          for i in $(seq 1 180); do
+            title=$(curl -s http://localhost:9222/json 2>/dev/null | python3 -c "import sys,json
+try:
+    print(' | '.join(t.get('title','') for t in json.load(sys.stdin)))
+except Exception:
+    print('')")
+            case "$title" in OK\ *|FAIL\ *) break ;; esac
+            sleep 1
+          done
+          echo "Final page title: $title"
+          case "$title" in OK\ *) exit 0 ;; *) exit 1 ;; esac
